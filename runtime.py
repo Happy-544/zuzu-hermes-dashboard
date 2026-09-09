@@ -37,11 +37,13 @@ SOURCE = os.environ.get("HERMES_SOURCE", "jarvis-dashboard").strip() or "jarvis-
 WORKDIR = os.path.expanduser(os.environ.get("JARVIS_WORKDIR", os.getcwd()))
 PERMISSION = os.environ.get("JARVIS_PERMISSION", os.environ.get("HERMES_PERMISSION", "normal")).strip().lower()
 RUNTIME = os.environ.get("JARVIS_RUNTIME", "auto").strip().lower()  # auto|hermes|mock
+PROVIDER = os.environ.get("JARVIS_PROVIDER", "gemini").strip().lower()
 IDLE_TIMEOUT = int(os.environ.get("JARVIS_TIMEOUT", "120"))
 # Raw transcripts can contain private prompts. Logging is off by default.
 RAW_LOG = os.environ.get("JARVIS_RAW_LOG", "").strip()
 TOOLSETS = os.environ.get("HERMES_TOOLSETS", "").strip()
 GEMINI_MODEL = os.environ.get("GEMINI_CHAT_MODEL", "gemini-2.5-flash").strip()
+GEMINI_FALLBACK_MODEL = os.environ.get("GEMINI_FALLBACK_MODEL", "gemini-3.6-flash").strip()
 
 
 def gemini_api_key():
@@ -131,6 +133,15 @@ def _can_launch_hermes():
 
 
 def runtime_kind():
+    if PROVIDER in {"gemini", "openai", "anthropic", "openrouter", "ollama"}:
+        if PROVIDER == "gemini":
+            return "gemini" if gemini_available() else "mock"
+        if PROVIDER == "ollama":
+            return "ollama"
+        return PROVIDER if os.environ.get(f"{PROVIDER.upper()}_API_KEY", "").strip() else "mock"
+    if PROVIDER == "hermes":
+        ok, _ = _can_launch_hermes()
+        return "hermes" if ok else "mock"
     if RUNTIME == "gemini":
         return "gemini" if gemini_available() else "mock"
     if RUNTIME == "mock":
@@ -143,6 +154,7 @@ def runtime_kind():
 
 def run_gemini(message, system=None):
     """Use Gemini for the spoken conversation; Hermes remains available for tools."""
+    global GEMINI_MODEL
     if not gemini_available():
         yield dict(t="error", message="Gemini is not configured for this dashboard.")
         return
@@ -176,9 +188,55 @@ def run_gemini(message, system=None):
         yield dict(t="delta", text=text)
         yield dict(t="complete", session_id=None, ms=_mono_ms() - started)
     except urllib.error.HTTPError as exc:
+        if exc.code == 404 and GEMINI_MODEL == "gemini-2.5-flash" and GEMINI_FALLBACK_MODEL:
+            GEMINI_MODEL = GEMINI_FALLBACK_MODEL
+            yield dict(t="note", message="Google rejected Gemini 2.5 Flash for this API account; using the configured fallback.")
+            yield from run_gemini(message, system)
+            return
         yield dict(t="error", message=f"Gemini request failed (HTTP {exc.code}).")
     except (OSError, ValueError, RuntimeError) as exc:
         yield dict(t="error", message=f"Gemini request failed: {str(exc)[:180]}")
+
+
+def _provider_model():
+    return (MODEL or {"openai": "gpt-5.4-mini", "anthropic": "claude-sonnet-4-6",
+                      "openrouter": "openrouter/auto", "ollama": "llama3.2"}.get(PROVIDER, "")).strip()
+
+
+def active_model():
+    return GEMINI_MODEL if runtime_kind() == "gemini" else (_provider_model() or MODEL or "Hermes default")
+
+
+def run_provider(message, system=None):
+    """Run OpenAI-compatible providers and Anthropic through their HTTP APIs."""
+    started = _mono_ms(); model = _provider_model()
+    try:
+        if PROVIDER == "anthropic":
+            base = os.environ.get("JARVIS_API_BASE", "https://api.anthropic.com").rstrip("/")
+            body = {"model": model, "max_tokens": 700, "messages": [{"role": "user", "content": message}]}
+            if system: body["system"] = system
+            req = urllib.request.Request(base + "/v1/messages", data=json.dumps(body).encode(), method="POST",
+                headers={"content-type": "application/json", "x-api-key": os.environ["ANTHROPIC_API_KEY"], "anthropic-version": "2023-06-01"})
+            with urllib.request.urlopen(req, timeout=60) as response: payload = json.loads(response.read())
+            text = "".join(x.get("text", "") for x in payload.get("content", []) if x.get("type") == "text").strip()
+        else:
+            defaults = {"openai": "https://api.openai.com", "openrouter": "https://openrouter.ai/api", "ollama": "http://127.0.0.1:11434"}
+            base = os.environ.get("JARVIS_API_BASE", defaults[PROVIDER]).rstrip("/")
+            messages = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": message}]
+            body = {"model": model, "messages": messages, "stream": False}
+            headers = {"content-type": "application/json"}
+            key = os.environ.get(f"{PROVIDER.upper()}_API_KEY", "")
+            if key: headers["authorization"] = "Bearer " + key
+            req = urllib.request.Request(base + "/v1/chat/completions", data=json.dumps(body).encode(), method="POST", headers=headers)
+            with urllib.request.urlopen(req, timeout=60) as response: payload = json.loads(response.read())
+            text = payload["choices"][0]["message"]["content"].strip()
+        if not text: raise RuntimeError("provider returned no text")
+        yield dict(t="status", model=model, tools=len(hermes_tools_snapshot()), permission=PERMISSION, profile=PROFILE, runtime=PROVIDER, session_id=None)
+        yield dict(t="latency", ms=_mono_ms()-started); yield dict(t="delta", text=text); yield dict(t="complete", session_id=None, ms=_mono_ms()-started)
+    except urllib.error.HTTPError as exc:
+        yield dict(t="error", message=f"{PROVIDER} request failed (HTTP {exc.code}).")
+    except Exception as exc:
+        yield dict(t="error", message=f"{PROVIDER} request failed: {str(exc)[:180]}")
 
 
 def build_command(message, session_id=None, system=None):
@@ -415,6 +473,9 @@ def run_mock(message, session_id=None, system=None):
 def run(message, session_id=None, system=None):
     if runtime_kind() == "gemini":
         yield from run_gemini(message, system)
+        return
+    if runtime_kind() in {"openai", "anthropic", "openrouter", "ollama"}:
+        yield from run_provider(message, system)
         return
     if runtime_kind() != "hermes":
         yield from run_mock(message, session_id, system)

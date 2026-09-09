@@ -3,7 +3,7 @@
    The brain is your own `hermes` CLI/profile, so configured Hermes tools,
    browser automation, skills, memory, MCP servers and third-party connectors are live. */
 const $ = s => document.querySelector(s);
-const RT = {tts:false, stt:false, browserStt:false, browserTts:false};
+const RT = {tts:false, stt:false, live:false, liveModel:'', browserStt:false, browserTts:false};
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 const speechSynth = window.speechSynthesis;
 const API_TOKEN = document.querySelector('meta[name="jarvis-token"]')?.content || '';
@@ -29,7 +29,7 @@ const rid = () => 'run_' + (crypto.randomUUID ? crypto.randomUUID().replace(/-/g
 const esc = s => String(s ?? '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 
 // ── workspace navigation ──
-const VIEW_NAMES = new Set(['chat','tools','missions','activity']);
+const VIEW_NAMES = new Set(['chat','projects','models','tools','memory','studio','missions','activity','settings']);
 function showView(name, remember = true){
   if (!VIEW_NAMES.has(name)) name = 'chat';
   document.querySelectorAll('[data-view-panel]').forEach(panel => {
@@ -49,6 +49,89 @@ document.querySelectorAll('[data-view]').forEach(button => {
   button.addEventListener('click', () => showView(button.dataset.view));
 });
 showView(localStorage.getItem('jarvis-view') || 'chat', false);
+
+// ── projects, settings, skills, memory and files ──
+let WS = null;
+const workspaceRequest = async payload => {
+  const response = await fetch('/api/workspace', {
+    method:'POST', headers:apiHeaders({'content-type':'application/json'}), body:JSON.stringify(payload)
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+  WS = data; renderWorkspace(); return data;
+};
+const editor = $('#editorDialog'), editorFields = $('#dialogFields');
+function openEditor(title, fields, onSave){
+  $('#dialogTitle').textContent = title;
+  editorFields.innerHTML = fields.map(f => `<label>${esc(f.label)}${f.long
+    ? `<textarea name="${esc(f.name)}" rows="6" placeholder="${esc(f.placeholder||'')}"></textarea>`
+    : `<input name="${esc(f.name)}" placeholder="${esc(f.placeholder||'')}">`}</label>`).join('');
+  $('#editorForm').onsubmit = async e => {
+    e.preventDefault();
+    const values = Object.fromEntries(new FormData(e.currentTarget));
+    try { await onSave(values); editor.close(); } catch(err){ log('error','SAVE',String(err.message||err)); }
+  };
+  editor.showModal();
+}
+function renderWorkspace(){
+  if (!WS) return;
+  const projects = WS.projects || [], selected = projects.find(p => p.id===WS.selectedProject) || projects[0];
+  const projectHtml = projects.map(p => `<div class="project-row ${p.id===WS.selectedProject?'selected':''}"><button data-project="${esc(p.id)}"><b>${esc(p.name)}</b><small>${esc(p.folder)}</small></button><button class="danger-link" data-delete-project="${esc(p.id)}" aria-label="Delete ${esc(p.name)}">×</button></div>`).join('');
+  $('#projectList').innerHTML = projectHtml || '<div class="empty-state">No projects yet.</div>';
+  $('#sidebarProjects').innerHTML = projects.slice(0,6).map(p => `<button data-project="${esc(p.id)}">${esc(p.name)}</button>`).join('');
+  $('#sessionContext').textContent = selected ? selected.name : 'Choose a project';
+  $('#sessionList').innerHTML = (selected?.sessions||[]).map(s => `<div class="session-row ${s.id===WS.selectedSession?'selected':''}"><button data-session="${esc(s.id)}">${esc(s.name)}</button><button class="danger-link" data-delete-session="${esc(s.id)}">×</button></div>`).join('') || '<div class="empty-state">Create the first chat in this project.</div>';
+  const settings=WS.settings||{};
+  $('#providerSelect').innerHTML = Object.keys(WS.models||{}).map(p=>`<option value="${esc(p)}" ${p===settings.provider?'selected':''}>${esc(p[0].toUpperCase()+p.slice(1))}</option>`).join('');
+  renderModelOptions(); $('#apiBase').value=settings.apiBase||'';
+  $('#apiState').textContent = settings.apiConfigured ? 'An API key is configured. Leave the field blank to keep it.' : 'No API key is configured for this provider.';
+  $('#profileName').value=settings.profile||'default'; $('#workdir').value=settings.workdir||'~';
+  $('#personaText').value=settings.persona||''; $('#computerControl').checked=!!settings.computerControl; $('#mobileControl').checked=!!settings.mobileControl;
+  $('#liveModel').value=settings.liveModel||''; $('#voiceSelect').value=settings.voice||'Kore';
+  $('#skillList').innerHTML=(WS.skills||[]).map(s=>`<div class="list-card"><div><b>${esc(s.name)}</b><small>${esc(s.instructions.slice(0,120))}</small></div><button class="danger-link" data-delete-skill="${esc(s.id)}">Delete</button></div>`).join('')||'<div class="empty-state">No custom skills yet.</div>';
+  $('#memoryList').innerHTML=(WS.memory||[]).map(m=>`<div class="list-card"><div><b>${esc(m.label)}</b><small>${esc(m.value.slice(0,160))}</small></div><button class="danger-link" data-delete-memory="${esc(m.id)}">Delete</button></div>`).join('')||'<div class="empty-state">Add a fact, preference or relationship.</div>';
+  $('#uploadList').innerHTML=(WS.uploads||[]).map(f=>`<div class="list-card"><div><b>${esc(f.name)}</b><small>${Math.max(1,Math.round(f.size/1024))} KB</small></div></div>`).join('')||'<div class="empty-state">No files uploaded.</div>';
+  drawMemoryBrain();
+}
+function renderModelOptions(){
+  if(!WS) return; const provider=$('#providerSelect').value;
+  const current=WS.settings?.provider===provider?WS.settings.model:'';
+  $('#modelSelect').innerHTML=(WS.models?.[provider]||[]).map(m=>`<option ${m===current?'selected':''}>${esc(m)}</option>`).join('');
+  $('#customModel').value=(WS.models?.[provider]||[]).includes(current)?'':current;
+}
+$('#providerSelect').onchange=renderModelOptions;
+$('#modelForm').onsubmit=async e=>{e.preventDefault(); const s=WS.settings; await workspaceRequest({action:'save_settings',settings:{...s,provider:$('#providerSelect').value,model:$('#customModel').value.trim()||$('#modelSelect').value,apiBase:$('#apiBase').value.trim(),apiKey:$('#apiKey').value.trim()}}); $('#apiKey').value=''; log('complete','SETTINGS','provider updated'); refreshStatus();};
+const addProject=()=>openEditor('New project',[{name:'name',label:'Project name'},{name:'folder',label:'Folder on this computer',placeholder:'C:\\Projects\\My project'}],v=>workspaceRequest({action:'add_project',...v}));
+$('#addProject').onclick=addProject; $('#quickProject').onclick=()=>{showView('projects');addProject();};
+$('#addSession').onclick=()=>openEditor('New chat',[{name:'name',label:'Chat name'}],v=>workspaceRequest({action:'add_session',projectId:WS.selectedProject,...v}));
+$('#addSkill').onclick=()=>openEditor('Create skill',[{name:'name',label:'Skill name'},{name:'instructions',label:'Instructions',long:true}],v=>workspaceRequest({action:'add_skill',...v}));
+$('#addMemory').onclick=()=>openEditor('Add memory',[{name:'label',label:'Memory label'},{name:'value',label:'What JARVIS should remember',long:true}],v=>workspaceRequest({action:'add_memory',...v}));
+document.addEventListener('click',async e=>{
+  const b=e.target.closest('[data-project],[data-session],[data-delete-project],[data-delete-session],[data-delete-skill],[data-delete-memory]'); if(!b||!WS)return;
+  try{
+    if(b.dataset.project) await workspaceRequest({action:'select_session',projectId:b.dataset.project,sessionId:''});
+    if(b.dataset.session) await workspaceRequest({action:'select_session',projectId:WS.selectedProject,sessionId:b.dataset.session});
+    if(b.dataset.deleteProject) await workspaceRequest({action:'delete_project',id:b.dataset.deleteProject});
+    if(b.dataset.deleteSession) await workspaceRequest({action:'delete_session',id:b.dataset.deleteSession});
+    if(b.dataset.deleteSkill) await workspaceRequest({action:'delete_skill',id:b.dataset.deleteSkill});
+    if(b.dataset.deleteMemory) await workspaceRequest({action:'delete_memory',id:b.dataset.deleteMemory});
+  }catch(err){log('error','WORKSPACE',String(err.message||err));}
+});
+$('#saveSettings').onclick=async()=>{const s=WS.settings; await workspaceRequest({action:'save_settings',settings:{...s,profile:$('#profileName').value,workdir:$('#workdir').value,persona:$('#personaText').value,computerControl:$('#computerControl').checked,mobileControl:$('#mobileControl').checked,liveModel:$('#liveModel').value,voice:$('#voiceSelect').value}}); log('complete','SETTINGS','agent settings saved'); refreshStatus();};
+$('#useFolder').onclick=()=>{$('#workdir').focus(); $('#workdir').select();};
+$('#fileUpload').onchange=async e=>{for(const file of e.target.files){const r=await fetch('/api/upload',{method:'POST',headers:apiHeaders({'content-type':file.type||'application/octet-stream','x-filename':file.name}),body:file}); if(!r.ok)log('error','UPLOAD',`Could not upload ${file.name}`);} await loadWorkspace(); e.target.value='';};
+document.querySelectorAll('.generate-btn').forEach(b=>b.onclick=()=>{const type=b.dataset.media,prompt=$(`#${type}Prompt`).value.trim();if(!prompt)return;showView('chat');transmit(`Use my Hermes ${type} generation tools to create: ${prompt}`,{speak:false});});
+function drawMemoryBrain(){
+  const canvas=$('#memoryCanvas'); if(!canvas||!WS)return; const rect=canvas.getBoundingClientRect();
+  const dpr=Math.min(2,devicePixelRatio||1); canvas.width=Math.max(320,rect.width*dpr); canvas.height=Math.max(300,rect.height*dpr);
+  const ctx=canvas.getContext('2d'); ctx.scale(dpr,dpr); const w=canvas.width/dpr,h=canvas.height/dpr,cx=w/2,cy=h/2;
+  const items=[...(WS.projects||[]).map(x=>({label:x.name,color:'#5ee7ff'})),...(WS.memory||[]).map(x=>({label:x.label,color:'#aa7cff'})),...(WS.skills||[]).map(x=>({label:x.name,color:'#55e6a5'}))].slice(0,22);
+  ctx.clearRect(0,0,w,h); ctx.strokeStyle='rgba(94,231,255,.2)'; ctx.lineWidth=1;
+  items.forEach((item,i)=>{const a=(i/items.length)*Math.PI*2-Math.PI/2,r=70+(i%3)*42,x=cx+Math.cos(a)*r,y=cy+Math.sin(a)*r;ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(x,y);ctx.stroke();ctx.fillStyle=item.color;ctx.beginPath();ctx.arc(x,y,5,0,Math.PI*2);ctx.fill();ctx.fillStyle='rgba(225,248,255,.78)';ctx.font='11px system-ui';ctx.fillText(item.label.slice(0,18),x+8,y+4);});
+  const glow=ctx.createRadialGradient(cx,cy,4,cx,cy,58);glow.addColorStop(0,'#dfffff');glow.addColorStop(.25,'#5ee7ff');glow.addColorStop(1,'rgba(3,38,52,0)');ctx.fillStyle=glow;ctx.beginPath();ctx.arc(cx,cy,58,0,Math.PI*2);ctx.fill();ctx.fillStyle='#021018';ctx.font='700 13px system-ui';ctx.textAlign='center';ctx.fillText('MEMORY',cx,cy+4);ctx.textAlign='start';
+}
+async function loadWorkspace(){try{const r=await fetch('/api/workspace',{headers:apiHeaders()});WS=await r.json();renderWorkspace();}catch(e){log('error','WORKSPACE','could not load workspace');}}
+window.addEventListener('resize',()=>{if(WS)drawMemoryBrain();});
 
 // ── reactor state ──
 function setState(cls, word, sub){
@@ -149,6 +232,7 @@ function handle(ev){
   switch (ev.t){
     case 'status':
       if (ev.session_id) sys('session', ev.session_id.slice(0,8));
+      if (ev.model){ const model=document.querySelector('#core-model'); if(model) model.textContent=ev.model; }
         const msg = `core online · Hermes tools=${ev.tools ?? 0} profile=${ev.profile||'default'} permission=${ev.permission||'normal'}`;
       log('status', 'STATUS', msg);
       break;
@@ -227,6 +311,110 @@ let micStream=null, recorder=null, chunks=[], actx=null, analyser=null, vdata=nu
 let vad=null, spoke=false, loudAt=0, turnStart=0;
 let floorSum=0, floorN=0, threshold=0.02, peak=0, calibrating=true;
 const SILENCE=900, MIN_TURN_MS=350, MAX_TURN_MS=18000, NO_SPEECH_MS=10000;
+let liveWs=null, liveInputCtx=null, liveOutputCtx=null, liveProcessor=null;
+let liveSource=null, liveReady=false, liveSpeaking=false, livePlayAt=0;
+
+function floatToPcm16Base64(float32, inputRate){
+  const ratio = inputRate / 16000;
+  const length = Math.max(1, Math.floor(float32.length / ratio));
+  const pcm = new Int16Array(length);
+  for (let i=0; i<length; i++){
+    const start = Math.floor(i * ratio), end = Math.max(start + 1, Math.floor((i + 1) * ratio));
+    let sum = 0;
+    for (let j=start; j<end && j<float32.length; j++) sum += float32[j];
+    const sample = Math.max(-1, Math.min(1, sum / Math.max(1, end-start)));
+    pcm[i] = sample < 0 ? sample * 32768 : sample * 32767;
+  }
+  const bytes = new Uint8Array(pcm.buffer);
+  let binary = '';
+  for (let i=0; i<bytes.length; i+=0x8000)
+    binary += String.fromCharCode(...bytes.subarray(i, i+0x8000));
+  return btoa(binary);
+}
+
+function playLivePcm(encoded, rate=24000){
+  if (muted || !encoded || !liveOutputCtx) return;
+  const raw = atob(encoded), bytes = new Uint8Array(raw.length);
+  for (let i=0; i<raw.length; i++) bytes[i] = raw.charCodeAt(i);
+  const pcm = new Int16Array(bytes.buffer);
+  const audio = liveOutputCtx.createBuffer(1, pcm.length, rate);
+  const channel = audio.getChannelData(0);
+  for (let i=0; i<pcm.length; i++) channel[i] = pcm[i] / 32768;
+  const src = liveOutputCtx.createBufferSource();
+  src.buffer = audio; src.connect(liveOutputCtx.destination);
+  const when = Math.max(liveOutputCtx.currentTime + 0.015, livePlayAt);
+  src.start(when); livePlayAt = when + audio.duration;
+  liveSpeaking = true; document.body.classList.add('speaking');
+}
+
+async function startGeminiLive(){
+  try{
+    setState('running','CONNECTING','Gemini native audio…');
+    const auth = await fetch('/api/live-token', {
+      method:'POST', headers:apiHeaders({'content-type':'application/json'}), body:'{}'
+    }).then(async r => { const data=await r.json(); if(!r.ok) throw new Error(data.error||`HTTP ${r.status}`); return data; });
+    micStream = await navigator.mediaDevices.getUserMedia(
+      {audio:{echoCancellation:true, noiseSuppression:true, autoGainControl:true, channelCount:1}});
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    liveInputCtx = new AudioCtx(); liveOutputCtx = new AudioCtx();
+    await Promise.all([liveInputCtx.resume(), liveOutputCtx.resume()]);
+    livePlayAt = liveOutputCtx.currentTime;
+    const endpoint = 'wss://generativelanguage.googleapis.com/ws/'
+      + 'google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContentConstrained'
+      + `?access_token=${encodeURIComponent(auth.token)}`;
+    liveWs = new WebSocket(endpoint);
+    liveWs.onopen = () => liveWs.send(JSON.stringify({setup:{
+      model:`models/${auth.model}`,
+      generationConfig:{responseModalities:['AUDIO'],speechConfig:{voiceConfig:{prebuiltVoiceConfig:{voiceName:auth.voice||'Kore'}}}},
+      inputAudioTranscription:{}, outputAudioTranscription:{},
+      systemInstruction:{parts:[{text:'You are JARVIS. Speak warmly, naturally, briefly, and helpfully.'}]}
+    }}));
+    liveWs.onmessage = event => {
+      const msg = JSON.parse(event.data);
+      if (msg.setupComplete && !liveReady){
+        liveReady = true; convo = true; suppress = false;
+        $('#mic').classList.add('on'); $('#mic').textContent = '● Gemini Live';
+        setState('listening','LISTENING','native audio · speak now');
+        log('voice','VOICE',`${auth.model} connected`);
+        liveSource = liveInputCtx.createMediaStreamSource(micStream);
+        liveProcessor = liveInputCtx.createScriptProcessor(4096, 1, 1);
+        const silent = liveInputCtx.createGain(); silent.gain.value = 0;
+        liveProcessor.onaudioprocess = e => {
+          if (!liveReady || liveSpeaking || liveWs?.readyState !== WebSocket.OPEN) return;
+          const data = floatToPcm16Base64(e.inputBuffer.getChannelData(0), liveInputCtx.sampleRate);
+          liveWs.send(JSON.stringify({realtimeInput:{audio:{data,mimeType:'audio/pcm;rate=16000'}}}));
+        };
+        liveSource.connect(liveProcessor); liveProcessor.connect(silent); silent.connect(liveInputCtx.destination);
+      }
+      const content = msg.serverContent;
+      if (!content) return;
+      if (content.inputTranscription?.text)
+        $('#strun').textContent = 'HEARD: ' + content.inputTranscription.text.slice(0,42);
+      if (content.outputTranscription?.text){
+        answer += content.outputTranscription.text; renderAnswer();
+      }
+      for (const part of (content.modelTurn?.parts || [])){
+        if (part.inlineData?.data) playLivePcm(part.inlineData.data, 24000);
+      }
+      if (content.turnComplete){
+        const delay = Math.max(0, (livePlayAt - liveOutputCtx.currentTime) * 1000);
+        setTimeout(() => {
+          liveSpeaking=false; document.body.classList.remove('speaking');
+          if(convo) setState('listening','LISTENING','native audio · speak now');
+        }, delay + 30);
+      }
+      if (content.interrupted){
+        livePlayAt = liveOutputCtx.currentTime;
+        liveSpeaking=false; document.body.classList.remove('speaking');
+      }
+    };
+    liveWs.onerror = () => log('error','VOICE','Gemini Live connection error');
+    liveWs.onclose = () => { if(convo) { log('error','VOICE','Gemini Live disconnected'); stopConvo(); } };
+  }catch(e){
+    log('error','VOICE',`Gemini Live unavailable: ${String(e.message||e).slice(0,120)}`);
+    stopConvo();
+  }
+}
 
 // ── voice out ──
 let muted = false, player = null;
@@ -268,6 +456,7 @@ function speak(text){
 // ── start / stop the whole conversation ──
 async function micToggle(){
   if (convo){ stopConvo(); return; }
+  if (RT.live){ await startGeminiLive(); return; }
   // Prefer ElevenLabs server-side STT when configured. Browser STT is unreliable
   // across Chrome profiles and often fails silently; ElevenLabs receives the
   // actual microphone recording from MediaRecorder and is much more consistent.
@@ -300,6 +489,12 @@ async function micToggle(){
 
 function stopConvo(){
   convo = false; suppress = false;
+  liveReady = false; liveSpeaking = false;
+  if (liveProcessor){ try{liveProcessor.disconnect();}catch(_){} liveProcessor=null; }
+  if (liveSource){ try{liveSource.disconnect();}catch(_){} liveSource=null; }
+  if (liveWs){ const ws=liveWs; liveWs=null; try{ws.close();}catch(_){} }
+  if (liveInputCtx){ liveInputCtx.close().catch(()=>{}); liveInputCtx=null; }
+  if (liveOutputCtx){ liveOutputCtx.close().catch(()=>{}); liveOutputCtx=null; }
   if (recognition){ try{ recognition.onend = null; recognition.stop(); }catch(_){} recognition=null; }
   if (vad){ clearInterval(vad); vad=null; }
   if (recorder && recorder.state==='recording'){ recorder._cancel=true; try{recorder.stop();}catch(_){} }
@@ -556,10 +751,11 @@ setInterval(async () => {
 let bootLogged = false;
 function renderStatus(s){
   RT.tts = s.tts !== 'browser'; RT.stt = s.stt === 'elevenlabs';
+  RT.live = !!s.live_voice; RT.liveModel = s.live_model || '';
   RT.browserStt = !!SpeechRecognition; RT.browserTts = !!speechSynth;
-  const brain = s.runtime === 'gemini' ? 'Gemini + Hermes' : (s.runtime === 'hermes' ? 'Hermes Agent' : 'Core offline');
+  const brain = s.runtime === 'gemini' ? 'Gemini + Hermes' : (s.runtime === 'hermes' ? 'Hermes Agent' : (s.runtime === 'mock' ? 'Core offline' : `${s.runtime} + Hermes`));
   const ttsLabel = s.tts === 'gemini' ? 'Gemini TTS' : (RT.tts ? 'ElevenLabs TTS' : 'Browser TTS');
-  const sttLabel = RT.stt ? 'ElevenLabs STT' : (RT.browserStt ? 'Browser STT' : 'Text only');
+  const sttLabel = RT.live ? 'Gemini Live' : (RT.stt ? 'ElevenLabs STT' : (RT.browserStt ? 'Browser STT' : 'Text only'));
   sys('gw', 'Online', 'ok');
   sys('brain', brain, s.runtime === 'mock' ? 'warn' : 'ok');
   sys('voice', `${sttLabel} / ${ttsLabel}`, (RT.browserStt||RT.stt) ? 'ok' : 'warn');
@@ -579,7 +775,7 @@ function renderStatus(s){
     log('status','BOOT',`gateway online · ${s.runtime} · profile=${s.profile || 'default'}`);
     log('voice','VOICE',`channel ready — ${sttLabel} / ${ttsLabel}`);
   }
-  $('#mic').textContent = RT.stt ? 'Voice live' : 'Voice';
+  $('#mic').textContent = RT.live ? 'Gemini Live' : (RT.stt ? 'Voice live' : 'Voice');
   setState('', 'STANDBY', 'awaiting uplink');
 }
 async function refreshStatus(attempt = 0){
@@ -598,4 +794,5 @@ async function refreshStatus(attempt = 0){
   }
 }
 defaultTip = $('#tip').textContent;
+loadWorkspace();
 refreshStatus();

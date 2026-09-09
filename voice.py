@@ -13,6 +13,7 @@ import urllib.error
 import urllib.request
 import base64
 import wave
+import datetime
 from io import BytesIO
 
 from runtime import gemini_api_key
@@ -22,6 +23,9 @@ DEFAULT_VOICE = "21m00Tcm4TlvDq8ikWAM"
 MODEL = os.environ.get("ELEVENLABS_MODEL", "eleven_turbo_v2_5")
 GEMINI_TTS_MODEL = os.environ.get("GEMINI_TTS_MODEL", "gemini-2.5-flash-preview-tts")
 GEMINI_TTS_VOICE = os.environ.get("GEMINI_TTS_VOICE", "Kore")
+GEMINI_LIVE_MODEL = os.environ.get(
+    "GEMINI_LIVE_MODEL", "gemini-2.5-flash-native-audio-preview-12-2025"
+).strip()
 
 
 def available():
@@ -42,6 +46,44 @@ def tts_available():
 
 def stt_available():
     return bool(os.environ.get("ELEVENLABS_API_KEY"))
+
+
+def live_available():
+    return bool(gemini_api_key() and GEMINI_LIVE_MODEL)
+
+
+def create_live_token():
+    """Create a one-use, short-lived token for a browser Gemini Live session."""
+    if not live_available():
+        raise RuntimeError("Gemini Live voice is not configured")
+    now = datetime.datetime.now(datetime.timezone.utc)
+    iso = lambda value: value.isoformat(timespec="seconds").replace("+00:00", "Z")
+    payload = {
+        "uses": 1,
+        "expireTime": iso(now + datetime.timedelta(minutes=30)),
+        "newSessionExpireTime": iso(now + datetime.timedelta(minutes=1)),
+    }
+    req = urllib.request.Request(
+        "https://generativelanguage.googleapis.com/v1beta/auth_tokens",
+        data=json.dumps(payload).encode(),
+        method="POST",
+        headers={
+            "content-type": "application/json",
+            "x-goog-api-key": gemini_api_key(),
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=20) as response:
+            token = json.loads(response.read()).get("name", "")
+    except urllib.error.HTTPError as exc:
+        try:
+            detail = json.loads(exc.read()).get("error", {}).get("message", "")
+        except Exception:
+            detail = ""
+        raise RuntimeError(f"Gemini Live token rejected: {detail or f'HTTP {exc.code}'}") from None
+    if not token:
+        raise RuntimeError("Gemini did not return a Live session token")
+    return {"token": token, "model": GEMINI_LIVE_MODEL, "voice": GEMINI_TTS_VOICE}
 
 
 def voice_id():

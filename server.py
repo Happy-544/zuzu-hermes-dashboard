@@ -34,12 +34,14 @@ if _env.exists():
 import commands         # noqa: E402
 import runtime          # noqa: E402
 import voice            # noqa: E402
+import workspace        # noqa: E402
 
 PORT = int(os.environ.get("JARVIS_PORT", "8730"))
 API_TOKEN = secrets.token_urlsafe(32)
 RUN_LOCK = threading.Lock()
 MAX_JSON_BODY = 1024 * 1024
 MAX_AUDIO_BODY = 12 * 1024 * 1024
+MAX_UPLOAD_BODY = 25 * 1024 * 1024
 
 
 def _allowed_hosts():
@@ -71,7 +73,9 @@ def persona():
     except OSError:
         base = ""
     extra = commands.context_block()      # profile / goal / personality / queue
-    return "\n\n".join(x for x in (base, extra) if x)
+    custom = workspace.load().get("settings", {}).get("persona", "")
+    relevant = workspace.agent_context()
+    return "\n\n".join(x for x in (base, custom, relevant, extra) if x)
 # One continuing Hermes conversation until the user hits /new.
 SESSION = {"id": None}
 
@@ -132,8 +136,7 @@ class Handler(BaseHTTPRequestHandler):
                 profile=runtime.PROFILE,
                 source=runtime.SOURCE,
                 workdir=runtime.WORKDIR,
-                model=(runtime.GEMINI_MODEL if runtime_name == "gemini"
-                       else runtime.MODEL or "Hermes default"),
+                model=runtime.active_model(),
                 tools=runtime.hermes_tools_snapshot(),
                 tools_pending=runtime.hermes_tools_pending(),
                 browser_stt=True,
@@ -142,6 +145,8 @@ class Handler(BaseHTTPRequestHandler):
                 voice_id=voice.voice_id() if voice.tts_available() else "browser",
                 stt="elevenlabs" if voice.stt_available() else "browser",
                 tts=voice.tts_provider(),
+                live_voice=voice.live_available(),
+                live_model=voice.GEMINI_LIVE_MODEL if voice.live_available() else "",
                 session=SESSION["id"]))
         if p == "/api/jobs":
             if not self._token_ok():
@@ -150,6 +155,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(dict(done=commands.take_finished(),
                                    running=[j for j in commands.jobs_snapshot()
                                             if j["status"] == "running"]))
+        if p == "/api/workspace":
+            if not self._token_ok():
+                return self._json({"error": "unauthorized"}, 401)
+            return self._json(workspace.public_state())
 
         rel = "index.html" if p == "/" else p.lstrip("/")
         f = (UI / rel).resolve()
@@ -169,12 +178,13 @@ class Handler(BaseHTTPRequestHandler):
         if not self._token_ok():
             return self._json({"error": "unauthorized"}, 401)
         ctype = self.headers.get("Content-Type", "").split(";", 1)[0].lower()
-        if p in {"/api/run", "/api/speak", "/api/new", "/api/cancel"} and ctype != "application/json":
+        if p in {"/api/run", "/api/speak", "/api/live-token", "/api/workspace", "/api/new", "/api/cancel"} and ctype != "application/json":
             return self._json({"error": "application/json required"}, 415)
         if p == "/api/listen" and not ctype.startswith("audio/"):
             return self._json({"error": "audio content type required"}, 415)
         try:
-            raw = self._read(MAX_AUDIO_BODY if p == "/api/listen" else MAX_JSON_BODY)
+            limit = MAX_UPLOAD_BODY if p == "/api/upload" else (MAX_AUDIO_BODY if p == "/api/listen" else MAX_JSON_BODY)
+            raw = self._read(limit)
         except (TypeError, ValueError):
             return self._json({"error": "request body too large"}, 413)
 
@@ -184,6 +194,33 @@ class Handler(BaseHTTPRequestHandler):
                 return self._bytes(voice.speak(text), voice.content_type())
             except Exception as e:                        # noqa: BLE001
                 return self._json({"error": str(e)[:200]}, 503)
+
+        if p == "/api/live-token":
+            try:
+                return self._json(voice.create_live_token())
+            except Exception as e:                        # noqa: BLE001
+                return self._json({"error": str(e)[:200]}, 503)
+
+        if p == "/api/workspace":
+            try:
+                result = workspace.action(json.loads(raw or b"{}"))
+                settings = result["settings"]
+                runtime.PROVIDER = settings["provider"]
+                runtime.MODEL = settings["model"]
+                runtime.GEMINI_MODEL = os.environ.get("GEMINI_CHAT_MODEL", runtime.GEMINI_MODEL)
+                runtime.PROFILE = settings["profile"]
+                runtime.WORKDIR = os.path.expanduser(settings["workdir"])
+                voice.GEMINI_LIVE_MODEL = settings["liveModel"]
+                voice.GEMINI_TTS_VOICE = settings["voice"]
+                return self._json(result)
+            except Exception as e:                        # noqa: BLE001
+                return self._json({"error": str(e)[:240]}, 400)
+
+        if p == "/api/upload":
+            try:
+                return self._json(workspace.store_upload(self.headers.get("X-Filename", "upload.bin"), raw))
+            except Exception as e:                        # noqa: BLE001
+                return self._json({"error": str(e)[:200]}, 400)
 
         if p == "/api/listen":
             try:

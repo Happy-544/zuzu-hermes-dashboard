@@ -4,3 +4,5 @@ __pycache__/
 *.log
 bin/
 state.json
+workspace.json
+uploads/
