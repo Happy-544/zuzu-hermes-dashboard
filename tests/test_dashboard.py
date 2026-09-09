@@ -65,6 +65,8 @@ class InterfaceTests(unittest.TestCase):
         self.assertIn("/api/workspace", js)
         self.assertIn("/api/upload", js)
         self.assertIn("/api/live-token", js)
+        self.assertIn("payload instanceof Blob", js)
+        self.assertIn("await payload.text()", js)
 
 
 class WorkspaceTests(unittest.TestCase):

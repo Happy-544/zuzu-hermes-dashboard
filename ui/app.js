@@ -369,8 +369,11 @@ async function startGeminiLive(){
       inputAudioTranscription:{}, outputAudioTranscription:{},
       systemInstruction:{parts:[{text:'You are JARVIS. Speak warmly, naturally, briefly, and helpfully.'}]}
     }}));
-    liveWs.onmessage = event => {
-      const msg = JSON.parse(event.data);
+    liveWs.onmessage = async event => {
+      let payload = event.data;
+      if (payload instanceof Blob) payload = await payload.text();
+      else if (payload instanceof ArrayBuffer) payload = new TextDecoder().decode(payload);
+      const msg = JSON.parse(payload);
       if (msg.setupComplete && !liveReady){
         liveReady = true; convo = true; suppress = false;
         $('#mic').classList.add('on'); $('#mic').textContent = '● Gemini Live';
