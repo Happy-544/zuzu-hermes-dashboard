@@ -2,139 +2,82 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#050b10">
 <meta name="jarvis-token" content="__JARVIS_TOKEN__">
-<title>JARVIS · Hermes Mission Control</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css">
+<title>JARVIS · Hermes</title>
+<link rel="stylesheet" href="styles.css?v=4">
 </head>
 <body>
-<div class="scan"></div>
 <div class="grid-bg"></div>
-<div class="ambient a1"></div><div class="ambient a2"></div>
 
-<header class="topbar">
-  <div class="sigil"><span></span></div>
-  <div class="brandlock">
-    <div class="overline">Hermes Agent Direct Channel</div>
-    <div class="mega">JARVIS</div>
-  </div>
-  <div class="pills">
-    <div class="pill ok"><i></i><span id="top-gw">Gateway: probing</span></div>
-    <div class="pill"><i></i><span id="top-profile">Profile: default</span></div>
-    <div class="pill warn"><i></i><span id="top-voice">Voice: browser</span></div>
-  </div>
+<header class="app-header">
+  <div class="brand"><div class="sigil" aria-hidden="true"><span></span></div><div><div class="eyebrow">Hermes Agent</div><div class="wordmark">JARVIS</div></div></div>
+  <div class="header-status"><i></i><span id="top-gw">Connecting</span></div>
+  <div class="header-meta"><span id="top-profile">Profile: default</span><span id="top-voice">Voice: loading</span></div>
 </header>
 
-<div class="hud">
-  <section class="col left glass">
-    <header class="colhead">
-      <div class="h">Command<br>Matrix</div>
-      <div class="sub">Click to execute · payload commands stay armed</div>
-    </header>
+<div class="app-shell">
+  <aside class="sidebar" aria-label="Main navigation">
+    <nav class="primary-nav" role="tablist">
+      <button class="nav-item active" role="tab" data-view="chat" aria-selected="true"><span>Chat</span><small>Talk to JARVIS</small></button>
+      <button class="nav-item" role="tab" data-view="tools" aria-selected="false"><span>Tools</span><small>Hermes capabilities</small></button>
+      <button class="nav-item" role="tab" data-view="missions" aria-selected="false"><span>Missions</span><small>Goals and background work</small></button>
+      <button class="nav-item" role="tab" data-view="activity" aria-selected="false"><span>Activity</span><small>Status and event log</small></button>
+    </nav>
+    <div class="sidebar-foot"><span class="status-dot"></span><span>Gemini + Hermes</span></div>
+  </aside>
 
-    <div class="cmds" id="cmds">
-      <button class="cmd" data-cmd="/new"><b>/new</b><span>Fresh thread</span></button>
-      <button class="cmd" data-cmd="/goal"><b>/goal</b><span>Standing objective</span></button>
-      <button class="cmd" data-cmd="/tools"><b>/tools</b><span>Hermes tool status</span></button>
-      <button class="cmd" data-cmd="/browser"><b>/browser</b><span>Chrome / browser op</span></button>
-      <button class="cmd" data-cmd="/background"><b>/background</b><span>Async mission</span></button>
-      <button class="cmd" data-cmd="/mission"><b>/mission</b><span>Mission queue</span></button>
-      <button class="cmd" data-cmd="/personality"><b>/personality</b><span>Voice/tone overlay</span></button>
-      <button class="cmd" data-cmd="/commands"><b>/commands</b><span>Show commands</span></button>
-    </div>
-
-    <div class="toolrack">
-      <div class="lbl">Connected Hermes Tools</div>
-      <div id="toolsList" class="chips"><span class="chip ghost">loading tool matrix…</span></div>
-    </div>
-
-    <div class="uplink">
-      <div class="lbl">Pending uplink</div>
-      <div class="field">
-        <textarea id="input" rows="4" spellcheck="false" placeholder="Speak through browser voice or type a Hermes instruction. Slash commands are supported."></textarea>
+  <main class="workspace">
+    <section class="view active" role="tabpanel" data-view-panel="chat">
+      <div class="view-head"><div><span class="kicker">Direct channel</span><h1>Chat</h1></div><span class="runtime-badge" id="sy-runtime">—</span></div>
+      <div class="chat-layout">
+        <article class="conversation glass" id="responseWrap">
+          <div class="conversation-head"><div><span class="label">JARVIS response</span><p>Gemini conversation with Hermes tools available on demand</p></div><span class="rtag" id="rtag">IDLE</span></div>
+          <div class="rbody" id="response"><span class="rplaceholder">Ready when you are.</span></div>
+        </article>
+        <aside class="core-card glass">
+          <div class="reactor" id="reactor">
+            <svg viewBox="0 0 520 520" id="core" aria-label="JARVIS reactor visualizer">
+              <defs><radialGradient id="orb" cx="50%" cy="45%" r="55%"><stop offset="0%" stop-color="#fff"/><stop offset="25%" stop-color="#7ff7ff"/><stop offset="58%" stop-color="#16bfd8"/><stop offset="100%" stop-color="#02111b"/></radialGradient><filter id="soft" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="6" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
+              <circle class="ring rr1" cx="260" cy="260" r="242"/><circle class="ring rr2" cx="260" cy="260" r="210"/><circle class="ring rr3" cx="260" cy="260" r="174"/><circle class="ring rr4" cx="260" cy="260" r="132"/><circle class="arcA" cx="260" cy="260" r="226" filter="url(#soft)"/><circle class="arcB" cx="260" cy="260" r="188" filter="url(#soft)"/><circle class="arcC" cx="260" cy="260" r="151" filter="url(#soft)"/><g id="ticks480"></g><circle class="orb" cx="260" cy="260" r="64" fill="url(#orb)" filter="url(#soft)"/><circle class="orbrim" cx="260" cy="260" r="64"/>
+            </svg>
+            <div class="core-state"><span>JARVIS CORE</span><strong id="stword">STANDBY</strong><small id="strun">awaiting uplink</small></div>
+          </div>
+          <div class="core-details"><span><i class="online"></i> Online</span><span id="core-model">Gemini</span></div>
+        </aside>
       </div>
-      <div class="tip" id="tip">Use <b>Browser Voice</b> for local speech recognition, or server ElevenLabs if configured. Try <b>/browser</b> “open Chrome and inspect the current tab”.</div>
-    </div>
-  </section>
-
-  <section class="col center">
-    <div class="reactor" id="reactor">
-      <svg viewBox="0 0 520 520" id="core" aria-label="JARVIS reactor visualizer">
-        <defs>
-          <radialGradient id="orb" cx="50%" cy="45%" r="55%">
-            <stop offset="0%" stop-color="#ffffff"/><stop offset="25%" stop-color="#7ff7ff"/>
-            <stop offset="58%" stop-color="#16bfd8"/><stop offset="100%" stop-color="#02111b"/>
-          </radialGradient>
-          <filter id="soft" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="6" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-        </defs>
-        <circle class="ring rr1" cx="260" cy="260" r="242"/>
-        <circle class="ring rr2" cx="260" cy="260" r="210"/>
-        <circle class="ring rr3" cx="260" cy="260" r="174"/>
-        <circle class="ring rr4" cx="260" cy="260" r="132"/>
-        <circle class="arcA" cx="260" cy="260" r="226" filter="url(#soft)"/>
-        <circle class="arcB" cx="260" cy="260" r="188" filter="url(#soft)"/>
-        <circle class="arcC" cx="260" cy="260" r="151" filter="url(#soft)"/>
-        <g id="ticks480"></g>
-        <path class="comet" d="M80 318 Q 195 392 278 310" />
-        <circle class="orb" cx="260" cy="260" r="64" fill="url(#orb)" filter="url(#soft)"/>
-        <circle class="orbrim" cx="260" cy="260" r="64"/>
-      </svg>
-      <div class="status">
-        <div class="stbrand">JARVIS CORE</div>
-        <div class="stword" id="stword">STANDBY</div>
-        <div class="strun" id="strun">awaiting uplink</div>
+      <div class="composer glass">
+        <textarea id="input" rows="2" spellcheck="false" aria-label="Message JARVIS" placeholder="Message JARVIS…"></textarea>
+        <div class="composer-actions"><span class="tip" id="tip">Enter to send · Shift+Enter for a new line</span><button id="mic" class="icon-btn" title="Voice input" aria-label="Start voice input">Voice</button><button id="mute" class="icon-btn on" title="Mute JARVIS speech" aria-label="Mute JARVIS speech">Sound</button><button id="run" class="send-btn">Send</button></div>
       </div>
-    </div>
+    </section>
 
-    <div class="response glass" id="responseWrap">
-      <div class="rhead"><span>JARVIS Response</span><span class="rtag" id="rtag">IDLE</span></div>
-      <div class="rbody" id="response"><span class="rplaceholder">Standing by. Transmit an instruction.</span></div>
-    </div>
+    <section class="view" role="tabpanel" data-view-panel="tools" hidden>
+      <div class="view-head"><div><span class="kicker">Hermes profile</span><h1>Tools</h1></div><button id="showCommands" class="secondary-btn">Show help</button></div>
+      <article class="panel glass"><div class="panel-head"><div><h2>Connected capabilities</h2><p>Loaded from your active Hermes profile</p></div><span class="live" id="live">LIVE</span></div><div id="toolsList" class="tool-grid"><div class="empty-state">Loading Hermes tools…</div></div></article>
+      <article class="panel glass"><div class="panel-head"><div><h2>Quick commands</h2><p>Choose an action. Commands that need details will return you to Chat.</p></div></div>
+        <div class="cmds" id="cmds">
+          <button class="cmd" data-cmd="/new"><b>New chat</b><span>Fresh thread</span></button><button class="cmd" data-cmd="/tools"><b>Tool status</b><span>Refresh capabilities</span></button><button class="cmd" data-cmd="/browser"><b>Browser</b><span>Start a browser task</span></button><button class="cmd" data-cmd="/commands"><b>All commands</b><span>Command reference</span></button><button class="cmd" data-cmd="/goal"><b>Set goal</b><span>Standing objective</span></button><button class="cmd" data-cmd="/personality"><b>Personality</b><span>Voice and tone</span></button><button class="cmd" data-cmd="/background"><b>Background</b><span>Run async work</span></button><button class="cmd" data-cmd="/mission"><b>Add mission</b><span>Queue a task</span></button>
+        </div>
+      </article>
+    </section>
 
-    <div class="missionbar glass">
-      <button id="mic" class="ctl mic" title="Browser voice / microphone">◉ Browser Voice</button>
-      <button id="run" class="ctl run" title="Send (⌘↵)">Transmit to JARVIS ▸</button>
-      <button id="showCommands" class="ctl aux">Show Commands</button>
-      <button id="missionBtn" class="ctl aux">Mission Control</button>
-      <button id="mute" class="ctl mute on" title="Mute Jarvis speech">🔊</button>
-      <button id="clearBtn" class="ctl aux">Clear</button>
-    </div>
-  </section>
+    <section class="view" role="tabpanel" data-view-panel="missions" hidden>
+      <div class="view-head"><div><span class="kicker">Work queue</span><h1>Missions</h1></div><button id="missionBtn" class="secondary-btn">Refresh queue</button></div>
+      <div class="card-grid"><button class="action-card glass" data-quick="/mission"><span>Mission queue</span><small>Review your current tasks</small></button><button class="action-card glass" data-quick="/goal status"><span>Standing goal</span><small>See the active objective</small></button><button class="action-card glass" data-quick="/status"><span>Runtime status</span><small>Check the active profile</small></button><button class="action-card glass" data-quick="/toolsets"><span>Toolsets</span><small>Ask Hermes what is enabled</small></button></div>
+      <article class="panel glass mission-guide"><h2>Start background work</h2><p>Open Chat and type <code>/background</code> followed by the task. JARVIS will report back when it finishes.</p><button class="primary-btn" data-compose="/background ">Create background mission</button></article>
+    </section>
 
-  <section class="col right glass">
-    <header class="colhead row">
-      <div class="h sm">Action Log</div>
-      <div class="live" id="live">LIVE TELEMETRY</div>
-    </header>
-
-    <div class="sysgrid">
-      <div class="sysrow"><span>Gateway</span><b id="sy-gw" class="ok">online</b></div>
-      <div class="sysrow"><span>Brain</span><b id="sy-brain">—</b></div>
-      <div class="sysrow"><span>Voice</span><b id="sy-voice">—</b></div>
-      <div class="sysrow"><span>Profile</span><b id="sy-profile">default</b></div>
-      <div class="sysrow"><span>Runtime</span><b id="sy-runtime">—</b></div>
-      <div class="sysrow"><span>Uplink</span><b id="sy-clock">—</b></div>
-    </div>
-
-    <div class="missionPanel">
-      <div class="log-lbl">Mission controls</div>
-      <div class="miniBtns">
-        <button data-quick="/status">Status</button>
-        <button data-quick="/tools">Tools</button>
-        <button data-quick="/toolsets">Toolsets</button>
-        <button data-quick="/connectors">Connectors</button>
-      </div>
-    </div>
-
-    <div class="log-lbl">Event stream</div>
-    <div class="log" id="log"></div>
-  </section>
+    <section class="view" role="tabpanel" data-view-panel="activity" hidden>
+      <div class="view-head"><div><span class="kicker">System health</span><h1>Activity</h1></div><button id="clearBtn" class="secondary-btn">Clear response</button></div>
+      <div class="sysgrid"><div class="sysrow glass"><span>Gateway</span><b id="sy-gw" class="ok">Connecting</b></div><div class="sysrow glass"><span>Brain</span><b id="sy-brain">—</b></div><div class="sysrow glass"><span>Voice</span><b id="sy-voice">—</b></div><div class="sysrow glass"><span>Profile</span><b id="sy-profile">default</b></div><div class="sysrow glass"><span>Uplink</span><b id="sy-clock">—</b></div></div>
+      <article class="panel glass activity-panel"><div class="panel-head"><div><h2>Event stream</h2><p>Current-session activity and errors</p></div></div><div class="log" id="log"></div></article>
+    </section>
+  </main>
 </div>
 
-<div class="brandmark">HERMES · JARVIS OS</div>
-<script src="app.js"></script>
+<nav class="mobile-nav" role="tablist" aria-label="Mobile navigation"><button class="active" role="tab" data-view="chat" aria-selected="true">Chat</button><button role="tab" data-view="tools" aria-selected="false">Tools</button><button role="tab" data-view="missions" aria-selected="false">Missions</button><button role="tab" data-view="activity" aria-selected="false">Activity</button></nav>
+<script src="app.js?v=4"></script>
 </body>
 </html>

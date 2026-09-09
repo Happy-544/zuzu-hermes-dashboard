@@ -133,7 +133,15 @@ _CMD = re.compile(r"^\s*/(new|profile|goal|personality|kanban|mission|missions|b
 def _hermes_command(*args):
     configured = os.environ.get("HERMES_CMD", "").strip()
     if configured:
-        return shlex.split(configured) + list(args)
+        parts = shlex.split(configured, posix=os.name != "nt")
+        if os.name == "nt":
+            parts = [
+                part[1:-1]
+                if len(part) >= 2 and part[0] == part[-1] and part[0] in {"\"", "'"}
+                else part
+                for part in parts
+            ]
+        return parts + list(args)
     executable = shutil.which("hermes")
     if executable:
         return [executable, *args]
@@ -143,7 +151,8 @@ def _hermes_command(*args):
 def _shell(cmd, timeout=25):
     try:
         p = subprocess.run(cmd, text=True, cwd=os.getcwd(), stdout=subprocess.PIPE,
-                           stderr=subprocess.PIPE, timeout=timeout)
+                           stderr=subprocess.PIPE, timeout=timeout,
+                           encoding="utf-8", errors="replace")
         return (p.stdout or p.stderr or "").strip()[:3500]
     except Exception as e:  # noqa: BLE001
         return f"Unavailable: {e}"
@@ -196,7 +205,7 @@ def handle(message, runner=None):
             out = _shell(_hermes_command("tools", "list"))
             reply = out or "No tool list returned. Start from a shell where `hermes tools list` works, or set HERMES_CMD."
             return dict(message=None, reply=reply, note="Hermes tools listed")
-        return dict(message="List my enabled Hermes toolsets and connected third-party tools. Include browser/Chrome availability if present. Keep it concise.", note="toolsets requested")
+        return dict(message="List my enabled Hermes toolsets and connected third-party tools. Include browser/Chrome availability if present. Keep it concise.", note="toolsets requested", hermes=True)
 
     if cmd == "connectors":
         return dict(message=None, note="connector bridge explained", reply=(
@@ -211,11 +220,11 @@ def handle(message, runner=None):
             f"Explain the correct Hermes-native way to connect {target} as a third-party app/tool. "
             "Be generic: the dashboard should inherit whatever is connected to Hermes, not maintain separate credentials. "
             "Include the relevant Hermes command family if known, like hermes tools, hermes mcp, hermes gateway setup, or a skill."
-        ), note=f"connector help: {target[:40]}")
+        ), note=f"connector help: {target[:40]}", hermes=True)
 
     if cmd == "browser":
         task = arg or "open or inspect Google Chrome using the configured Hermes browser/computer-use tools and report what is available"
-        return dict(message=f"Use my Hermes browser/Google Chrome tooling if available: {task}", note="browser mission armed")
+        return dict(message=f"Use my Hermes browser/Google Chrome tooling if available: {task}", note="browser mission armed", hermes=True)
 
     if cmd == "profile":
         if not arg:

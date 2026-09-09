@@ -21,6 +21,9 @@ import shutil
 import subprocess
 import threading
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 
 _SESSION_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{7,127}$")
 _ANSI = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
@@ -38,6 +41,25 @@ IDLE_TIMEOUT = int(os.environ.get("JARVIS_TIMEOUT", "120"))
 # Raw transcripts can contain private prompts. Logging is off by default.
 RAW_LOG = os.environ.get("JARVIS_RAW_LOG", "").strip()
 TOOLSETS = os.environ.get("HERMES_TOOLSETS", "").strip()
+GEMINI_MODEL = os.environ.get("GEMINI_CHAT_MODEL", "gemini-2.5-flash").strip()
+
+
+def gemini_api_key():
+    """Read the shared JARVIS Gemini key without copying or logging it."""
+    direct = os.environ.get("GEMINI_API_KEY", "").strip()
+    if direct:
+        return direct
+    config_path = os.environ.get("GEMINI_CONFIG_PATH", "").strip()
+    if not config_path:
+        return ""
+    try:
+        return str(json.loads(open(config_path, encoding="utf-8").read()).get("gemini_api_key") or "").strip()
+    except (OSError, ValueError, TypeError):
+        return ""
+
+
+def gemini_available():
+    return bool(gemini_api_key()) and bool(GEMINI_MODEL)
 
 # One Hermes subprocess at a time. Hermes session state and profile resources are
 # shared, so foreground runs and /background missions must not overlap. The active
@@ -46,6 +68,11 @@ TOOLSETS = os.environ.get("HERMES_TOOLSETS", "").strip()
 EXECUTION_LOCK = threading.RLock()
 _ACTIVE_PROC = None
 _ACTIVE_LOCK = threading.Lock()
+_TOOL_CACHE_LOCK = threading.Lock()
+_TOOL_CACHE = []
+_TOOL_CACHE_AT = 0.0
+_TOOL_REFRESHING = False
+_TOOL_CACHE_TTL = 120
 
 
 def cancel_active():
@@ -73,7 +100,18 @@ def _mono_ms():
 def _hermes_base():
     configured = os.environ.get("HERMES_CMD", "").strip()
     if configured:
-        return shlex.split(configured)
+        # POSIX splitting consumes backslashes in a Windows executable path
+        # (for example C:\\Users\\...\\hermes.exe), making tool discovery and
+        # explicit Hermes commands silently fail on the local dashboard.
+        parts = shlex.split(configured, posix=os.name != "nt")
+        if os.name == "nt":
+            parts = [
+                part[1:-1]
+                if len(part) >= 2 and part[0] == part[-1] and part[0] in {"\"", "'"}
+                else part
+                for part in parts
+            ]
+        return parts
     exe = shutil.which("hermes")
     if exe:
         return [exe]
@@ -86,19 +124,61 @@ def _can_launch_hermes():
         base = _hermes_base()
         proc = subprocess.run(base + ["--version"], cwd=WORKDIR, text=True,
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                              timeout=12)
+                              timeout=12, encoding="utf-8", errors="replace")
         return proc.returncode == 0, (proc.stdout or proc.stderr).strip()
     except Exception as e:  # noqa: BLE001
         return False, str(e)
 
 
 def runtime_kind():
+    if RUNTIME == "gemini":
+        return "gemini" if gemini_available() else "mock"
     if RUNTIME == "mock":
         return "mock"
     if RUNTIME == "hermes":
         return "hermes"
     ok, _ = _can_launch_hermes()
     return "hermes" if ok else "mock"
+
+
+def run_gemini(message, system=None):
+    """Use Gemini for the spoken conversation; Hermes remains available for tools."""
+    if not gemini_available():
+        yield dict(t="error", message="Gemini is not configured for this dashboard.")
+        return
+    started = _mono_ms()
+    body = {
+        "contents": [{"role": "user", "parts": [{"text": message}]}],
+        "generationConfig": {"temperature": 0.78, "maxOutputTokens": 420},
+    }
+    if system:
+        body["systemInstruction"] = {"parts": [{"text": system}]}
+    endpoint = (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        + urllib.parse.quote(GEMINI_MODEL, safe="-") + ":generateContent?key="
+        + urllib.parse.quote(gemini_api_key(), safe="")
+    )
+    request = urllib.request.Request(
+        endpoint, data=json.dumps(body).encode("utf-8"), method="POST",
+        headers={"content-type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            payload = json.loads(response.read())
+        candidates = payload.get("candidates") or []
+        parts = candidates[0].get("content", {}).get("parts", []) if candidates else []
+        text = "".join(part.get("text", "") for part in parts).strip()
+        if not text:
+            raise RuntimeError("Gemini returned no text")
+        yield dict(t="status", model=GEMINI_MODEL, tools=len(hermes_tools_snapshot()),
+                   mcp=[], permission=PERMISSION, profile=PROFILE, runtime="gemini", session_id=None)
+        yield dict(t="latency", ms=_mono_ms() - started)
+        yield dict(t="delta", text=text)
+        yield dict(t="complete", session_id=None, ms=_mono_ms() - started)
+    except urllib.error.HTTPError as exc:
+        yield dict(t="error", message=f"Gemini request failed (HTTP {exc.code}).")
+    except (OSError, ValueError, RuntimeError) as exc:
+        yield dict(t="error", message=f"Gemini request failed: {str(exc)[:180]}")
 
 
 def build_command(message, session_id=None, system=None):
@@ -125,13 +205,12 @@ def build_command(message, session_id=None, system=None):
     return cmd
 
 
-def hermes_tools_snapshot(limit=36):
-    """Return a compact list of enabled/visible Hermes toolsets/tools for UI status."""
+def _collect_hermes_tools(limit=36):
     try:
         base = _hermes_base()
         proc = subprocess.run(base + ["tools", "list"], cwd=WORKDIR, text=True,
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                              timeout=20)
+                              timeout=20, encoding="utf-8", errors="replace")
         out = (proc.stdout or proc.stderr or "").strip()
         tools = []
         for line in out.splitlines():
@@ -145,6 +224,48 @@ def hermes_tools_snapshot(limit=36):
         return tools or [out[:120]] if out else []
     except Exception:
         return []
+
+
+def _refresh_hermes_tools():
+    global _TOOL_CACHE, _TOOL_CACHE_AT, _TOOL_REFRESHING
+    items = _collect_hermes_tools()
+    with _TOOL_CACHE_LOCK:
+        if items:
+            _TOOL_CACHE = items
+            _TOOL_CACHE_AT = time.monotonic()
+        _TOOL_REFRESHING = False
+
+
+def hermes_tools_snapshot(limit=36, wait=False):
+    """Return cached Hermes tools without blocking dashboard rendering."""
+    global _TOOL_REFRESHING, _TOOL_CACHE, _TOOL_CACHE_AT
+    now = time.monotonic()
+    with _TOOL_CACHE_LOCK:
+        cached = list(_TOOL_CACHE)
+        fresh = bool(cached) and now - _TOOL_CACHE_AT < _TOOL_CACHE_TTL
+        if fresh:
+            return cached[:limit]
+        if wait:
+            _TOOL_REFRESHING = True
+        elif not _TOOL_REFRESHING:
+            _TOOL_REFRESHING = True
+            threading.Thread(target=_refresh_hermes_tools, daemon=True).start()
+        else:
+            return cached[:limit]
+    if wait:
+        items = _collect_hermes_tools(limit)
+        with _TOOL_CACHE_LOCK:
+            if items:
+                _TOOL_CACHE = list(items)
+                _TOOL_CACHE_AT = time.monotonic()
+            _TOOL_REFRESHING = False
+        return items[:limit]
+    return cached[:limit]
+
+
+def hermes_tools_pending():
+    with _TOOL_CACHE_LOCK:
+        return _TOOL_REFRESHING
 
 
 def run_hermes(message, session_id=None, system=None):
@@ -292,6 +413,9 @@ def run_mock(message, session_id=None, system=None):
 
 
 def run(message, session_id=None, system=None):
+    if runtime_kind() == "gemini":
+        yield from run_gemini(message, system)
+        return
     if runtime_kind() != "hermes":
         yield from run_mock(message, session_id, system)
         return

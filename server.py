@@ -41,6 +41,24 @@ RUN_LOCK = threading.Lock()
 MAX_JSON_BODY = 1024 * 1024
 MAX_AUDIO_BODY = 12 * 1024 * 1024
 
+
+def _allowed_hosts():
+    local = {f"127.0.0.1:{PORT}", f"localhost:{PORT}"}
+    public_origin = os.environ.get("JARVIS_PUBLIC_ORIGIN", "").strip().rstrip("/")
+    if public_origin:
+        parsed = urlparse(public_origin)
+        if parsed.netloc:
+            local.add(parsed.netloc)
+    return local
+
+
+def _allowed_origins():
+    origins = {f"http://127.0.0.1:{PORT}", f"http://localhost:{PORT}"}
+    public_origin = os.environ.get("JARVIS_PUBLIC_ORIGIN", "").strip().rstrip("/")
+    if public_origin:
+        origins.add(public_origin)
+    return origins
+
 # The Jarvis persona, appended to every run. Without it, the model answers as a
 # coding agent and narrates its own tooling — which is not what you want spoken
 # out loud. Edit persona.md to change how it talks.
@@ -91,13 +109,11 @@ class Handler(BaseHTTPRequestHandler):
 
     def _host_ok(self):
         host = self.headers.get("Host", "")
-        return host in {f"127.0.0.1:{PORT}", f"localhost:{PORT}"}
+        return host in _allowed_hosts()
 
     def _origin_ok(self):
         origin = self.headers.get("Origin")
-        return origin in {
-            f"http://127.0.0.1:{PORT}", f"http://localhost:{PORT}"
-        }
+        return origin in _allowed_origins()
 
     def _token_ok(self):
         supplied = self.headers.get("X-Jarvis-Token", "")
@@ -109,20 +125,23 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"error": "invalid host"}, 403)
         p = urlparse(self.path).path
         if p == "/api/status":
+            runtime_name = runtime.runtime_kind()
             return self._json(dict(
-                runtime=runtime.runtime_kind(),
+                runtime=runtime_name,
                 permission=runtime.PERMISSION,
                 profile=runtime.PROFILE,
                 source=runtime.SOURCE,
                 workdir=runtime.WORKDIR,
-                model=runtime.MODEL or "Hermes default",
+                model=(runtime.GEMINI_MODEL if runtime_name == "gemini"
+                       else runtime.MODEL or "Hermes default"),
                 tools=runtime.hermes_tools_snapshot(),
+                tools_pending=runtime.hermes_tools_pending(),
                 browser_stt=True,
                 browser_tts=True,
-                voice_mode=os.environ.get("JARVIS_VOICE_MODE", "elevenlabs" if voice.available() else "browser"),
-                voice_id=voice.voice_id() if voice.available() else "browser",
-                stt="elevenlabs" if voice.available() else "browser",
-                tts="elevenlabs" if voice.available() else "browser",
+                voice_mode=os.environ.get("JARVIS_VOICE_MODE", voice.tts_provider()),
+                voice_id=voice.voice_id() if voice.tts_available() else "browser",
+                stt="elevenlabs" if voice.stt_available() else "browser",
+                tts=voice.tts_provider(),
                 session=SESSION["id"]))
         if p == "/api/jobs":
             if not self._token_ok():
@@ -162,7 +181,7 @@ class Handler(BaseHTTPRequestHandler):
         if p == "/api/speak":
             try:
                 text = (json.loads(raw or b"{}").get("text") or "").strip()
-                return self._bytes(voice.speak(text), "audio/mpeg")
+                return self._bytes(voice.speak(text), voice.content_type())
             except Exception as e:                        # noqa: BLE001
                 return self._json({"error": str(e)[:200]}, 503)
 
@@ -221,7 +240,7 @@ class Handler(BaseHTTPRequestHandler):
         # ── the command matrix: /new /profile /goal /personality /kanban /mission /background /tools /status /browser
         cmd = commands.handle(
             message,
-            runner=lambda m: runtime.run(m, None, persona()))
+            runner=lambda m: runtime.run_hermes(m, None, persona()))
         if cmd:
             if cmd.get("note"):
                 emit(dict(t="note", message=cmd["note"]))
@@ -236,7 +255,8 @@ class Handler(BaseHTTPRequestHandler):
             system = "\n\n".join(x for x in (persona(), extra) if x) or None
 
         try:
-            for ev in runtime.run(message, SESSION["id"], system):
+            runner = runtime.run_hermes if cmd and cmd.get("hermes") else runtime.run
+            for ev in runner(message, SESSION["id"], system):
                 # Only remember a real Hermes session, never demo/mock identifiers.
                 sid = ev.get("session_id")
                 # Only remember a session that actually COMPLETED. Storing it from
@@ -258,10 +278,11 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     kind = runtime.runtime_kind()
-    brain = ("Hermes Agent (profile tools, skills, memory, MCP, browser integrations live)"
-             if kind == "hermes" else "MOCK — Hermes CLI not reachable")
-    vo = (f"ElevenLabs · {voice.voice_id()[:8]}…" if voice.available()
-          else "none (add ELEVENLABS_API_KEY for voice)")
+    brain = ("Gemini conversation + Hermes tools" if kind == "gemini" else
+             "Hermes Agent (profile tools, skills, memory, MCP, browser integrations live)"
+             if kind == "hermes" else "MOCK — configured model is not reachable")
+    vo = (f"{voice.tts_provider()} · {voice.voice_id()}" if voice.tts_available()
+          else "browser speech fallback")
     perm = runtime.PERMISSION
     perm_note = ("  can run tools without asking — set JARVIS_PERMISSION=default to require approval"
                  if perm == "bypass" else "")

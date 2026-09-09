@@ -28,6 +28,28 @@ const rid = () => 'run_' + (crypto.randomUUID ? crypto.randomUUID().replace(/-/g
                                               : Math.random().toString(16).slice(2,14));
 const esc = s => String(s ?? '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 
+// ── workspace navigation ──
+const VIEW_NAMES = new Set(['chat','tools','missions','activity']);
+function showView(name, remember = true){
+  if (!VIEW_NAMES.has(name)) name = 'chat';
+  document.querySelectorAll('[data-view-panel]').forEach(panel => {
+    const active = panel.dataset.viewPanel === name;
+    panel.hidden = !active;
+    panel.classList.toggle('active', active);
+  });
+  document.querySelectorAll('[data-view]').forEach(button => {
+    const active = button.dataset.view === name;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-selected', String(active));
+  });
+  if (remember) localStorage.setItem('jarvis-view', name);
+  window.scrollTo({top:0, behavior:'auto'});
+}
+document.querySelectorAll('[data-view]').forEach(button => {
+  button.addEventListener('click', () => showView(button.dataset.view));
+});
+showView(localStorage.getItem('jarvis-view') || 'chat', false);
+
 // ── reactor state ──
 function setState(cls, word, sub){
   document.body.className = cls;
@@ -67,6 +89,7 @@ async function transmit(message, options = {}){
     log('note','BUSY',`still working — "${message.slice(0,40)}" not sent. Wait, or press Esc to cancel.`);
     return;
   }
+  showView('chat');
   running = true; answer = ''; firstDelta = false; speakThisRun = options.speak !== false;
 
   const fresh = /^\/new\b/.test(message.trim());
@@ -483,10 +506,15 @@ function sendFromInput(){
 $('#run').onclick = sendFromInput;
 $('#mic').onclick = micToggle;
 $('#showCommands').onclick = () => transmit('/commands', {speak:false});
-$('#missionBtn').onclick = () => transmit('/mission');
+$('#missionBtn').onclick = () => transmit('/mission', {speak:false});
 $('#clearBtn').onclick = () => { answer=''; $('#response').innerHTML='<span class="rplaceholder">Display cleared. Standing by.</span>'; log('note','CLEAR','response panel cleared'); };
 document.querySelectorAll('[data-quick]').forEach(b => b.onclick = () =>
   transmit(b.dataset.quick, {speak:false}));
+document.querySelectorAll('[data-compose]').forEach(b => b.onclick = () => {
+  showView('chat');
+  $('#input').value = b.dataset.compose || '';
+  $('#input').focus();
+});
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
   if (running && activeController){
@@ -502,7 +530,7 @@ $('#mute').onclick = () => {
   if (muted && player) player.pause();
 };
 $('#input').addEventListener('keydown', e => {
-  if (e.key==='Enter' && (e.metaKey||e.ctrlKey)){ e.preventDefault(); sendFromInput(); }
+  if (e.key==='Enter' && !e.shiftKey && !e.isComposing){ e.preventDefault(); sendFromInput(); }
 });
 
 // ══════════ system panel ══════════
@@ -524,34 +552,50 @@ setInterval(async () => {
   } catch(_){}
 }, 4000);
 
-// ══════════ boot ══════════
-(async () => {
-  defaultTip = $('#tip').textContent;
-  try {
-    const s = await fetch('/api/status').then(r=>r.json());
-    RT.tts = s.tts==='elevenlabs'; RT.stt = s.stt==='elevenlabs';
-    RT.browserStt = !!SpeechRecognition; RT.browserTts = !!speechSynth;
-
-    const port = location.port || '8730';
-    sys('gw', `online · :${port}`, 'ok');
-    sys('brain', s.runtime === 'hermes' ? 'Hermes Agent' : 'Hermes offline', s.runtime === 'hermes' ? 'ok' : 'warn');
-    sys('voice', `${RT.stt?'ElevenLabs STT':'Browser STT'} / ${RT.tts?'ElevenLabs TTS':'Browser TTS'}`, (RT.browserStt||RT.stt) ? '' : 'warn');
-    sys('profile', s.profile || 'default');
-    sys('runtime', s.runtime || '—', s.runtime === 'hermes' ? 'ok' : 'warn');
-    sys('clock', now());
-    $('#top-gw').textContent = `Gateway: online ${location.origin}`;
-    $('#top-profile').textContent = 'Profile: ' + (s.profile || 'default');
-    $('#top-voice').textContent = 'Voice: ' + (RT.stt ? 'ElevenLabs STT' : (RT.browserStt ? 'browser STT' : s.stt)) + ' / ' + (RT.tts ? 'ElevenLabs TTS' : 'browser TTS');
-    const tools = (s.tools || []).slice(0, 12);
-    $('#toolsList').innerHTML = tools.length ? tools.map(t => `<span class="chip">${esc(t)}</span>`).join('') : '<span class="chip ghost">Hermes tool list unavailable — set HERMES_CMD if needed</span>';
-
-    log('status', 'BOOT',
-        `gateway online · ${s.runtime} core · profile=${s.profile || 'default'} · permission=${s.permission}`);
-    log('voice', 'VOICE', `channel ready — ${RT.stt ? 'ElevenLabs STT' : (RT.browserStt ? 'browser STT' : s.stt)} / ${RT.tts ? 'ElevenLabs TTS' : 'browser TTS'}`);
-    $('#mic').textContent = RT.stt ? '◉ ElevenLabs Voice' : '◉ Browser Voice';
-    setState('', 'STANDBY', 'awaiting uplink');
-  } catch(e){
-    sys('gw','offline','warn');
-    log('error','STATUS','server unreachable');
+// ══════════ boot and non-blocking status refresh ══════════
+let bootLogged = false;
+function renderStatus(s){
+  RT.tts = s.tts !== 'browser'; RT.stt = s.stt === 'elevenlabs';
+  RT.browserStt = !!SpeechRecognition; RT.browserTts = !!speechSynth;
+  const brain = s.runtime === 'gemini' ? 'Gemini + Hermes' : (s.runtime === 'hermes' ? 'Hermes Agent' : 'Core offline');
+  const ttsLabel = s.tts === 'gemini' ? 'Gemini TTS' : (RT.tts ? 'ElevenLabs TTS' : 'Browser TTS');
+  const sttLabel = RT.stt ? 'ElevenLabs STT' : (RT.browserStt ? 'Browser STT' : 'Text only');
+  sys('gw', 'Online', 'ok');
+  sys('brain', brain, s.runtime === 'mock' ? 'warn' : 'ok');
+  sys('voice', `${sttLabel} / ${ttsLabel}`, (RT.browserStt||RT.stt) ? 'ok' : 'warn');
+  sys('profile', s.profile || 'default');
+  sys('runtime', s.runtime || '—', s.runtime === 'mock' ? 'warn' : 'ok');
+  sys('clock', now());
+  $('#top-gw').textContent = 'Online';
+  $('#top-profile').textContent = 'Profile: ' + (s.profile || 'default');
+  $('#top-voice').textContent = `${sttLabel} · ${ttsLabel}`;
+  const model = document.querySelector('#core-model'); if (model) model.textContent = s.model || brain;
+  const tools = (s.tools || []).slice(0, 18);
+  $('#toolsList').innerHTML = tools.length
+    ? tools.map(t => `<span class="chip">${esc(t)}</span>`).join('')
+    : `<div class="empty-state">${s.tools_pending ? 'Loading Hermes tools…' : 'No Hermes tools were reported.'}</div>`;
+  if (!bootLogged){
+    bootLogged = true;
+    log('status','BOOT',`gateway online · ${s.runtime} · profile=${s.profile || 'default'}`);
+    log('voice','VOICE',`channel ready — ${sttLabel} / ${ttsLabel}`);
   }
-})();
+  $('#mic').textContent = RT.stt ? 'Voice live' : 'Voice';
+  setState('', 'STANDBY', 'awaiting uplink');
+}
+async function refreshStatus(attempt = 0){
+  try{
+    const response = await fetch('/api/status', {cache:'no-store'});
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const status = await response.json();
+    renderStatus(status);
+    if (status.tools_pending && !(status.tools || []).length && attempt < 20){
+      setTimeout(() => refreshStatus(attempt + 1), 900);
+    }
+  }catch(_){
+    sys('gw','Offline','warn');
+    $('#top-gw').textContent = 'Offline';
+    if (!bootLogged) log('error','STATUS','server unreachable');
+  }
+}
+defaultTip = $('#tip').textContent;
+refreshStatus();

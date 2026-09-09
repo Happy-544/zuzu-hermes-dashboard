@@ -11,27 +11,88 @@ import json
 import os
 import urllib.error
 import urllib.request
+import base64
+import wave
+from io import BytesIO
+
+from runtime import gemini_api_key
 
 # Rachel — calm, British-adjacent. Override with ELEVENLABS_VOICE_ID.
 DEFAULT_VOICE = "21m00Tcm4TlvDq8ikWAM"
 MODEL = os.environ.get("ELEVENLABS_MODEL", "eleven_turbo_v2_5")
+GEMINI_TTS_MODEL = os.environ.get("GEMINI_TTS_MODEL", "gemini-2.5-flash-preview-tts")
+GEMINI_TTS_VOICE = os.environ.get("GEMINI_TTS_VOICE", "Kore")
 
 
 def available():
+    return tts_available()
+
+
+def tts_provider():
+    if gemini_api_key():
+        return "gemini"
+    if os.environ.get("ELEVENLABS_API_KEY"):
+        return "elevenlabs"
+    return "browser"
+
+
+def tts_available():
+    return tts_provider() != "browser"
+
+
+def stt_available():
     return bool(os.environ.get("ELEVENLABS_API_KEY"))
 
 
 def voice_id():
+    if tts_provider() == "gemini":
+        return GEMINI_TTS_VOICE
     return os.environ.get("ELEVENLABS_VOICE_ID", DEFAULT_VOICE)
+
+
+def content_type():
+    return "audio/wav" if tts_provider() == "gemini" else "audio/mpeg"
+
+
+def _gemini_speak(text):
+    prompt = f"Read this warmly, calmly, and naturally as JARVIS: {text[:2500]}"
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "responseModalities": ["AUDIO"],
+            "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": GEMINI_TTS_VOICE}}},
+        },
+    }
+    url = ("https://generativelanguage.googleapis.com/v1beta/models/"
+           f"{GEMINI_TTS_MODEL}:generateContent?key={gemini_api_key()}")
+    req = urllib.request.Request(url, data=json.dumps(payload).encode(), method="POST",
+                                 headers={"content-type": "application/json"})
+    with urllib.request.urlopen(req, timeout=60) as response:
+        data = json.loads(response.read())
+    parts = (data.get("candidates") or [{}])[0].get("content", {}).get("parts", [])
+    inline = next((part.get("inlineData") or part.get("inline_data") for part in parts if part.get("inlineData") or part.get("inline_data")), None)
+    if not inline or not inline.get("data"):
+        raise RuntimeError("Gemini TTS returned no audio")
+    pcm = base64.b64decode(inline["data"])
+    output = BytesIO()
+    with wave.open(output, "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(24000)
+        wav.writeframes(pcm)
+    return output.getvalue()
 
 
 def speak(text):
     """Returns mp3 bytes, or raises. Caller decides what to do on failure."""
-    if not available():
-        raise RuntimeError("no ELEVENLABS_API_KEY")
+    if not tts_available():
+        raise RuntimeError("no text-to-speech provider configured")
     text = (text or "").strip()
     if not text:
         raise ValueError("empty text")
+
+    if tts_provider() == "gemini":
+        return _gemini_speak(text)
 
     req = urllib.request.Request(
         f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id()}",
@@ -63,7 +124,7 @@ def transcribe(audio, mime="audio/webm"):
     Chrome and is a silently-failing stub in Brave — and because it ships your
     audio to Google. This keeps listening on the same provider as speaking.
     """
-    if not available():
+    if not stt_available():
         raise RuntimeError("no ELEVENLABS_API_KEY")
     if not audio:
         raise ValueError("empty audio")
@@ -97,7 +158,7 @@ def transcribe(audio, mime="audio/webm"):
 
 def voices():
     """List the account's voices, so you can find an id to put in .env."""
-    if not available():
+    if not stt_available():
         return []
     req = urllib.request.Request(
         "https://api.elevenlabs.io/v2/voices",
