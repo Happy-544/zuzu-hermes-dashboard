@@ -170,6 +170,12 @@ Then set `HERMES_CMD` in `.env` if needed.
 
 Allow microphone access for `127.0.0.1` in the browser's site settings. ElevenLabs is optional; without it, use a browser that supports Web Speech APIs.
 
+### iPhone home-screen app and background work
+
+Open the public HTTPS dashboard in Safari, choose **Share → Add to Home Screen**, and launch JARVIS from its icon. The app keeps the screen awake during a foreground voice session, restores Gemini Live after iOS resumes it, and immediately collects completed background missions. Missions run on the home computer, so they continue when the phone app is suspended or closed.
+
+iOS suspends browser microphones and WebSockets after an app is backgrounded or the phone locks; a PWA cannot override that operating-system rule. JARVIS reconnects on return. For mobile app actions, enable **Mobile control**, create an Apple Shortcut containing only the actions you approve, and enter that Shortcut's exact name in Settings. JARVIS passes the typed mobile command to it through Apple's Shortcuts URL scheme.
+
 ### A newly connected tool is missing
 
 Start a fresh session after changing Hermes tools:

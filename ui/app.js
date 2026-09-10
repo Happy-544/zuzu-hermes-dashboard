@@ -87,6 +87,7 @@ function renderWorkspace(){
   $('#apiState').textContent = settings.apiConfigured ? 'An API key is configured. Leave the field blank to keep it.' : 'No API key is configured for this provider.';
   $('#profileName').value=settings.profile||'default'; $('#workdir').value=settings.workdir||'~';
   $('#personaText').value=settings.persona||''; $('#computerControl').checked=!!settings.computerControl; $('#mobileControl').checked=!!settings.mobileControl;
+  $('#shortcutName').value=settings.shortcutName||'JARVIS Control';
   $('#liveModel').value=settings.liveModel||''; $('#voiceSelect').value=settings.voice||'Kore';
   $('#skillList').innerHTML=(WS.skills||[]).map(s=>`<div class="list-card"><div><b>${esc(s.name)}</b><small>${esc(s.instructions.slice(0,120))}</small></div><button class="danger-link" data-delete-skill="${esc(s.id)}">Delete</button></div>`).join('')||'<div class="empty-state">No custom skills yet.</div>';
   $('#memoryList').innerHTML=(WS.memory||[]).map(m=>`<div class="list-card"><div><b>${esc(m.label)}</b><small>${esc(m.value.slice(0,160))}</small></div><button class="danger-link" data-delete-memory="${esc(m.id)}">Delete</button></div>`).join('')||'<div class="empty-state">Add a fact, preference or relationship.</div>';
@@ -117,8 +118,22 @@ document.addEventListener('click',async e=>{
     if(b.dataset.deleteMemory) await workspaceRequest({action:'delete_memory',id:b.dataset.deleteMemory});
   }catch(err){log('error','WORKSPACE',String(err.message||err));}
 });
-$('#saveSettings').onclick=async()=>{const s=WS.settings; await workspaceRequest({action:'save_settings',settings:{...s,profile:$('#profileName').value,workdir:$('#workdir').value,persona:$('#personaText').value,computerControl:$('#computerControl').checked,mobileControl:$('#mobileControl').checked,liveModel:$('#liveModel').value,voice:$('#voiceSelect').value}}); log('complete','SETTINGS','agent settings saved'); refreshStatus();};
+$('#saveSettings').onclick=async()=>{const s=WS.settings; await workspaceRequest({action:'save_settings',settings:{...s,profile:$('#profileName').value,workdir:$('#workdir').value,persona:$('#personaText').value,computerControl:$('#computerControl').checked,mobileControl:$('#mobileControl').checked,liveModel:$('#liveModel').value,voice:$('#voiceSelect').value,shortcutName:$('#shortcutName').value}}); log('complete','SETTINGS','agent settings saved'); refreshStatus();};
 $('#useFolder').onclick=()=>{$('#workdir').focus(); $('#workdir').select();};
+$('#runShortcut').onclick=()=>{
+  if (!WS?.settings?.mobileControl){ log('error','MOBILE','enable Mobile control and save settings first'); return; }
+  const name=$('#shortcutName').value.trim(), command=$('#shortcutCommand').value.trim();
+  if(!name||!command){ log('error','MOBILE','enter a Shortcut name and command'); return; }
+  const url=`shortcuts://run-shortcut?name=${encodeURIComponent(name)}&input=text&text=${encodeURIComponent(command)}`;
+  log('send','MOBILE',`opening Apple Shortcut: ${name}`);
+  window.location.href=url;
+};
+$('#installApp').onclick=()=>{
+  alert('On iPhone: open this dashboard in Safari, tap Share, then Add to Home Screen. Create an Apple Shortcut named “JARVIS Control” with the app actions you approve. JARVIS can pass any command you enter here into that Shortcut.');
+};
+const isiOS=/iPhone|iPad|iPod/i.test(navigator.userAgent);
+const standalone=window.matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
+$('#mobileCapability').textContent=isiOS?(standalone?'Installed as an iPhone app · Shortcuts control ready':'Open in Safari and choose Add to Home Screen'):'Apple Shortcuts control is available when this dashboard is opened on iPhone.';
 $('#fileUpload').onchange=async e=>{for(const file of e.target.files){const r=await fetch('/api/upload',{method:'POST',headers:apiHeaders({'content-type':file.type||'application/octet-stream','x-filename':file.name}),body:file}); if(!r.ok)log('error','UPLOAD',`Could not upload ${file.name}`);} await loadWorkspace(); e.target.value='';};
 document.querySelectorAll('.generate-btn').forEach(b=>b.onclick=()=>{const type=b.dataset.media,prompt=$(`#${type}Prompt`).value.trim();if(!prompt)return;showView('chat');transmit(`Use my Hermes ${type} generation tools to create: ${prompt}`,{speak:false});});
 function drawMemoryBrain(){
@@ -302,9 +317,9 @@ function cleanForSpeech(text){
    answers and speaks → it listens again, automatically. No re-clicking between
    turns. Click VOICE again (or press Esc) to end the conversation.
 
-   The mic is deliberately DEAF while Jarvis is thinking or speaking (`suppress`)
-   — otherwise it transcribes his own voice through the speakers and talks to
-   itself forever. That's why re-arming happens only after he finishes. */
+   Gemini Live stays full duplex while JARVIS speaks, so the user can interrupt.
+   Echo cancellation plus local voice activity stops queued playback immediately.
+   The non-Live fallbacks still use `suppress` to avoid hearing their own TTS. */
 let convo = false, suppress = false;
 let recognition = null;
 let micStream=null, recorder=null, chunks=[], actx=null, analyser=null, vdata=null;
@@ -313,6 +328,7 @@ let floorSum=0, floorN=0, threshold=0.02, peak=0, calibrating=true;
 const SILENCE=900, MIN_TURN_MS=350, MAX_TURN_MS=18000, NO_SPEECH_MS=10000;
 let liveWs=null, liveInputCtx=null, liveOutputCtx=null, liveProcessor=null;
 let liveSource=null, liveReady=false, liveSpeaking=false, livePlayAt=0;
+let liveSources=new Set(), bargeFrames=0, wakeLock=null, voiceWanted=false, liveLastMessageAt=0;
 
 function floatToPcm16Base64(float32, inputRate){
   const ratio = inputRate / 16000;
@@ -342,13 +358,30 @@ function playLivePcm(encoded, rate=24000){
   for (let i=0; i<pcm.length; i++) channel[i] = pcm[i] / 32768;
   const src = liveOutputCtx.createBufferSource();
   src.buffer = audio; src.connect(liveOutputCtx.destination);
+  liveSources.add(src);
+  src.onended = () => liveSources.delete(src);
   const when = Math.max(liveOutputCtx.currentTime + 0.015, livePlayAt);
   src.start(when); livePlayAt = when + audio.duration;
   liveSpeaking = true; document.body.classList.add('speaking');
 }
 
+function stopLivePlayback(){
+  for (const src of liveSources){ try{src.stop();}catch(_){} }
+  liveSources.clear();
+  if (liveOutputCtx) livePlayAt = liveOutputCtx.currentTime;
+  liveSpeaking = false; bargeFrames = 0;
+  document.body.classList.remove('speaking');
+}
+
+async function holdScreenAwake(){
+  if (!('wakeLock' in navigator) || document.visibilityState !== 'visible') return;
+  try{ wakeLock = await navigator.wakeLock.request('screen'); }
+  catch(_){ wakeLock = null; }
+}
+
 async function startGeminiLive(){
   try{
+    voiceWanted = true;
     setState('running','CONNECTING','Gemini native audio…');
     const auth = await fetch('/api/live-token', {
       method:'POST', headers:apiHeaders({'content-type':'application/json'}), body:'{}'
@@ -367,15 +400,17 @@ async function startGeminiLive(){
       model:`models/${auth.model}`,
       generationConfig:{responseModalities:['AUDIO'],speechConfig:{voiceConfig:{prebuiltVoiceConfig:{voiceName:auth.voice||'Kore'}}}},
       inputAudioTranscription:{}, outputAudioTranscription:{},
-      systemInstruction:{parts:[{text:'You are JARVIS. Speak warmly, naturally, briefly, and helpfully.'}]}
+      systemInstruction:{parts:[{text:auth.system || 'You are JARVIS. Speak warmly, naturally, briefly, and helpfully.'}]}
     }}));
     liveWs.onmessage = async event => {
+      liveLastMessageAt = Date.now();
       let payload = event.data;
       if (payload instanceof Blob) payload = await payload.text();
       else if (payload instanceof ArrayBuffer) payload = new TextDecoder().decode(payload);
       const msg = JSON.parse(payload);
       if (msg.setupComplete && !liveReady){
         liveReady = true; convo = true; suppress = false;
+        sessionStorage.setItem('jarvis-voice-resume','1');
         $('#mic').classList.add('on'); $('#mic').textContent = '● Gemini Live';
         setState('listening','LISTENING','native audio · speak now');
         log('voice','VOICE',`${auth.model} connected`);
@@ -383,11 +418,24 @@ async function startGeminiLive(){
         liveProcessor = liveInputCtx.createScriptProcessor(4096, 1, 1);
         const silent = liveInputCtx.createGain(); silent.gain.value = 0;
         liveProcessor.onaudioprocess = e => {
-          if (!liveReady || liveSpeaking || liveWs?.readyState !== WebSocket.OPEN) return;
-          const data = floatToPcm16Base64(e.inputBuffer.getChannelData(0), liveInputCtx.sampleRate);
+          if (!liveReady || liveWs?.readyState !== WebSocket.OPEN) return;
+          const samples = e.inputBuffer.getChannelData(0);
+          if (liveSpeaking){
+            let energy = 0;
+            for (let i=0; i<samples.length; i++) energy += samples[i] * samples[i];
+            const rms = Math.sqrt(energy / samples.length);
+            bargeFrames = rms > 0.055 ? bargeFrames + 1 : 0;
+            if (bargeFrames >= 2){
+              stopLivePlayback();
+              setState('listening','LISTENING','interrupted · listening');
+              log('voice','VOICE','barge-in detected · response stopped');
+            }
+          }
+          const data = floatToPcm16Base64(samples, liveInputCtx.sampleRate);
           liveWs.send(JSON.stringify({realtimeInput:{audio:{data,mimeType:'audio/pcm;rate=16000'}}}));
         };
         liveSource.connect(liveProcessor); liveProcessor.connect(silent); silent.connect(liveInputCtx.destination);
+        holdScreenAwake();
       }
       const content = msg.serverContent;
       if (!content) return;
@@ -407,12 +455,12 @@ async function startGeminiLive(){
         }, delay + 30);
       }
       if (content.interrupted){
-        livePlayAt = liveOutputCtx.currentTime;
-        liveSpeaking=false; document.body.classList.remove('speaking');
+        stopLivePlayback();
+        if(convo) setState('listening','LISTENING','interrupted · speak now');
       }
     };
     liveWs.onerror = () => log('error','VOICE','Gemini Live connection error');
-    liveWs.onclose = () => { if(convo) { log('error','VOICE','Gemini Live disconnected'); stopConvo(); } };
+    liveWs.onclose = () => { if(convo) { log('error','VOICE','Gemini Live paused'); stopConvo(false); } };
   }catch(e){
     log('error','VOICE',`Gemini Live unavailable: ${String(e.message||e).slice(0,120)}`);
     stopConvo();
@@ -490,9 +538,11 @@ async function micToggle(){
   log('error','VOICE','no speech recognition available — add ElevenLabs key or use Chrome browser STT');
 }
 
-function stopConvo(){
+function stopConvo(manual=true){
+  if (manual){ voiceWanted = false; sessionStorage.removeItem('jarvis-voice-resume'); }
   convo = false; suppress = false;
   liveReady = false; liveSpeaking = false;
+  stopLivePlayback();
   if (liveProcessor){ try{liveProcessor.disconnect();}catch(_){} liveProcessor=null; }
   if (liveSource){ try{liveSource.disconnect();}catch(_){} liveSource=null; }
   if (liveWs){ const ws=liveWs; liveWs=null; try{ws.close();}catch(_){} }
@@ -505,6 +555,7 @@ function stopConvo(){
   if (player){ try{player.pause();}catch(_){} }
   if (micStream){ micStream.getTracks().forEach(t=>t.stop()); micStream=null; }
   if (actx){ actx.close().catch(()=>{}); actx=null; analyser=null; }
+  if (wakeLock){ try{wakeLock.release();}catch(_){} wakeLock=null; }
   document.body.classList.remove('speaking');
   $('#mic').classList.remove('on'); $('#mic').textContent = '◉ VOICE';
   log('voice','VOICE','conversation closed');
@@ -739,8 +790,9 @@ function sys(id, val, cls){
 // live clock in the system panel
 setInterval(() => sys('clock', now()), 1000);
 
-// poll for finished /background missions and report them when they land
-setInterval(async () => {
+// Background missions run on the server. The page reports them immediately when
+// visible again, even if iOS suspended the installed web app in the meantime.
+async function pollJobs(){
   try {
     const j = await fetch('/api/jobs', {headers:apiHeaders()}).then(r => r.json());
     for (const d of (j.done || [])){
@@ -748,7 +800,27 @@ setInterval(async () => {
       if (!running) speak(`Mission complete. ${(d.result||'').slice(0,300)}`);
     }
   } catch(_){}
-}, 4000);
+}
+setInterval(pollJobs, 4000);
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden'){
+    if (convo || voiceWanted) sessionStorage.setItem('jarvis-voice-resume','1');
+    return;
+  }
+  refreshStatus(); loadWorkspace(); pollJobs();
+  if (convo) holdScreenAwake();
+  const shouldResume=sessionStorage.getItem('jarvis-voice-resume')==='1';
+  const staleLive=liveWs && Date.now()-liveLastMessageAt>20000;
+  if (shouldResume && RT.live && (!liveWs || liveWs.readyState > WebSocket.OPEN || staleLive)){
+    if (staleLive) stopConvo(false);
+    setTimeout(() => startGeminiLive(), 350);
+  }
+});
+
+if ('serviceWorker' in navigator){
+  window.addEventListener('load',()=>navigator.serviceWorker.register('/service-worker.js').catch(()=>{}));
+}
 
 // ══════════ boot and non-blocking status refresh ══════════
 let bootLogged = false;

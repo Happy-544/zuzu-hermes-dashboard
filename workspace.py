@@ -26,7 +26,8 @@ DEFAULT = {
     "settings": {"provider": "gemini", "model": "gemini-2.5-flash", "profile": "default",
                  "workdir": "~", "computerControl": False, "mobileControl": False,
                  "liveModel": "gemini-2.5-flash-native-audio-preview-12-2025", "voice": "Kore",
-                 "persona": "Warm, concise, capable and naturally conversational."},
+                 "persona": "Warm, concise, capable and naturally conversational.",
+                 "shortcutName": "JARVIS Control"},
     "projects": [{"id": "home", "name": "Personal workspace", "folder": "~", "sessions": [
         {"id": "main", "name": "General", "created": time.time()}]}],
     "selectedProject": "home", "selectedSession": "main", "skills": [], "memory": [],
@@ -111,6 +112,7 @@ def action(payload):
             "liveModel": str(src.get("liveModel", DEFAULT["settings"]["liveModel"])).strip()[:150],
             "voice": str(src.get("voice", "Kore")).strip()[:60] or "Kore",
             "persona": str(src.get("persona", DEFAULT["settings"]["persona"])).strip()[:8000],
+            "shortcutName": str(src.get("shortcutName", DEFAULT["settings"]["shortcutName"])).strip()[:120],
         }
         data["settings"] = clean
         env = {"JARVIS_PROVIDER": provider, "JARVIS_MODEL": clean["model"],

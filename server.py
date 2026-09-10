@@ -197,7 +197,11 @@ class Handler(BaseHTTPRequestHandler):
 
         if p == "/api/live-token":
             try:
-                return self._json(voice.create_live_token())
+                auth = voice.create_live_token()
+                # Live voice is a separate model session, so give it the same
+                # saved persona, memory, skills and profile context as text chat.
+                auth["system"] = persona()
+                return self._json(auth)
             except Exception as e:                        # noqa: BLE001
                 return self._json({"error": str(e)[:200]}, 503)
 

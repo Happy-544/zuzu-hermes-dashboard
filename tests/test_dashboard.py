@@ -68,6 +68,25 @@ class InterfaceTests(unittest.TestCase):
         self.assertIn("payload instanceof Blob", js)
         self.assertIn("await payload.text()", js)
 
+    def test_live_voice_supports_barge_in_and_saved_agent_context(self):
+        js = (ROOT / "ui" / "app.js").read_text(encoding="utf-8")
+        server = (ROOT / "server.py").read_text(encoding="utf-8")
+        self.assertNotIn("!liveReady || liveSpeaking ||", js)
+        self.assertIn("barge-in detected", js)
+        self.assertIn("stopLivePlayback()", js)
+        self.assertIn("auth.system ||", js)
+        self.assertIn('auth["system"] = persona()', server)
+
+    def test_installable_mobile_app_and_shortcuts_control_exist(self):
+        html = (ROOT / "ui" / "index.html").read_text(encoding="utf-8")
+        js = (ROOT / "ui" / "app.js").read_text(encoding="utf-8")
+        self.assertIn('rel="manifest"', html)
+        self.assertIn('id="runShortcut"', html)
+        self.assertIn("shortcuts://run-shortcut", js)
+        self.assertIn("visibilitychange", js)
+        self.assertTrue((ROOT / "ui" / "service-worker.js").is_file())
+        self.assertTrue((ROOT / "ui" / "manifest.webmanifest").is_file())
+
 
 class WorkspaceTests(unittest.TestCase):
     def test_projects_sessions_skills_and_memory_round_trip(self):
