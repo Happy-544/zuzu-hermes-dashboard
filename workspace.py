@@ -81,7 +81,8 @@ def agent_context(limit=1800):
 _CONTROL_INTENT = re.compile(
     r"(?:^/(?:pc|computer)\b|\b(?:open|close|launch|run|click|tap|type|press|"
     r"download|upload|install|uninstall|move|rename|delete|control|navigate)\b.*"
-    r"\b(?:pc|computer|desktop|windows|chrome|edge|browser|file|folder|app|application)\b|"
+    r"\b(?:pc|computer|desktop|windows|chrome|edge|browser|file|folder|app|application|"
+    r"notepad|calculator|excel|word|powerpoint|outlook|teams|whatsapp)\b|"
     r"(?:افتح|اقفل|شغل|اضغط|اكتب|نز[ّل]|حم[ّل]|احذف|انقل|غي[ّر]).*"
     r"(?:الكمبيوتر|اللابتوب|الويندوز|كروم|إيدج|المتصفح|ملف|مجلد|برنامج))",
     re.I,

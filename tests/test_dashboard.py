@@ -102,11 +102,23 @@ class InterfaceTests(unittest.TestCase):
         self.assertTrue((ROOT / "ui" / "service-worker.js").is_file())
         self.assertTrue((ROOT / "ui" / "manifest.webmanifest").is_file())
 
+    def test_tool_cards_wait_for_details_and_assets_refresh(self):
+        html = (ROOT / "ui" / "index.html").read_text(encoding="utf-8")
+        js = (ROOT / "ui" / "app.js").read_text(encoding="utf-8")
+        worker = (ROOT / "ui" / "service-worker.js").read_text(encoding="utf-8")
+        self.assertIn('data-cmd="/pc"', html)
+        self.assertIn("'/pc'", js)
+        self.assertIn("is waiting for task details", js)
+        self.assertIn("app.js?v=8", html)
+        self.assertIn("jarvis-shell-v8", worker)
+        self.assertIn("fetch(event.request).then", worker)
+
 
 class WorkspaceTests(unittest.TestCase):
     def test_computer_actions_route_to_hermes_only_when_enabled(self):
         with mock.patch.object(workspace, "load", return_value={"settings": {"computerControl": True}}):
             self.assertTrue(workspace.computer_control_request("Open Chrome on my computer"))
+            self.assertTrue(workspace.computer_control_request("Open Notepad"))
             self.assertTrue(workspace.computer_control_request("افتح كروم على الكمبيوتر"))
             self.assertFalse(workspace.computer_control_request("Tell me a joke"))
         with mock.patch.object(workspace, "load", return_value={"settings": {"computerControl": False}}):

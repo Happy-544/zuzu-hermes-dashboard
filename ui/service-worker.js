@@ -1,5 +1,5 @@
-const CACHE='jarvis-shell-v7';
-const SHELL=['/styles.css?v=7','/app.js?v=7','/manifest.webmanifest','/icon-192.png','/icon-512.png'];
+const CACHE='jarvis-shell-v8';
+const SHELL=['/styles.css?v=8','/app.js?v=8','/manifest.webmanifest','/icon-192.png','/icon-512.png'];
 self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(SHELL)).then(()=>self.skipWaiting())));
 self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(key=>key!==CACHE).map(key=>caches.delete(key)))).then(()=>self.clients.claim())));
 self.addEventListener('fetch',event=>{
@@ -9,5 +9,7 @@ self.addEventListener('fetch',event=>{
     event.respondWith(fetch(event.request));
     return;
   }
-  event.respondWith(caches.match(event.request).then(cached=>cached||fetch(event.request)));
+  event.respondWith(fetch(event.request).then(response=>{
+    const copy=response.clone(); caches.open(CACHE).then(cache=>cache.put(event.request,copy)); return response;
+  }).catch(()=>caches.match(event.request)));
 });

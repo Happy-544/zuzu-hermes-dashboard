@@ -704,7 +704,7 @@ function disarm(){
   document.querySelectorAll('.cmd').forEach(c=>c.classList.remove('armed'));
   $('#input').dataset.cmd = '';
 }
-const PAYLOAD_COMMANDS = new Set(['/goal','/browser','/background','/mission','/personality']);
+const PAYLOAD_COMMANDS = new Set(['/goal','/pc','/browser','/background','/mission','/personality']);
 $('#cmds').addEventListener('click', e => {
   const b = e.target.closest('.cmd'); if (!b) return;
   const cmd = b.dataset.cmd;
@@ -713,18 +713,21 @@ $('#cmds').addEventListener('click', e => {
     return;
   }
 
-  // Every matrix button executes its base command immediately. Commands that
-  // accept an argument remain armed afterwards so the next typed or spoken
-  // payload is sent as `/command payload`.
+  // Commands that need details open Chat and wait for one typed or spoken
+  // payload. Sending the empty base command used to launch a vague task and
+  // made the cards look broken while Hermes worked without useful output.
   disarm();
   if (PAYLOAD_COMMANDS.has(cmd)){
+    showView('chat');
     b.classList.add('armed');
     $('#input').dataset.cmd = cmd;
+    $('#input').placeholder = TIPS[cmd] || 'Describe the task';
     $('#input').focus();
-    $('#tip').textContent = `${TIPS[cmd] || cmd} The command is live and remains armed for your next payload.`;
-  } else {
-    $('#tip').textContent = defaultTip;
+    $('#tip').textContent = `${TIPS[cmd] || cmd} Type or say the task, then press Send.`;
+    log('command', 'READY', `${cmd} is waiting for task details`);
+    return;
   }
+  $('#tip').textContent = defaultTip;
   log('command', 'COMMAND', `executing ${cmd} on Hermes backend`);
   transmit(cmd, {speak: !['/tools','/commands'].includes(cmd)});
 });
@@ -749,7 +752,7 @@ function sendFromInput(){
   const raw = $('#input').value.trim();
   if (!raw && !armed) return;
   const full = (armed && !raw.startsWith('/')) ? `${armed} ${raw}` : (raw || armed);
-  $('#input').value = ''; disarm(); $('#tip').textContent = defaultTip;
+  $('#input').value = ''; $('#input').placeholder = 'Message JARVIS'; disarm(); $('#tip').textContent = defaultTip;
   log('send','SEND',`transmit: ${full}`);
   transmit(full);
 }
