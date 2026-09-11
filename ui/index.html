@@ -11,14 +11,14 @@
 <title>JARVIS · Hermes</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-192.png">
-<link rel="stylesheet" href="styles.css?v=8">
+<link rel="stylesheet" href="styles.css?v=9">
 </head>
 <body>
 <div class="grid-bg"></div>
 
 <header class="app-header">
   <div class="brand"><div class="sigil" aria-hidden="true"><span></span></div><div><div class="eyebrow">Hermes Agent</div><div class="wordmark">JARVIS</div></div></div>
-  <div class="header-status"><i></i><span id="top-gw">Connecting</span></div>
+  <div class="header-status"><i></i><span id="top-gw">JARVIS connecting</span><span aria-hidden="true">·</span><span id="top-hermes">Hermes checking</span></div>
   <div class="header-meta"><span id="top-profile">Profile: default</span><span id="top-voice">Voice: loading</span></div>
 </header>
 
@@ -107,7 +107,7 @@
 
     <section class="view" role="tabpanel" data-view-panel="activity" hidden>
       <div class="view-head"><div><span class="kicker">System health</span><h1>Activity</h1></div><button id="clearBtn" class="secondary-btn">Clear response</button></div>
-      <div class="sysgrid"><div class="sysrow glass"><span>Gateway</span><b id="sy-gw" class="ok">Connecting</b></div><div class="sysrow glass"><span>Brain</span><b id="sy-brain">—</b></div><div class="sysrow glass"><span>Voice</span><b id="sy-voice">—</b></div><div class="sysrow glass"><span>Profile</span><b id="sy-profile">default</b></div><div class="sysrow glass"><span>Uplink</span><b id="sy-clock">—</b></div></div>
+      <div class="sysgrid"><div class="sysrow glass"><span>Dashboard</span><b id="sy-gw" class="ok">Connecting</b></div><div class="sysrow glass"><span>Hermes core</span><b id="sy-hermes">Checking</b></div><div class="sysrow glass"><span>Brain</span><b id="sy-brain">—</b></div><div class="sysrow glass"><span>Voice</span><b id="sy-voice">—</b></div><div class="sysrow glass"><span>Profile</span><b id="sy-profile">default</b></div><div class="sysrow glass"><span>Uplink</span><b id="sy-clock">—</b></div></div>
       <article class="panel glass activity-panel"><div class="panel-head"><div><h2>Event stream</h2><p>Current-session activity and errors</p></div></div><div class="log" id="log"></div></article>
     </section>
   </main>
@@ -115,6 +115,6 @@
 
 <nav class="mobile-nav" role="tablist" aria-label="Mobile navigation"><button class="active" role="tab" data-view="chat" aria-selected="true">Chat</button><button role="tab" data-view="projects" aria-selected="false">Projects</button><button role="tab" data-view="models" aria-selected="false">Models</button><button role="tab" data-view="memory" aria-selected="false">Brain</button><button role="tab" data-view="settings" aria-selected="false">Settings</button></nav>
 <dialog id="editorDialog"><form method="dialog" id="editorForm"><div class="dialog-head"><h2 id="dialogTitle">Add</h2><button value="cancel" aria-label="Close">×</button></div><div id="dialogFields"></div><div class="dialog-actions"><button value="cancel" class="secondary-btn">Cancel</button><button id="dialogSave" value="default" class="primary-btn">Save</button></div></form></dialog>
-<script src="app.js?v=8"></script>
+<script src="app.js?v=9"></script>
 </body>
 </html>

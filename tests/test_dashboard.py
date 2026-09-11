@@ -18,6 +18,8 @@ class RuntimeTests(unittest.TestCase):
         runtime._TOOL_CACHE = []
         runtime._TOOL_CACHE_AT = 0.0
         runtime._TOOL_REFRESHING = False
+        runtime._HERMES_HEALTH = {"connected": False, "detail": "checking", "checked_at": 0.0}
+        runtime._HERMES_HEALTH_REFRESHING = False
 
     def test_tool_discovery_does_not_block_status_rendering(self):
         def slow_tools(limit=36):
@@ -55,6 +57,19 @@ class RuntimeTests(unittest.TestCase):
         self.assertNotIn("--profile", command)
         self.assertNotIn("--model", command)
         self.assertIn("--source", command)
+
+    def test_hermes_health_is_cached(self):
+        with mock.patch.object(runtime, "_can_launch_hermes", return_value=(True, "Hermes 0.21")) as probe:
+            first = runtime.hermes_health_snapshot(wait=True)
+            second = runtime.hermes_health_snapshot()
+        self.assertTrue(first["connected"])
+        self.assertFalse(first["pending"])
+        self.assertTrue(second["connected"])
+        probe.assert_called_once()
+
+    def test_gemini_fallback_does_not_switch_to_36(self):
+        self.assertEqual(runtime.GEMINI_MODEL, "gemini-2.5-flash")
+        self.assertEqual(runtime.GEMINI_FALLBACK_MODEL, "gemini-2.5-flash")
 
 
 class InterfaceTests(unittest.TestCase):
@@ -109,8 +124,10 @@ class InterfaceTests(unittest.TestCase):
         self.assertIn('data-cmd="/pc"', html)
         self.assertIn("'/pc'", js)
         self.assertIn("is waiting for task details", js)
-        self.assertIn("app.js?v=8", html)
-        self.assertIn("jarvis-shell-v8", worker)
+        self.assertIn('id="top-hermes"', html)
+        self.assertIn('id="sy-hermes"', html)
+        self.assertIn("app.js?v=9", html)
+        self.assertIn("jarvis-shell-v9", worker)
         self.assertIn("fetch(event.request).then", worker)
 
 

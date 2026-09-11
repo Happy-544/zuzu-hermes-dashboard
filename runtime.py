@@ -43,7 +43,7 @@ IDLE_TIMEOUT = int(os.environ.get("JARVIS_TIMEOUT", "120"))
 RAW_LOG = os.environ.get("JARVIS_RAW_LOG", "").strip()
 TOOLSETS = os.environ.get("HERMES_TOOLSETS", "").strip()
 GEMINI_MODEL = os.environ.get("GEMINI_CHAT_MODEL", "gemini-2.5-flash").strip()
-GEMINI_FALLBACK_MODEL = os.environ.get("GEMINI_FALLBACK_MODEL", "gemini-3.6-flash").strip()
+GEMINI_FALLBACK_MODEL = os.environ.get("GEMINI_FALLBACK_MODEL", "gemini-2.5-flash").strip()
 
 
 def _host_path(path):
@@ -81,6 +81,10 @@ _TOOL_CACHE = []
 _TOOL_CACHE_AT = 0.0
 _TOOL_REFRESHING = False
 _TOOL_CACHE_TTL = 120
+_HERMES_HEALTH_LOCK = threading.Lock()
+_HERMES_HEALTH = {"connected": False, "detail": "checking", "checked_at": 0.0}
+_HERMES_HEALTH_REFRESHING = False
+_HERMES_HEALTH_TTL = 30
 
 
 def cancel_active():
@@ -140,6 +144,42 @@ def _can_launch_hermes():
         return proc.returncode == 0, (proc.stdout or proc.stderr).strip()
     except Exception as e:  # noqa: BLE001
         return False, str(e)
+
+
+def _refresh_hermes_health():
+    global _HERMES_HEALTH, _HERMES_HEALTH_REFRESHING
+    connected, detail = _can_launch_hermes()
+    with _HERMES_HEALTH_LOCK:
+        _HERMES_HEALTH = {
+            "connected": connected,
+            "detail": detail[:160] if detail else ("ready" if connected else "unavailable"),
+            "checked_at": time.monotonic(),
+        }
+        _HERMES_HEALTH_REFRESHING = False
+
+
+def hermes_health_snapshot(wait=False):
+    """Return a small cached Hermes CLI health result for the dashboard."""
+    global _HERMES_HEALTH_REFRESHING
+    now = time.monotonic()
+    with _HERMES_HEALTH_LOCK:
+        result = dict(_HERMES_HEALTH)
+        fresh = bool(result["checked_at"]) and now - result["checked_at"] < _HERMES_HEALTH_TTL
+        if fresh:
+            result["pending"] = False
+            return result
+        if wait:
+            _HERMES_HEALTH_REFRESHING = True
+        elif not _HERMES_HEALTH_REFRESHING:
+            _HERMES_HEALTH_REFRESHING = True
+            threading.Thread(target=_refresh_hermes_health, daemon=True).start()
+        result["pending"] = True
+    if wait:
+        _refresh_hermes_health()
+        with _HERMES_HEALTH_LOCK:
+            result = dict(_HERMES_HEALTH)
+            result["pending"] = False
+    return result
 
 
 def runtime_kind():

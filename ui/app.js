@@ -832,16 +832,21 @@ function renderStatus(s){
   RT.tts = s.tts !== 'browser'; RT.stt = s.stt === 'elevenlabs';
   RT.live = !!s.live_voice; RT.liveModel = s.live_model || '';
   RT.browserStt = !!SpeechRecognition; RT.browserTts = !!speechSynth;
-  const brain = s.runtime === 'gemini' ? 'Gemini + Hermes' : (s.runtime === 'hermes' ? 'Hermes Agent' : (s.runtime === 'mock' ? 'Core offline' : `${s.runtime} + Hermes`));
+  const hermesReady = !!s.hermes_connected;
+  const hermesChecking = !!s.hermes_pending;
+  const hermesLabel = hermesReady ? 'Connected' : (hermesChecking ? 'Checking' : 'Offline');
+  const brain = s.runtime === 'gemini' ? `Gemini${hermesReady ? ' + Hermes' : ''}` : (s.runtime === 'hermes' ? 'Hermes Agent' : (s.runtime === 'mock' ? 'Core offline' : `${s.runtime}${hermesReady ? ' + Hermes' : ''}`));
   const ttsLabel = s.tts === 'gemini' ? 'Gemini TTS' : (RT.tts ? 'ElevenLabs TTS' : 'Browser TTS');
   const sttLabel = RT.live ? 'Gemini Live' : (RT.stt ? 'ElevenLabs STT' : (RT.browserStt ? 'Browser STT' : 'Text only'));
   sys('gw', 'Online', 'ok');
+  sys('hermes', hermesLabel, hermesReady ? 'ok' : (hermesChecking ? '' : 'warn'));
   sys('brain', brain, s.runtime === 'mock' ? 'warn' : 'ok');
   sys('voice', `${sttLabel} / ${ttsLabel}`, (RT.browserStt||RT.stt) ? 'ok' : 'warn');
   sys('profile', s.profile || 'default');
-  sys('runtime', s.runtime || '—', s.runtime === 'mock' ? 'warn' : 'ok');
+  sys('runtime', brain, (s.runtime === 'mock' || (!hermesReady && !hermesChecking)) ? 'warn' : 'ok');
   sys('clock', now());
-  $('#top-gw').textContent = 'Online';
+  $('#top-gw').textContent = 'JARVIS online';
+  $('#top-hermes').textContent = `Hermes ${hermesLabel.toLowerCase()}`;
   $('#top-profile').textContent = 'Profile: ' + (s.profile || 'default');
   $('#top-voice').textContent = `${sttLabel} · ${ttsLabel}`;
   const model = document.querySelector('#core-model'); if (model) model.textContent = s.model || brain;
@@ -851,7 +856,7 @@ function renderStatus(s){
     : `<div class="empty-state">${s.tools_pending ? 'Loading Hermes tools…' : 'No Hermes tools were reported.'}</div>`;
   if (!bootLogged){
     bootLogged = true;
-    log('status','BOOT',`gateway online · ${s.runtime} · profile=${s.profile || 'default'}`);
+    log('status','BOOT',`dashboard online · Hermes ${hermesLabel.toLowerCase()} · ${s.runtime} conversation · profile=${s.profile || 'default'}`);
     log('voice','VOICE',`channel ready — ${sttLabel} / ${ttsLabel}`);
   }
   $('#mic').textContent = RT.live ? 'Gemini Live' : (RT.stt ? 'Voice live' : 'Voice');
@@ -868,7 +873,8 @@ async function refreshStatus(attempt = 0){
     }
   }catch(_){
     sys('gw','Offline','warn');
-    $('#top-gw').textContent = 'Offline';
+    $('#top-gw').textContent = 'JARVIS offline';
+    $('#top-hermes').textContent = 'Hermes unknown';
     if (!bootLogged) log('error','STATUS','server unreachable');
   }
 }

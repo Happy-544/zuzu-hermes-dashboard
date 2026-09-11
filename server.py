@@ -95,20 +95,26 @@ class Handler(BaseHTTPRequestHandler):
     # ── helpers ──────────────────────────────────────────────
     def _json(self, body, code=200):
         data = json.dumps(body).encode()
-        self.send_response(code)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(data)))
-        self.send_header("Cache-Control", "no-store")
-        self.end_headers()
-        self.wfile.write(data)
+        try:
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(data)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
+            pass
 
     def _bytes(self, data, ctype, code=200):
-        self.send_response(code)
-        self.send_header("Content-Type", ctype)
-        self.send_header("Content-Length", str(len(data)))
-        self.send_header("Cache-Control", "no-store")
-        self.end_headers()
-        self.wfile.write(data)
+        try:
+            self.send_response(code)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(data)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
+            pass
 
     def _read(self, limit):
         n = int(self.headers.get("Content-Length", 0))
@@ -135,8 +141,12 @@ class Handler(BaseHTTPRequestHandler):
         p = urlparse(self.path).path
         if p == "/api/status":
             runtime_name = runtime.runtime_kind()
+            hermes_health = runtime.hermes_health_snapshot()
             return self._json(dict(
                 runtime=runtime_name,
+                hermes_connected=hermes_health["connected"],
+                hermes_pending=hermes_health["pending"],
+                hermes_detail=hermes_health["detail"],
                 permission=runtime.PERMISSION,
                 profile=runtime.PROFILE,
                 source=runtime.SOURCE,
@@ -326,6 +336,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
+    runtime.hermes_health_snapshot(wait=True)
     kind = runtime.runtime_kind()
     brain = ("Gemini conversation + Hermes tools" if kind == "gemini" else
              "Hermes Agent (profile tools, skills, memory, MCP, browser integrations live)"
