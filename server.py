@@ -36,6 +36,11 @@ import runtime          # noqa: E402
 import voice            # noqa: E402
 import workspace        # noqa: E402
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 PORT = int(os.environ.get("JARVIS_PORT", "8730"))
 API_TOKEN = secrets.token_urlsafe(32)
 RUN_LOCK = threading.Lock()
@@ -296,7 +301,10 @@ class Handler(BaseHTTPRequestHandler):
             system = "\n\n".join(x for x in (persona(), extra) if x) or None
 
         try:
-            runner = runtime.run_hermes if cmd and cmd.get("hermes") else runtime.run
+            use_hermes = bool(cmd and cmd.get("hermes")) or workspace.computer_control_request(message)
+            if use_hermes and not (cmd and cmd.get("hermes")):
+                emit(dict(t="note", message="computer control request routed to Hermes tools"))
+            runner = runtime.run_hermes if use_hermes else runtime.run
             for ev in runner(message, SESSION["id"], system):
                 # Only remember a real Hermes session, never demo/mock identifiers.
                 sid = ev.get("session_id")

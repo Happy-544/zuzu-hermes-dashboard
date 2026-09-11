@@ -78,6 +78,22 @@ def agent_context(limit=1800):
     return "\n\n".join(chunks)[:limit]
 
 
+_CONTROL_INTENT = re.compile(
+    r"(?:^/(?:pc|computer)\b|\b(?:open|close|launch|run|click|tap|type|press|"
+    r"download|upload|install|uninstall|move|rename|delete|control|navigate)\b.*"
+    r"\b(?:pc|computer|desktop|windows|chrome|edge|browser|file|folder|app|application)\b|"
+    r"(?:افتح|اقفل|شغل|اضغط|اكتب|نز[ّل]|حم[ّل]|احذف|انقل|غي[ّر]).*"
+    r"(?:الكمبيوتر|اللابتوب|الويندوز|كروم|إيدج|المتصفح|ملف|مجلد|برنامج))",
+    re.I,
+)
+
+
+def computer_control_request(message):
+    """Route explicit device actions through Hermes when control is enabled."""
+    settings = load().get("settings", {})
+    return bool(settings.get("computerControl")) and bool(_CONTROL_INTENT.search(message or ""))
+
+
 def _env_update(values):
     path = ROOT / ".env"
     lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []

@@ -46,12 +46,18 @@ GEMINI_MODEL = os.environ.get("GEMINI_CHAT_MODEL", "gemini-2.5-flash").strip()
 GEMINI_FALLBACK_MODEL = os.environ.get("GEMINI_FALLBACK_MODEL", "gemini-3.6-flash").strip()
 
 
+def _host_path(path):
+    if os.name == "nt" and re.match(r"^/mnt/[A-Za-z]/", path or ""):
+        return path[5].upper() + ":\\" + path[7:].replace("/", "\\")
+    return path
+
+
 def gemini_api_key():
     """Read the shared JARVIS Gemini key without copying or logging it."""
     direct = os.environ.get("GEMINI_API_KEY", "").strip()
     if direct:
         return direct
-    config_path = os.environ.get("GEMINI_CONFIG_PATH", "").strip()
+    config_path = _host_path(os.environ.get("GEMINI_CONFIG_PATH", "").strip())
     if not config_path:
         return ""
     try:
@@ -113,6 +119,10 @@ def _hermes_base():
                 else part
                 for part in parts
             ]
+            # A shared .env may be written by WSL while the dashboard later
+            # starts as a native Windows process. Translate /mnt/c/... so the
+            # same Hermes installation remains launchable in both hosts.
+            parts = [_host_path(part) for part in parts]
         return parts
     exe = shutil.which("hermes")
     if exe:
@@ -251,10 +261,11 @@ def build_command(message, session_id=None, system=None):
     cmd = _hermes_base() + ["chat", "-Q", "-q", prompt, "--source", SOURCE]
     if valid_session(session_id):
         cmd += ["--resume", str(session_id)]
-    if PROFILE and PROFILE != "default":
-        cmd += ["--profile", PROFILE]
-    if MODEL:
-        cmd += ["--model", MODEL]
+    # Hermes v0.21+ inherits the selected profile from HERMES_PROFILE. The
+    # removed --profile chat flag made every tool-backed request fail at parse.
+    # Tool-backed turns must use the model/provider configured in the active
+    # Hermes profile. JARVIS_MODEL belongs to the dashboard conversation
+    # provider and may be a direct Gemini ID that Hermes cannot resolve.
     if TOOLSETS:
         cmd += ["--toolsets", TOOLSETS]
     # Hermes one-shot output is currently plain text; slash commands that need a
@@ -335,7 +346,7 @@ def _run_hermes_locked(message, session_id=None, system=None):
     global _ACTIVE_PROC
     started = _mono_ms()
     cmd = build_command(message, session_id, system)
-    yield dict(t="status", model=MODEL or "Hermes default", tools=len(hermes_tools_snapshot()),
+    yield dict(t="status", model="Hermes profile default", tools=len(hermes_tools_snapshot()),
                mcp=[], permission=PERMISSION, profile=PROFILE, runtime="hermes",
                session_id=session_id)
 

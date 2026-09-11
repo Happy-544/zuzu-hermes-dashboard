@@ -173,6 +173,7 @@ def _commands_reply():
 /toolsets — ask Hermes to list available toolsets
 /status — local Hermes runtime/profile/status
 /browser <task> — ask Hermes to use browser/Chrome tools
+/pc <task> — ask Hermes to control the computer with enabled tools
 /clear — clear the response panel locally
 /help or /commands — show this list
 
@@ -225,6 +226,10 @@ def handle(message, runner=None):
     if cmd == "browser":
         task = arg or "open or inspect Google Chrome using the configured Hermes browser/computer-use tools and report what is available"
         return dict(message=f"Use my Hermes browser/Google Chrome tooling if available: {task}", note="browser mission armed", hermes=True)
+
+    if cmd in ("pc", "computer"):
+        task = arg or "inspect the computer and report what is available without changing anything"
+        return dict(message=f"Use the enabled Hermes computer-use tools to complete this request: {task}", note="computer control armed", hermes=True)
 
     if cmd == "profile":
         if not arg:

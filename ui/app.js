@@ -734,6 +734,7 @@ const TIPS = {
   '/tools':'Shows Hermes tool status from the active profile.',
   '/toolsets':'Asks Hermes to list enabled toolsets and connected tools.',
   '/browser':'Say a Chrome/browser mission, e.g. “inspect the current tab”.',
+  '/pc':'Run a computer-control task through Hermes tools.',
   '/background':'Say a mission, e.g. “research competitors and save a report”.',
   '/mission':'Add or read mission queue items.',
   '/personality':'Set the persona, e.g. “calm, laconic, Stark tower operator”.',

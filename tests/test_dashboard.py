@@ -41,6 +41,21 @@ class RuntimeTests(unittest.TestCase):
             with mock.patch.object(commands.os, "name", "nt"):
                 self.assertEqual(commands._hermes_command("tools", "list"), [path, "tools", "list"])
 
+    def test_windows_translates_wsl_hermes_path(self):
+        with mock.patch.dict(os.environ, {"HERMES_CMD": "/mnt/c/Users/Test/hermes.exe"}):
+            with mock.patch.object(runtime.os, "name", "nt"):
+                self.assertEqual(runtime._hermes_base(), [r"C:\Users\Test\hermes.exe"])
+                self.assertEqual(runtime._host_path("/mnt/d/Mark/config.json"), r"D:\Mark\config.json")
+
+    def test_hermes_chat_uses_current_cli_flags(self):
+        with mock.patch.object(runtime, "_hermes_base", return_value=["hermes"]):
+            with mock.patch.object(runtime, "PROFILE", "Ali"):
+                command = runtime.build_command("Inspect the desktop", system="Be concise")
+        self.assertEqual(command[:4], ["hermes", "chat", "-Q", "-q"])
+        self.assertNotIn("--profile", command)
+        self.assertNotIn("--model", command)
+        self.assertIn("--source", command)
+
 
 class InterfaceTests(unittest.TestCase):
     def test_primary_views_and_mobile_navigation_exist(self):
@@ -89,6 +104,14 @@ class InterfaceTests(unittest.TestCase):
 
 
 class WorkspaceTests(unittest.TestCase):
+    def test_computer_actions_route_to_hermes_only_when_enabled(self):
+        with mock.patch.object(workspace, "load", return_value={"settings": {"computerControl": True}}):
+            self.assertTrue(workspace.computer_control_request("Open Chrome on my computer"))
+            self.assertTrue(workspace.computer_control_request("افتح كروم على الكمبيوتر"))
+            self.assertFalse(workspace.computer_control_request("Tell me a joke"))
+        with mock.patch.object(workspace, "load", return_value={"settings": {"computerControl": False}}):
+            self.assertFalse(workspace.computer_control_request("Open Chrome on my computer"))
+
     def test_projects_sessions_skills_and_memory_round_trip(self):
         with tempfile.TemporaryDirectory() as folder:
             old_file = workspace.FILE
