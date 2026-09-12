@@ -6,3 +6,4 @@ bin/
 state.json
 workspace.json
 uploads/
+tests/voice-smoke.wav

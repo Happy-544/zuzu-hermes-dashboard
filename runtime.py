@@ -238,7 +238,7 @@ def run_gemini(message, system=None):
         yield dict(t="delta", text=text)
         yield dict(t="complete", session_id=None, ms=_mono_ms() - started)
     except urllib.error.HTTPError as exc:
-        if exc.code == 404 and GEMINI_MODEL == "gemini-2.5-flash" and GEMINI_FALLBACK_MODEL:
+        if exc.code == 404 and GEMINI_MODEL == "gemini-2.5-flash" and GEMINI_FALLBACK_MODEL and GEMINI_FALLBACK_MODEL != GEMINI_MODEL:
             GEMINI_MODEL = GEMINI_FALLBACK_MODEL
             yield dict(t="note", message="Google rejected Gemini 2.5 Flash for this API account; using the configured fallback.")
             yield from run_gemini(message, system)
@@ -254,6 +254,8 @@ def _provider_model():
 
 
 def active_model():
+    if PROVIDER == "hermes":
+        return "Hermes profile default"
     return GEMINI_MODEL if runtime_kind() == "gemini" else (_provider_model() or MODEL or "Hermes default")
 
 
@@ -303,10 +305,9 @@ def build_command(message, session_id=None, system=None):
     # The dashboard selection chooses Hermes' inference backend; it does not
     # create a separate direct-chat agent.
     if PROVIDER == "gemini":
-        # Hermes' native Google adapter currently rejects 2.5 Flash for this
-        # account. Google's OpenAI-compatible endpoint supports the same model
-        # while keeping Hermes as the tool-owning agent.
-        cmd += ["--provider", "custom", "--model", GEMINI_MODEL]
+        # Use Google's native resolver; OPENAI_BASE_URL is ignored by the
+        # installed Hermes custom resolver and can silently select another host.
+        cmd += ["--provider", "google", "--model", GEMINI_MODEL]
     elif PROVIDER in {"openai", "anthropic", "openrouter", "ollama"}:
         cmd += ["--provider", PROVIDER, "--model", _provider_model()]
     if valid_session(session_id):
@@ -403,11 +404,11 @@ def _run_hermes_locked(message, session_id=None, system=None):
         # or logging another copy of it.
         key = gemini_api_key()
         if key:
-            child_env["OPENAI_API_KEY"] = key
-            child_env["OPENAI_BASE_URL"] = "https://generativelanguage.googleapis.com/v1beta/openai"
+            child_env["GEMINI_API_KEY"] = key
+            child_env["GOOGLE_API_KEY"] = key
     # Ensure GUI-started shells can still find common Homebrew/user installs.
     home = os.path.expanduser("~")
-    child_env["PATH"] = ":".join(dict.fromkeys([
+    child_env["PATH"] = os.pathsep.join(dict.fromkeys([
         child_env.get("PATH", ""),
         "/opt/homebrew/bin", "/usr/local/bin",
         os.path.join(home, ".local", "bin"),
@@ -418,7 +419,7 @@ def _run_hermes_locked(message, session_id=None, system=None):
     try:
         proc = subprocess.Popen(cmd, cwd=WORKDIR, text=True, bufsize=1,
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                env=child_env)
+                                env=child_env, encoding="utf-8", errors="replace")
         with _ACTIVE_LOCK:
             _ACTIVE_PROC = proc
     except FileNotFoundError:
@@ -493,6 +494,9 @@ def _run_hermes_locked(message, session_id=None, system=None):
                 continue
             # Be defensive when an older Hermes build ignores quiet mode.
             if _CLI_NOISE.match(clean):
+                continue
+            if clean.startswith("API call failed"):
+                yield dict(t="error", message=clean[:600])
                 continue
             if first:
                 first = False

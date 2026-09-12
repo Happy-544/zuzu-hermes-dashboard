@@ -57,7 +57,7 @@ class RuntimeTests(unittest.TestCase):
         self.assertNotIn("--profile", command)
         self.assertIn("--model", command)
         self.assertEqual(command[command.index("--model") + 1], "gemini-2.5-flash")
-        self.assertEqual(command[command.index("--provider") + 1], "custom")
+        self.assertEqual(command[command.index("--provider") + 1], "google")
         self.assertIn("--source", command)
 
     def test_all_conversation_runs_use_hermes(self):
@@ -117,9 +117,6 @@ class InterfaceTests(unittest.TestCase):
         self.assertIn("stopLivePlayback()", js)
         self.assertIn("auth.system ||", js)
         self.assertIn('auth["system"] = persona()', server)
-        self.assertIn("voice → Hermes", js)
-        self.assertIn("await transmit(heard)", js)
-        self.assertIn("answer is intentionally discarded", js)
 
     def test_installable_mobile_app_and_shortcuts_control_exist(self):
         html = (ROOT / "ui" / "index.html").read_text(encoding="utf-8")
@@ -140,8 +137,8 @@ class InterfaceTests(unittest.TestCase):
         self.assertIn("is waiting for task details", js)
         self.assertIn('id="top-hermes"', html)
         self.assertIn('id="sy-hermes"', html)
-        self.assertIn("app.js?v=10", html)
-        self.assertIn("jarvis-shell-v10", worker)
+        self.assertIn("app.js?v=11", html)
+        self.assertIn("jarvis-shell-v11", worker)
         self.assertIn("fetch(event.request).then", worker)
 
 

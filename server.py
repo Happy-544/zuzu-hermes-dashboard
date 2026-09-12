@@ -217,6 +217,24 @@ class Handler(BaseHTTPRequestHandler):
                 # Live voice is a separate model session, so give it the same
                 # saved persona, memory, skills and profile context as text chat.
                 auth["system"] = persona()
+                auth["system"] += (
+                    "\nVoice role: You are the single spoken interface for JARVIS. "
+                    "Speak naturally in the user's language, defaulting to Egyptian Arabic. "
+                    "For actions on the user's Windows computer, browser, files, tools, "
+                    "or saved information, call hermes_action with the user's exact request. "
+                    "It connects to the local Hermes agent with real tools. "
+                    "Do not claim you lack those capabilities without calling it. "
+                    "Wait for the tool result before reporting completion; never invent success. "
+                    "Report failures honestly. Casual conversation needs no tool call."
+                )
+                auth["tools"] = [{"functionDeclarations": [{
+                    "name": "hermes_action",
+                    "description": "Execute the user's request through local Hermes: Windows computer control, browser, files, memory and configured tools. Return the actual result.",
+                    "parameters": {"type": "OBJECT", "properties": {
+                        "request": {"type": "STRING", "description": "The full user request, preserving language and constraints."}
+                    }, "required": ["request"]}
+                }]}]
+                auth["voice"] = workspace.load()["settings"].get("voice", voice.GEMINI_TTS_VOICE)
                 return self._json(auth)
             except Exception as e:                        # noqa: BLE001
                 return self._json({"error": str(e)[:200]}, 503)
@@ -337,6 +355,13 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
+    settings = workspace.load()["settings"]
+    runtime.PROVIDER = settings["provider"]
+    runtime.MODEL = settings["model"]
+    if runtime.PROVIDER == "gemini":
+        runtime.GEMINI_MODEL = settings["model"]
+    voice.GEMINI_TTS_VOICE = settings["voice"]
+    voice.GEMINI_LIVE_MODEL = settings["liveModel"]
     runtime.hermes_health_snapshot(wait=True)
     kind = runtime.runtime_kind()
     brain = ("Gemini conversation + Hermes tools" if kind == "gemini" else

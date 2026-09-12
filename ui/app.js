@@ -182,6 +182,12 @@ let speakDone = Promise.resolve(), activeController = null;
 
 async function transmit(message, options = {}){
   if (!message.trim()) return;
+  // With Live connected, typed and spoken turns share the same voice session.
+  // Tool requests return through hermes_action; no second TTS voice overlaps it.
+  if (liveReady && liveWs?.readyState === WebSocket.OPEN && !message.trim().startsWith('/')) {
+    liveWs.send(JSON.stringify({clientContent:{turns:[{role:'user',parts:[{text:message}]}],turnComplete:true}}));
+    return;
+  }
   if (running){
     // don't silently swallow it — say so, so it never looks like nothing happened
     log('note','BUSY',`still working — "${message.slice(0,40)}" not sent. Wait, or press Esc to cancel.`);
@@ -329,7 +335,7 @@ const SILENCE=900, MIN_TURN_MS=350, MAX_TURN_MS=18000, NO_SPEECH_MS=10000;
 let liveWs=null, liveInputCtx=null, liveOutputCtx=null, liveProcessor=null;
 let liveSource=null, liveReady=false, liveSpeaking=false, livePlayAt=0;
 let liveSources=new Set(), bargeFrames=0, wakeLock=null, voiceWanted=false, liveLastMessageAt=0;
-let liveTranscript='', liveTurnSending=false;
+let liveBridge=null, liveAnswerStarted=false;
 
 function floatToPcm16Base64(float32, inputRate){
   const ratio = inputRate / 16000;
@@ -380,8 +386,39 @@ async function holdScreenAwake(){
   catch(_){ wakeLock = null; }
 }
 
+async function executeLiveAction(request, signal){
+  log('tool', 'HERMES', 'Executing voice action');
+  const response = await fetch('/api/run', {
+    method:'POST', headers:apiHeaders({'content-type':'application/json'}),
+    body:JSON.stringify({message:request}), signal
+  });
+  if (!response.ok) throw new Error(response.status === 409 ? 'An action is already running. Wait for its result.' : `Action failed: HTTP ${response.status}`);
+  const reader=response.body.getReader(), decoder=new TextDecoder();
+  let buffer='', result='', failure='', completed=false;
+  const consume=line=>{
+    if (!line.trim()) return;
+    const ev=JSON.parse(line);
+    if(ev.t==='delta') result+=ev.text || '';
+    if(ev.t==='error') failure=ev.message || 'Hermes action failed';
+    if(ev.t==='complete') completed=true;
+    if(ev.t==='tool') log('tool','HERMES',ev.name || 'Tool activity');
+  };
+  while(true){
+    const {value,done}=await reader.read();
+    buffer+=decoder.decode(value || new Uint8Array(),{stream:!done});
+    let at;
+    while((at=buffer.indexOf('\n'))>=0){consume(buffer.slice(0,at));buffer=buffer.slice(at+1);}
+    if(done){consume(buffer);break;}
+  }
+  if(failure || !completed) throw new Error(failure || 'Connection ended before the action completed. Do not report success.');
+  log('tool','HERMES','Action response received');
+  return {result:result.slice(0,12000),instruction:'Report this outcome faithfully; do not infer success if it reports refusal, missing tools or failure.'};
+}
+
 async function startGeminiLive(){
   try{
+    if (player) player.pause();
+    speechSynth?.cancel();
     voiceWanted = true;
     setState('running','CONNECTING','Gemini native audio…');
     const auth = await fetch('/api/live-token', {
@@ -399,10 +436,14 @@ async function startGeminiLive(){
     liveWs = new WebSocket(endpoint);
     liveWs.onopen = () => liveWs.send(JSON.stringify({setup:{
       model:`models/${auth.model}`,
-      generationConfig:{responseModalities:['AUDIO'],speechConfig:{voiceConfig:{prebuiltVoiceConfig:{voiceName:auth.voice||'Kore'}}}},
-      inputAudioTranscription:{}, outputAudioTranscription:{},
+      generationConfig:{responseModalities:['AUDIO'],thinkingConfig:{thinkingBudget:0},speechConfig:{voiceConfig:{prebuiltVoiceConfig:{voiceName:auth.voice||'Kore'}}}},
+      inputAudioTranscription:{}, outputAudioTranscription:{}, tools:auth.tools || [],
       systemInstruction:{parts:[{text:auth.system || 'You are JARVIS. Speak warmly, naturally, briefly, and helpfully.'}]}
     }}));
+    const connectedSocket = liveWs;
+    liveBridge = new HermesVoiceBridge(executeLiveAction, message => {
+      if (connectedSocket === liveWs && connectedSocket.readyState === WebSocket.OPEN) connectedSocket.send(JSON.stringify(message));
+    });
     liveWs.onmessage = async event => {
       liveLastMessageAt = Date.now();
       let payload = event.data;
@@ -413,8 +454,8 @@ async function startGeminiLive(){
         liveReady = true; convo = true; suppress = false;
         sessionStorage.setItem('jarvis-voice-resume','1');
         $('#mic').classList.add('on'); $('#mic').textContent = '● JARVIS Voice';
-        setState('listening','LISTENING','Hermes agent · native voice input');
-        log('voice','VOICE',`${auth.model} voice input connected to Hermes`);
+        setState('listening','LISTENING','تفضّل، أنا سامعاك');
+        log('voice','VOICE',`${auth.model} · ${auth.voice} · Hermes actions connected`);
         liveSource = liveInputCtx.createMediaStreamSource(micStream);
         liveProcessor = liveInputCtx.createScriptProcessor(4096, 1, 1);
         const silent = liveInputCtx.createGain(); silent.gain.value = 0;
@@ -438,33 +479,29 @@ async function startGeminiLive(){
         liveSource.connect(liveProcessor); liveProcessor.connect(silent); silent.connect(liveInputCtx.destination);
         holdScreenAwake();
       }
+      if (msg.toolCallCancellation) liveBridge?.cancel(msg.toolCallCancellation.ids || []);
+      for (const call of (msg.toolCall?.functionCalls || [])) liveBridge?.handle(call);
       const content = msg.serverContent;
       if (!content) return;
       if (content.inputTranscription?.text){
-        liveTranscript += (liveTranscript ? ' ' : '') + content.inputTranscription.text;
-        $('#strun').textContent = 'HEARD: ' + liveTranscript.slice(0,42);
+        $('#strun').textContent = 'HEARD: ' + content.inputTranscription.text.slice(0,42);
       }
-      // Gemini Live is the microphone/transcription transport. Its generated
-      // answer is intentionally discarded: Hermes is the single agent that
-      // answers, decides approvals, and owns computer-control tools.
+      if (content.outputTranscription?.text){
+        if (!liveAnswerStarted) { answer=''; liveAnswerStarted=true; }
+        answer += content.outputTranscription.text;
+        renderAnswer();
+      }
+      for (const part of (content.modelTurn?.parts || [])) {
+        if (part.inlineData?.data) playLivePcm(part.inlineData.data, 24000);
+      }
       if (content.turnComplete){
-        const heard = liveTranscript.replace(/\s+/g,' ').trim();
-        liveTranscript = '';
-        if (heard && !liveTurnSending){
-          liveTurnSending = true;
-          stopLivePlayback();
-          if (player) try{ player.pause(); }catch(_){}
-          if (speechSynth) speechSynth.cancel();
-          if (running && activeController){
-            fetch('/api/cancel', {method:'POST', headers:apiHeaders({'content-type':'application/json'}), body:'{}'}).catch(()=>{});
-            activeController.abort();
-            await new Promise(resolve => setTimeout(resolve, 300));
-          }
-          log('send','SEND',`voice → Hermes: ${heard}`);
-          await transmit(heard);
-          liveTurnSending = false;
-        }
-        if(convo) setState('listening','LISTENING','Hermes agent · speak now');
+        liveAnswerStarted=false;
+        const delay = Math.max(0, (livePlayAt - liveOutputCtx.currentTime) * 1000);
+        setTimeout(() => {
+          if (connectedSocket !== liveWs || liveSources.size) return;
+          liveSpeaking=false; document.body.classList.remove('speaking');
+          if(convo) setState('listening','LISTENING','تفضّل، أنا سامعاك');
+        }, delay + 30);
       }
       if (content.interrupted){
         stopLivePlayback();
@@ -554,7 +591,7 @@ function stopConvo(manual=true){
   if (manual){ voiceWanted = false; sessionStorage.removeItem('jarvis-voice-resume'); }
   convo = false; suppress = false;
   liveReady = false; liveSpeaking = false;
-  liveTranscript = ''; liveTurnSending = false;
+  liveBridge?.close(); liveBridge=null; liveAnswerStarted=false;
   stopLivePlayback();
   if (liveProcessor){ try{liveProcessor.disconnect();}catch(_){} liveProcessor=null; }
   if (liveSource){ try{liveSource.disconnect();}catch(_){} liveSource=null; }
@@ -579,7 +616,7 @@ function stopConvo(manual=true){
 function startBrowserRecognition(){
   if (!convo || suppress || !SpeechRecognition) return;
   recognition = new SpeechRecognition();
-  recognition.lang = 'en-US';
+  recognition.lang = 'ar-EG';
   recognition.interimResults = true;
   recognition.continuous = false;
   let finalText = '';
@@ -873,7 +910,7 @@ function renderStatus(s){
     log('status','BOOT',`dashboard online · Hermes ${hermesLabel.toLowerCase()} · ${s.runtime} conversation · profile=${s.profile || 'default'}`);
     log('voice','VOICE',`channel ready — ${sttLabel} / ${ttsLabel}`);
   }
-  $('#mic').textContent = RT.live ? 'Gemini Live' : (RT.stt ? 'Voice live' : 'Voice');
+  $('#mic').textContent = RT.live ? 'JARVIS Voice' : (RT.stt ? 'Voice live' : 'Voice');
   setState('', 'STANDBY', 'awaiting uplink');
 }
 async function refreshStatus(attempt = 0){
