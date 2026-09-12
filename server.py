@@ -140,10 +140,11 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"error": "invalid host"}, 403)
         p = urlparse(self.path).path
         if p == "/api/status":
-            runtime_name = runtime.runtime_kind()
             hermes_health = runtime.hermes_health_snapshot()
+            runtime_name = "hermes" if hermes_health["connected"] else "mock"
             return self._json(dict(
                 runtime=runtime_name,
+                provider=runtime.PROVIDER,
                 hermes_connected=hermes_health["connected"],
                 hermes_pending=hermes_health["pending"],
                 hermes_detail=hermes_health["detail"],
@@ -311,10 +312,10 @@ class Handler(BaseHTTPRequestHandler):
             system = "\n\n".join(x for x in (persona(), extra) if x) or None
 
         try:
-            use_hermes = bool(cmd and cmd.get("hermes")) or workspace.computer_control_request(message)
-            if use_hermes and not (cmd and cmd.get("hermes")):
-                emit(dict(t="note", message="computer control request routed to Hermes tools"))
-            runner = runtime.run_hermes if use_hermes else runtime.run
+            # One agent owns both conversation and actions. Hermes decides when
+            # tools are needed, so natural PC commands cannot land in a second
+            # model that has no computer access.
+            runner = runtime.run_hermes
             for ev in runner(message, SESSION["id"], system):
                 # Only remember a real Hermes session, never demo/mock identifiers.
                 sid = ev.get("session_id")

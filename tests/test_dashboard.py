@@ -51,12 +51,23 @@ class RuntimeTests(unittest.TestCase):
 
     def test_hermes_chat_uses_current_cli_flags(self):
         with mock.patch.object(runtime, "_hermes_base", return_value=["hermes"]):
-            with mock.patch.object(runtime, "PROFILE", "Ali"):
+            with mock.patch.object(runtime, "PROFILE", "Ali"), mock.patch.object(runtime, "PROVIDER", "gemini"):
                 command = runtime.build_command("Inspect the desktop", system="Be concise")
         self.assertEqual(command[:4], ["hermes", "chat", "-Q", "-q"])
         self.assertNotIn("--profile", command)
-        self.assertNotIn("--model", command)
+        self.assertIn("--model", command)
+        self.assertEqual(command[command.index("--model") + 1], "gemini-2.5-flash")
+        self.assertEqual(command[command.index("--provider") + 1], "custom")
         self.assertIn("--source", command)
+
+    def test_all_conversation_runs_use_hermes(self):
+        events = [{"t": "delta", "text": "one agent"}]
+        with mock.patch.object(runtime, "hermes_health_snapshot", return_value={"connected": True}), \
+             mock.patch.object(runtime, "run_hermes", return_value=iter(events)) as hermes, \
+             mock.patch.object(runtime, "run_gemini") as direct:
+            self.assertEqual(list(runtime.run("hello")), events)
+        hermes.assert_called_once()
+        direct.assert_not_called()
 
     def test_hermes_health_is_cached(self):
         with mock.patch.object(runtime, "_can_launch_hermes", return_value=(True, "Hermes 0.21")) as probe:
@@ -106,6 +117,9 @@ class InterfaceTests(unittest.TestCase):
         self.assertIn("stopLivePlayback()", js)
         self.assertIn("auth.system ||", js)
         self.assertIn('auth["system"] = persona()', server)
+        self.assertIn("voice → Hermes", js)
+        self.assertIn("await transmit(heard)", js)
+        self.assertIn("answer is intentionally discarded", js)
 
     def test_installable_mobile_app_and_shortcuts_control_exist(self):
         html = (ROOT / "ui" / "index.html").read_text(encoding="utf-8")
@@ -126,8 +140,8 @@ class InterfaceTests(unittest.TestCase):
         self.assertIn("is waiting for task details", js)
         self.assertIn('id="top-hermes"', html)
         self.assertIn('id="sy-hermes"', html)
-        self.assertIn("app.js?v=9", html)
-        self.assertIn("jarvis-shell-v9", worker)
+        self.assertIn("app.js?v=10", html)
+        self.assertIn("jarvis-shell-v10", worker)
         self.assertIn("fetch(event.request).then", worker)
 
 

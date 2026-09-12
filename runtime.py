@@ -299,13 +299,20 @@ def build_command(message, session_id=None, system=None):
                   "Answer the request now. Return only the words JARVIS should say aloud; "
                   "never include session IDs, runtime metadata, headings, or process narration.")
     cmd = _hermes_base() + ["chat", "-Q", "-q", prompt, "--source", SOURCE]
+    # Hermes owns every turn and supplies tools, memory, skills and approvals.
+    # The dashboard selection chooses Hermes' inference backend; it does not
+    # create a separate direct-chat agent.
+    if PROVIDER == "gemini":
+        # Hermes' native Google adapter currently rejects 2.5 Flash for this
+        # account. Google's OpenAI-compatible endpoint supports the same model
+        # while keeping Hermes as the tool-owning agent.
+        cmd += ["--provider", "custom", "--model", GEMINI_MODEL]
+    elif PROVIDER in {"openai", "anthropic", "openrouter", "ollama"}:
+        cmd += ["--provider", PROVIDER, "--model", _provider_model()]
     if valid_session(session_id):
         cmd += ["--resume", str(session_id)]
     # Hermes v0.21+ inherits the selected profile from HERMES_PROFILE. The
-    # removed --profile chat flag made every tool-backed request fail at parse.
-    # Tool-backed turns must use the model/provider configured in the active
-    # Hermes profile. JARVIS_MODEL belongs to the dashboard conversation
-    # provider and may be a direct Gemini ID that Hermes cannot resolve.
+    # removed --profile chat flag made every request fail at parse.
     if TOOLSETS:
         cmd += ["--toolsets", TOOLSETS]
     # Hermes one-shot output is currently plain text; slash commands that need a
@@ -386,11 +393,18 @@ def _run_hermes_locked(message, session_id=None, system=None):
     global _ACTIVE_PROC
     started = _mono_ms()
     cmd = build_command(message, session_id, system)
-    yield dict(t="status", model="Hermes profile default", tools=len(hermes_tools_snapshot()),
+    yield dict(t="status", model=active_model(), tools=len(hermes_tools_snapshot()),
                mcp=[], permission=PERMISSION, profile=PROFILE, runtime="hermes",
                session_id=session_id)
 
     child_env = dict(os.environ)
+    if PROVIDER == "gemini":
+        # Use the same working Google credential as JARVIS without persisting
+        # or logging another copy of it.
+        key = gemini_api_key()
+        if key:
+            child_env["OPENAI_API_KEY"] = key
+            child_env["OPENAI_BASE_URL"] = "https://generativelanguage.googleapis.com/v1beta/openai"
     # Ensure GUI-started shells can still find common Homebrew/user installs.
     home = os.path.expanduser("~")
     child_env["PATH"] = ":".join(dict.fromkeys([
@@ -522,13 +536,7 @@ def run_mock(message, session_id=None, system=None):
 
 
 def run(message, session_id=None, system=None):
-    if runtime_kind() == "gemini":
-        yield from run_gemini(message, system)
-        return
-    if runtime_kind() in {"openai", "anthropic", "openrouter", "ollama"}:
-        yield from run_provider(message, system)
-        return
-    if runtime_kind() != "hermes":
+    if not hermes_health_snapshot(wait=True)["connected"]:
         yield from run_mock(message, session_id, system)
         return
     try:

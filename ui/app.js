@@ -329,6 +329,7 @@ const SILENCE=900, MIN_TURN_MS=350, MAX_TURN_MS=18000, NO_SPEECH_MS=10000;
 let liveWs=null, liveInputCtx=null, liveOutputCtx=null, liveProcessor=null;
 let liveSource=null, liveReady=false, liveSpeaking=false, livePlayAt=0;
 let liveSources=new Set(), bargeFrames=0, wakeLock=null, voiceWanted=false, liveLastMessageAt=0;
+let liveTranscript='', liveTurnSending=false;
 
 function floatToPcm16Base64(float32, inputRate){
   const ratio = inputRate / 16000;
@@ -411,9 +412,9 @@ async function startGeminiLive(){
       if (msg.setupComplete && !liveReady){
         liveReady = true; convo = true; suppress = false;
         sessionStorage.setItem('jarvis-voice-resume','1');
-        $('#mic').classList.add('on'); $('#mic').textContent = '● Gemini Live';
-        setState('listening','LISTENING','native audio · speak now');
-        log('voice','VOICE',`${auth.model} connected`);
+        $('#mic').classList.add('on'); $('#mic').textContent = '● JARVIS Voice';
+        setState('listening','LISTENING','Hermes agent · native voice input');
+        log('voice','VOICE',`${auth.model} voice input connected to Hermes`);
         liveSource = liveInputCtx.createMediaStreamSource(micStream);
         liveProcessor = liveInputCtx.createScriptProcessor(4096, 1, 1);
         const silent = liveInputCtx.createGain(); silent.gain.value = 0;
@@ -439,20 +440,31 @@ async function startGeminiLive(){
       }
       const content = msg.serverContent;
       if (!content) return;
-      if (content.inputTranscription?.text)
-        $('#strun').textContent = 'HEARD: ' + content.inputTranscription.text.slice(0,42);
-      if (content.outputTranscription?.text){
-        answer += content.outputTranscription.text; renderAnswer();
+      if (content.inputTranscription?.text){
+        liveTranscript += (liveTranscript ? ' ' : '') + content.inputTranscription.text;
+        $('#strun').textContent = 'HEARD: ' + liveTranscript.slice(0,42);
       }
-      for (const part of (content.modelTurn?.parts || [])){
-        if (part.inlineData?.data) playLivePcm(part.inlineData.data, 24000);
-      }
+      // Gemini Live is the microphone/transcription transport. Its generated
+      // answer is intentionally discarded: Hermes is the single agent that
+      // answers, decides approvals, and owns computer-control tools.
       if (content.turnComplete){
-        const delay = Math.max(0, (livePlayAt - liveOutputCtx.currentTime) * 1000);
-        setTimeout(() => {
-          liveSpeaking=false; document.body.classList.remove('speaking');
-          if(convo) setState('listening','LISTENING','native audio · speak now');
-        }, delay + 30);
+        const heard = liveTranscript.replace(/\s+/g,' ').trim();
+        liveTranscript = '';
+        if (heard && !liveTurnSending){
+          liveTurnSending = true;
+          stopLivePlayback();
+          if (player) try{ player.pause(); }catch(_){}
+          if (speechSynth) speechSynth.cancel();
+          if (running && activeController){
+            fetch('/api/cancel', {method:'POST', headers:apiHeaders({'content-type':'application/json'}), body:'{}'}).catch(()=>{});
+            activeController.abort();
+            await new Promise(resolve => setTimeout(resolve, 300));
+          }
+          log('send','SEND',`voice → Hermes: ${heard}`);
+          await transmit(heard);
+          liveTurnSending = false;
+        }
+        if(convo) setState('listening','LISTENING','Hermes agent · speak now');
       }
       if (content.interrupted){
         stopLivePlayback();
@@ -542,6 +554,7 @@ function stopConvo(manual=true){
   if (manual){ voiceWanted = false; sessionStorage.removeItem('jarvis-voice-resume'); }
   convo = false; suppress = false;
   liveReady = false; liveSpeaking = false;
+  liveTranscript = ''; liveTurnSending = false;
   stopLivePlayback();
   if (liveProcessor){ try{liveProcessor.disconnect();}catch(_){} liveProcessor=null; }
   if (liveSource){ try{liveSource.disconnect();}catch(_){} liveSource=null; }
@@ -835,7 +848,8 @@ function renderStatus(s){
   const hermesReady = !!s.hermes_connected;
   const hermesChecking = !!s.hermes_pending;
   const hermesLabel = hermesReady ? 'Connected' : (hermesChecking ? 'Checking' : 'Offline');
-  const brain = s.runtime === 'gemini' ? `Gemini${hermesReady ? ' + Hermes' : ''}` : (s.runtime === 'hermes' ? 'Hermes Agent' : (s.runtime === 'mock' ? 'Core offline' : `${s.runtime}${hermesReady ? ' + Hermes' : ''}`));
+  const providerName = s.provider === 'gemini' ? 'Gemini' : (s.provider || 'profile model');
+  const brain = s.runtime === 'hermes' ? `Hermes · ${providerName}` : 'Core offline';
   const ttsLabel = s.tts === 'gemini' ? 'Gemini TTS' : (RT.tts ? 'ElevenLabs TTS' : 'Browser TTS');
   const sttLabel = RT.live ? 'Gemini Live' : (RT.stt ? 'ElevenLabs STT' : (RT.browserStt ? 'Browser STT' : 'Text only'));
   sys('gw', 'Online', 'ok');
