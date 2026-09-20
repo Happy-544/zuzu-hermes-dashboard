@@ -137,8 +137,8 @@ class InterfaceTests(unittest.TestCase):
         self.assertIn("is waiting for task details", js)
         self.assertIn('id="top-hermes"', html)
         self.assertIn('id="sy-hermes"', html)
-        self.assertIn("app.js?v=13", html)
-        self.assertIn("jarvis-shell-v13", worker)
+        self.assertIn("app.js?v=14", html)
+        self.assertIn("jarvis-shell-v14", worker)
         self.assertIn("fetch(event.request).then", worker)
 
     def test_job_polling_is_visibility_aware_and_quota_friendly(self):
@@ -154,10 +154,10 @@ class InterfaceTests(unittest.TestCase):
         manifest = (ROOT / "ui" / "manifest.webmanifest").read_text(encoding="utf-8")
         persona = (ROOT / "persona.md").read_text(encoding="utf-8")
         self.assertIn("<title>Zuzu · Hermes</title>", html)
-        self.assertIn('class="zuzu-face"', html)
-        self.assertIn("zuzu-mouth", html)
+        self.assertIn('class="zuzu-core"', html)
+        self.assertIn("signal-ellipses", html)
         self.assertIn("mouthTalk", css)
-        self.assertIn(".listening .face-eye", css)
+        self.assertIn(".listening .core-arc", css)
         self.assertIn('"short_name": "Zuzu"', manifest)
         self.assertIn("You are Zuzu", persona)
 

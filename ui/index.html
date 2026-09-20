@@ -11,7 +11,7 @@
 <title>Zuzu · Hermes</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-192.png">
-<link rel="stylesheet" href="styles.css?v=13">
+<link rel="stylesheet" href="styles.css?v=14">
 </head>
 <body>
 <div class="grid-bg"></div>
@@ -41,7 +41,7 @@
 
   <main class="workspace">
     <section class="view active" role="tabpanel" data-view-panel="chat">
-      <div class="view-head"><div><span class="kicker">Direct channel</span><h1>Chat</h1></div><span class="runtime-badge" id="sy-runtime">—</span></div>
+      <div class="view-head home-title"><div><span class="kicker">Direct channel</span><h1>Zuzu</h1></div><span class="runtime-badge" id="sy-runtime">—</span></div>
       <div class="chat-layout">
         <article class="conversation glass" id="responseWrap">
           <div class="conversation-head"><div><span class="label">Zuzu response</span><p>Zuzu voice with connected Hermes actions</p></div><span class="rtag" id="rtag">IDLE</span></div>
@@ -49,9 +49,13 @@
         </article>
         <aside class="core-card glass">
           <div class="reactor" id="reactor">
-            <svg viewBox="0 0 520 520" id="core" class="zuzu-face" aria-label="Zuzu holographic face visualizer">
-              <defs><linearGradient id="faceLine" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#e6fdff"/><stop offset="48%" stop-color="#47dbe8"/><stop offset="100%" stop-color="#2675ff"/></linearGradient><radialGradient id="faceGlow" cx="50%" cy="44%" r="56%"><stop offset="0%" stop-color="rgba(148,248,255,.54)"/><stop offset="55%" stop-color="rgba(33,166,218,.12)"/><stop offset="100%" stop-color="rgba(2,17,27,0)"/></radialGradient><filter id="soft" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
-              <circle class="face-halo halo-one" cx="260" cy="260" r="228"/><circle class="face-halo halo-two" cx="260" cy="260" r="188"/><path class="face-shell" d="M260 56c82 0 148 59 148 154 0 64-25 119-61 155-28 28-54 50-87 50s-59-22-87-50c-36-36-61-91-61-155C112 115 178 56 260 56Z"/><path class="face-glow" d="M260 82c68 0 122 48 122 129 0 55-21 102-51 132-24 24-45 42-71 42s-47-18-71-42c-30-30-51-77-51-132C138 130 192 82 260 82Z"/><path class="face-line left-brow" d="M156 207c36-28 76-32 108-11"/><path class="face-line right-brow" d="M364 207c-36-28-76-32-108-11"/><path class="face-eye left-eye" d="M170 241c27-20 58-20 84 0-26 17-57 17-84 0Z"/><path class="face-eye right-eye" d="M266 241c27-20 58-20 84 0-26 17-57 17-84 0Z"/><circle class="face-pupil" cx="212" cy="238" r="8"/><circle class="face-pupil" cx="308" cy="238" r="8"/><path class="face-line nose" d="M260 238c-7 34-20 61-7 78 8 10 23 10 32 1"/><path class="face-line cheek left-cheek" d="M154 298c31 16 62 18 95 7"/><path class="face-line cheek right-cheek" d="M366 298c-31 16-62 18-95 7"/><g class="zuzu-mouth"><ellipse cx="232" cy="356" rx="11" ry="5"/><ellipse cx="260" cy="362" rx="16" ry="6"/><ellipse cx="288" cy="356" rx="11" ry="5"/></g><path class="face-line jaw" d="M174 352c26 52 55 78 86 78s60-26 86-78"/><path class="scan scan-a" d="M116 162h288"/><path class="scan scan-b" d="M106 278h308"/><path class="scan scan-c" d="M148 397h224"/>
+            <svg viewBox="0 0 520 520" id="core" class="zuzu-core" aria-label="Zuzu amber holographic core visualizer">
+              <defs><radialGradient id="amberCore" cx="50%" cy="50%" r="52%"><stop offset="0%" stop-color="#fff7cc"/><stop offset="18%" stop-color="#ffd85a"/><stop offset="46%" stop-color="#ff8d19"/><stop offset="100%" stop-color="rgba(15,5,0,0)"/></radialGradient><linearGradient id="amberLine" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#fff0a8"/><stop offset="48%" stop-color="#ff9c20"/><stop offset="100%" stop-color="#a84608"/></linearGradient><filter id="amberSoft" x="-70%" y="-70%" width="240%" height="240%"><feGaussianBlur stdDeviation="5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
+              <rect class="hud-frame top-left" x="54" y="55" width="152" height="9"/><rect class="hud-frame top-right" x="331" y="55" width="134" height="9"/><rect class="hud-frame side-left" x="54" y="151" width="9" height="211"/><rect class="hud-frame side-right" x="458" y="100" width="8" height="262"/><rect class="hud-frame bottom-left" x="72" y="455" width="152" height="8"/><rect class="hud-frame bottom-right" x="318" y="455" width="137" height="8"/>
+              <circle class="core-disc" cx="260" cy="260" r="112"/><circle class="core-ring outer" cx="260" cy="260" r="205"/><circle class="core-ring middle" cx="260" cy="260" r="155"/><circle class="core-ring inner" cx="260" cy="260" r="96"/><circle class="core-arc arc-one" cx="260" cy="260" r="193"/><circle class="core-arc arc-two" cx="260" cy="260" r="139"/><circle class="core-arc arc-three" cx="260" cy="260" r="74"/><g id="ticks480"></g>
+              <path class="energy-stroke stroke-one" d="M106 316c64-91 119-119 181-87 56 29 81 16 120-42"/><path class="energy-stroke stroke-two" d="M135 188c74 11 104 52 116 110 10 46 49 62 132 48"/><path class="energy-stroke stroke-three" d="M156 365c79-16 117-53 116-107-1-45 43-77 112-99"/><path class="energy-stroke stroke-four" d="M111 250c94 34 153 33 207-3 35-23 62-20 95 9"/>
+              <g class="spark-field"><circle cx="124" cy="160" r="3"/><circle cx="172" cy="115" r="2"/><circle cx="385" cy="130" r="3"/><circle cx="424" cy="229" r="2"/><circle cx="390" cy="384" r="3"/><circle cx="193" cy="411" r="2"/><circle cx="104" cy="301" r="2"/><circle cx="323" cy="92" r="2"/><circle cx="452" cy="326" r="2"/><circle cx="271" cy="432" r="3"/></g>
+              <g class="signal-ellipses"><ellipse cx="228" cy="260" rx="14" ry="5"/><ellipse cx="260" cy="260" rx="18" ry="6"/><ellipse cx="292" cy="260" rx="14" ry="5"/></g>
             </svg>
             <div class="core-state"><span>ZUZU CORE</span><strong id="stword">STANDBY</strong><small id="strun">awaiting uplink</small></div>
           </div>
@@ -116,6 +120,7 @@
 <nav class="mobile-nav" role="tablist" aria-label="Mobile navigation"><button class="active" role="tab" data-view="chat" aria-selected="true">Chat</button><button role="tab" data-view="projects" aria-selected="false">Projects</button><button role="tab" data-view="models" aria-selected="false">Models</button><button role="tab" data-view="memory" aria-selected="false">Brain</button><button role="tab" data-view="settings" aria-selected="false">Settings</button></nav>
 <dialog id="editorDialog"><form method="dialog" id="editorForm"><div class="dialog-head"><h2 id="dialogTitle">Add</h2><button value="cancel" aria-label="Close">×</button></div><div id="dialogFields"></div><div class="dialog-actions"><button value="cancel" class="secondary-btn">Cancel</button><button id="dialogSave" value="default" class="primary-btn">Save</button></div></form></dialog>
 <script src="live-bridge.js?v=11"></script>
-<script src="app.js?v=13"></script>
+<script src="app.js?v=14"></script>
 </body>
 </html>
+

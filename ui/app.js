@@ -12,6 +12,7 @@ const apiHeaders = extra => ({'x-jarvis-token': API_TOKEN, ...(extra || {})});
 // ── reactor ticks ──
 (() => {
   const g = $('#ticks480');
+  if (!g) return;
   for (let i = 0; i < 128; i++){
     const a = (i/128) * Math.PI*2, maj = i % 8 === 0;
     const r0 = maj ? 246 : 250, r1 = 260;
@@ -150,7 +151,8 @@ window.addEventListener('resize',()=>{if(WS)drawMemoryBrain();});
 
 // ── reactor state ──
 function setState(cls, word, sub){
-  document.body.className = cls;
+  document.body.classList.remove('running','speaking','listening','done','error');
+  if (cls) document.body.classList.add(cls);
   if (word) $('#stword').textContent = word;
   if (sub != null) $('#strun').textContent = sub;
 }
