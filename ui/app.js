@@ -246,6 +246,7 @@ async function transmit(message, options = {}){
   activeController = null;
   running = false;
   clearInterval(tick);
+  scheduleJobPoll(1500);
   await speakDone;                 // don't return until Jarvis has finished talking
 }
 
@@ -846,7 +847,27 @@ setInterval(() => sys('clock', now()), 1000);
 
 // Background missions run on the server. The page reports them immediately when
 // visible again, even if iOS suspended the installed web app in the meantime.
+const JOB_POLL_ACTIVE_MS = 8000;
+const JOB_POLL_IDLE_MS = 300000;
+let jobPollTimer = null;
+let jobPollInFlight = false;
+
+function nextJobPollDelay(){
+  if (document.visibilityState === 'hidden') return JOB_POLL_IDLE_MS;
+  return running ? JOB_POLL_ACTIVE_MS : JOB_POLL_IDLE_MS;
+}
+
+function scheduleJobPoll(delay = nextJobPollDelay()){
+  clearTimeout(jobPollTimer);
+  jobPollTimer = setTimeout(pollJobs, delay);
+}
+
 async function pollJobs(){
+  if (jobPollInFlight){
+    scheduleJobPoll();
+    return;
+  }
+  jobPollInFlight = true;
   try {
     const j = await fetch('/api/jobs', {headers:apiHeaders()}).then(r => r.json());
     for (const d of (j.done || [])){
@@ -854,12 +875,17 @@ async function pollJobs(){
       if (!running) speak(`Mission complete. ${(d.result||'').slice(0,300)}`);
     }
   } catch(_){}
+  finally {
+    jobPollInFlight = false;
+    scheduleJobPoll();
+  }
 }
-setInterval(pollJobs, 4000);
+scheduleJobPoll(12000);
 
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden'){
     if (convo || voiceWanted) sessionStorage.setItem('jarvis-voice-resume','1');
+    scheduleJobPoll();
     return;
   }
   refreshStatus(); loadWorkspace(); pollJobs();

@@ -137,9 +137,16 @@ class InterfaceTests(unittest.TestCase):
         self.assertIn("is waiting for task details", js)
         self.assertIn('id="top-hermes"', html)
         self.assertIn('id="sy-hermes"', html)
-        self.assertIn("app.js?v=11", html)
-        self.assertIn("jarvis-shell-v11", worker)
+        self.assertIn("app.js?v=12", html)
+        self.assertIn("jarvis-shell-v12", worker)
         self.assertIn("fetch(event.request).then", worker)
+
+    def test_job_polling_is_visibility_aware_and_quota_friendly(self):
+        js = (ROOT / "ui" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("const JOB_POLL_IDLE_MS = 300000", js)
+        self.assertIn("document.visibilityState === 'hidden'", js)
+        self.assertIn("jobPollInFlight", js)
+        self.assertNotIn("setInterval(pollJobs, 4000)", js)
 
 
 class WorkspaceTests(unittest.TestCase):
