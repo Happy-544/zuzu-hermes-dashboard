@@ -136,6 +136,70 @@ const isiOS=/iPhone|iPad|iPod/i.test(navigator.userAgent);
 const standalone=window.matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
 $('#mobileCapability').textContent=isiOS?(standalone?'Installed as an iPhone app · Shortcuts control ready':'Open in Safari and choose Add to Home Screen'):'Apple Shortcuts control is available when this dashboard is opened on iPhone.';
 $('#fileUpload').onchange=async e=>{for(const file of e.target.files){const r=await fetch('/api/upload',{method:'POST',headers:apiHeaders({'content-type':file.type||'application/octet-stream','x-filename':file.name}),body:file}); if(!r.ok)log('error','UPLOAD',`Could not upload ${file.name}`);} await loadWorkspace(); e.target.value='';};
+
+// ── Stage 2: live camera / screen vision ──
+let visualStream = null, visualKind = '', visualLastUpload = null;
+function setVisualStatus(text){ const el=$('#visualMode'); if(el) el.textContent = text; }
+function stopVisualStream(){
+  if (visualStream){ visualStream.getTracks().forEach(t=>t.stop()); visualStream=null; }
+  const video=$('#visualPreview'); if(video){ video.srcObject=null; video.removeAttribute('data-active'); }
+  const empty=$('#visualEmpty'); if(empty) empty.hidden=false;
+  visualKind=''; setVisualStatus('Vision idle');
+}
+async function startVisual(kind){
+  try{
+    stopVisualStream();
+    if (!navigator.mediaDevices){ throw new Error('Camera/screen sharing is not available in this browser.'); }
+    if (kind === 'camera'){
+      visualStream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}, audio:false});
+      visualKind = 'camera'; setVisualStatus('Camera live');
+    } else {
+      if (!navigator.mediaDevices.getDisplayMedia){ throw new Error('Screen sharing is not available on this browser/device.'); }
+      visualStream = await navigator.mediaDevices.getDisplayMedia({video:true, audio:false});
+      visualKind = 'screen'; setVisualStatus('Screen live');
+    }
+    const video=$('#visualPreview'); video.srcObject=visualStream; video.dataset.active='1';
+    const empty=$('#visualEmpty'); if(empty) empty.hidden=true;
+    visualStream.getVideoTracks().forEach(track => track.addEventListener('ended', stopVisualStream, {once:true}));
+    log('status','VISION',`${visualKind} preview started`);
+  }catch(err){
+    log('error','VISION',String(err.message||err));
+    setVisualStatus('Vision unavailable');
+  }
+}
+function captureVisualFrame(){
+  const video=$('#visualPreview');
+  if(!video || !visualStream || video.readyState < 2) throw new Error('Open camera or screen share first.');
+  const canvas=document.createElement('canvas');
+  const w=video.videoWidth || 1280, h=video.videoHeight || 720;
+  const max=1280, scale=Math.min(1, max/Math.max(w,h));
+  canvas.width=Math.max(1, Math.round(w*scale)); canvas.height=Math.max(1, Math.round(h*scale));
+  const ctx=canvas.getContext('2d'); ctx.drawImage(video,0,0,canvas.width,canvas.height);
+  return new Promise(resolve => canvas.toBlob(blob => resolve(blob), 'image/jpeg', .82));
+}
+async function askAboutVisual(){
+  try{
+    const blob=await captureVisualFrame();
+    if(!blob) throw new Error('Could not capture this view.');
+    const stamp=new Date().toISOString().replace(/[:.]/g,'-');
+    const filename=`zuzu-${visualKind||'vision'}-${stamp}.jpg`;
+    const r=await fetch('/api/upload',{method:'POST',headers:apiHeaders({'content-type':'image/jpeg','x-filename':filename}),body:blob});
+    const data=await r.json();
+    if(!r.ok) throw new Error(data.error||`HTTP ${r.status}`);
+    visualLastUpload=data;
+    await loadWorkspace();
+    const question=$('#visualQuestion').value.trim() || 'Describe what you can see and tell me what I should know.';
+    showView('chat');
+    log('send','VISION',`sent ${visualKind||'visual'} frame to Zuzu`);
+    transmit(`Look at this ${visualKind||'visual'} capture from my device and answer my question. Image file on this computer: ${data.path}\nQuestion: ${question}`);
+  }catch(err){
+    log('error','VISION',String(err.message||err));
+  }
+}
+$('#startCamera')?.addEventListener('click',()=>startVisual('camera'));
+$('#startScreen')?.addEventListener('click',()=>startVisual('screen'));
+$('#stopVisual')?.addEventListener('click',stopVisualStream);
+$('#askVisual')?.addEventListener('click',askAboutVisual);
 document.querySelectorAll('.generate-btn').forEach(b=>b.onclick=()=>{const type=b.dataset.media,prompt=$(`#${type}Prompt`).value.trim();if(!prompt)return;showView('chat');transmit(`Use my Hermes ${type} generation tools to create: ${prompt}`,{speak:false});});
 function drawMemoryBrain(){
   const canvas=$('#memoryCanvas'); if(!canvas||!WS)return; const rect=canvas.getBoundingClientRect();
