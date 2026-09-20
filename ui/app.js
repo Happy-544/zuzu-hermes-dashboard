@@ -157,6 +157,7 @@ function setState(cls, word, sub){
   if (sub != null) $('#strun').textContent = sub;
 }
 function setTag(cls, text){ const t=$('#rtag'); t.className='rtag '+cls; t.textContent=text; }
+function setUserText(text){ const el=$('#userText'); if(el) el.textContent = text || 'قولّي محتاج إيه'; }
 
 // ── action log ──
 function log(kind, label, msg, jsonHtml){
@@ -187,6 +188,7 @@ async function transmit(message, options = {}){
   // With Live connected, typed and spoken turns share the same voice session.
   // Tool requests return through hermes_action; no second TTS voice overlaps it.
   if (liveReady && liveWs?.readyState === WebSocket.OPEN && !message.trim().startsWith('/')) {
+    setUserText(message.trim().slice(0,90));
     liveWs.send(JSON.stringify({clientContent:{turns:[{role:'user',parts:[{text:message}]}],turnComplete:true}}));
     return;
   }
@@ -197,6 +199,7 @@ async function transmit(message, options = {}){
   }
   showView('chat');
   running = true; answer = ''; firstDelta = false; speakThisRun = options.speak !== false;
+  setUserText(message.trim().slice(0,90));
 
   const fresh = /^\/new\b/.test(message.trim());
   const id = rid();
@@ -487,7 +490,7 @@ async function startGeminiLive(){
       const content = msg.serverContent;
       if (!content) return;
       if (content.inputTranscription?.text){
-        $('#strun').textContent = 'HEARD: ' + content.inputTranscription.text.slice(0,42);
+        setUserText(content.inputTranscription.text.slice(0,90));
       }
       if (content.outputTranscription?.text){
         if (!liveAnswerStarted) { answer=''; liveAnswerStarted=true; }
@@ -631,7 +634,7 @@ function startBrowserRecognition(){
       else interim += txt;
     }
     const shown = (finalText || interim || '').trim();
-    if (shown) $('#strun').textContent = 'HEARD: ' + shown.slice(0,42);
+    if (shown) setUserText(shown.slice(0,90));
   };
   recognition.onerror = e => log('error','VOICE',`browser speech: ${e.error || 'error'}`);
   recognition.onend = async () => {
@@ -668,7 +671,7 @@ function beginTurn(){
 function meter(rms){
   // live input bar in the reactor subtitle, so you can SEE it hearing you
   const n = Math.max(0, Math.min(14, Math.round(rms * 90)));
-  $('#strun').textContent = 'IN ' + '▮'.repeat(n) + '▯'.repeat(14 - n);
+  setUserText('أنا سامعاك ' + '•'.repeat(Math.min(n,8)));
 }
 
 function endTurn(reason){
@@ -813,7 +816,7 @@ $('#run').onclick = sendFromInput;
 $('#mic').onclick = micToggle;
 $('#showCommands').onclick = () => transmit('/commands', {speak:false});
 $('#missionBtn').onclick = () => transmit('/mission', {speak:false});
-$('#clearBtn').onclick = () => { answer=''; $('#response').innerHTML='<span class="rplaceholder">تفضّل، أنا معاك</span>'; log('note','CLEAR','response panel cleared'); };
+$('#clearBtn').onclick = () => { answer=''; setUserText('قولّي محتاج إيه'); $('#response').innerHTML='<span class="rplaceholder">تفضّل، أنا معاك</span>'; log('note','CLEAR','response panel cleared'); };
 document.querySelectorAll('[data-quick]').forEach(b => b.onclick = () =>
   transmit(b.dataset.quick, {speak:false}));
 document.querySelectorAll('[data-compose]').forEach(b => b.onclick = () => {

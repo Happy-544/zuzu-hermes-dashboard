@@ -137,8 +137,8 @@ class InterfaceTests(unittest.TestCase):
         self.assertIn("is waiting for task details", js)
         self.assertIn('id="top-hermes"', html)
         self.assertIn('id="sy-hermes"', html)
-        self.assertIn("app.js?v=17", html)
-        self.assertIn("jarvis-shell-v17", worker)
+        self.assertIn("app.js?v=18", html)
+        self.assertIn("jarvis-shell-v18", worker)
         self.assertIn("fetch(event.request).then", worker)
 
     def test_job_polling_is_visibility_aware_and_quota_friendly(self):
@@ -158,6 +158,7 @@ class InterfaceTests(unittest.TestCase):
         self.assertIn("signal-ellipses", html)
         self.assertIn('class="core-output"', html)
         self.assertIn('class="core-voice-btn"', html)
+        self.assertIn('id="userText"', html)
         self.assertNotIn('ZUZU CORE', html)
         self.assertIn("mouthTalk", css)
         self.assertIn(".listening .core-arc", css)
