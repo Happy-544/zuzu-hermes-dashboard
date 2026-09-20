@@ -81,7 +81,12 @@ def persona():
     extra = commands.context_block()      # profile / goal / personality / queue
     custom = workspace.load().get("settings", {}).get("persona", "")
     relevant = workspace.agent_context()
-    return "\n\n".join(x for x in (base, custom, relevant, extra) if x)
+    bridge = (
+        "Zuzu-Hermes memory contract: dashboard Memory Brain is shared with Hermes through this system prompt. "
+        "Use it as durable user memory. If the user asks to remember or save a fact, acknowledge that Zuzu saved it; "
+        "the dashboard auto-captures explicit remember/save requests before this run reaches Hermes."
+    )
+    return "\n\n".join(x for x in (base, custom, bridge, relevant, extra) if x)
 # One continuing Hermes conversation until the user hits /new.
 SESSION = {"id": None}
 

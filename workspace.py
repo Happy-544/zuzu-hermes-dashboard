@@ -66,17 +66,28 @@ def public_state():
     return {**data, "settings": settings, "models": MODELS, "uploads": uploads()}
 
 
-def agent_context(limit=1800):
-    """Return a small, bounded slice of relevant memory and enabled skills."""
+def agent_context(limit=2400):
+    """Return the bounded Zuzu memory/skill context injected into Hermes and Live voice."""
     data = load(); chunks = []
-    memories = data.get("memory", [])[-6:]
+    memories = data.get("memory", [])[-10:]
     if memories:
-        chunks.append("Useful saved memory:\n" + "\n".join(f"- {m['label']}: {m['value'][:220]}" for m in memories))
-    skills = [s for s in data.get("skills", []) if s.get("enabled", True)][-4:]
+        chunks.append(
+            "Zuzu durable memory brain (authoritative saved facts to use across conversations):\n"
+            + "\n".join(f"- {m['label']}: {m['value'][:260]}" for m in memories)
+        )
+    skills = [s for s in data.get("skills", []) if s.get("enabled", True)][-8:]
     if skills:
-        chunks.append("Active workspace skills:\n" + "\n".join(f"- {s['name']}: {s['instructions'][:280]}" for s in skills))
+        chunks.append(
+            "Active Zuzu workspace skills (follow when relevant):\n"
+            + "\n".join(f"- {s['name']}: {s['instructions'][:360]}" for s in skills)
+        )
+    if chunks:
+        chunks.append(
+            "Memory sync rule: these dashboard memories are injected into every Hermes text run and Gemini Live voice setup. "
+            "When the user says remember/save/افتكري/احفظي, the dashboard stores it before forwarding the request. "
+            "Use saved memory naturally and do not claim you forgot it unless it is absent above."
+        )
     return "\n\n".join(chunks)[:limit]
-
 
 _CONTROL_INTENT = re.compile(
     r"(?:^/(?:pc|computer)\b|\b(?:open|close|launch|run|click|tap|type|press|"

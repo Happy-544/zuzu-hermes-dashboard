@@ -107,7 +107,31 @@ const addProject=()=>openEditor('New project',[{name:'name',label:'Project name'
 $('#addProject').onclick=addProject; $('#quickProject').onclick=()=>{showView('projects');addProject();};
 $('#addSession').onclick=()=>openEditor('New chat',[{name:'name',label:'Chat name'}],v=>workspaceRequest({action:'add_session',projectId:WS.selectedProject,...v}));
 $('#addSkill').onclick=()=>openEditor('Create skill',[{name:'name',label:'Skill name'},{name:'instructions',label:'Instructions',long:true}],v=>workspaceRequest({action:'add_skill',...v}));
+$('#searchGithubSkills')?.addEventListener('click',()=>askSkillSearch('GitHub'));
+$('#searchHuggingFaceSkills')?.addEventListener('click',()=>askSkillSearch('Hugging Face'));
 $('#addMemory').onclick=()=>openEditor('Add memory',[{name:'label',label:'Memory label'},{name:'value',label:'What Zuzu should remember',long:true}],v=>workspaceRequest({action:'add_memory',...v}));
+async function saveMemory(label,value){
+  const clean = String(value||'').trim(); if(!clean) return false;
+  await workspaceRequest({action:'add_memory',label:String(label||'Memory').slice(0,100),value:clean.slice(0,4000)});
+  log('complete','MEMORY',`saved: ${String(label||'Memory').slice(0,40)}`);
+  return true;
+}
+async function autoRemember(message){
+  const text=String(message||'').trim();
+  const m=text.match(/(?:^|\b)(?:remember|save this|note this|افتكري|احفظي|احفظ|خلي بالك|متنسيش)\s*[:،-]?\s*(.{4,})/i);
+  if(!m) return false;
+  const value=m[1].replace(/^that\s+/i,'').trim();
+  if(!value || value.length<4) return false;
+  try{ await saveMemory('Auto memory', value); return true; }
+  catch(err){ log('error','MEMORY',String(err.message||err)); return false; }
+}
+function askSkillSearch(source){
+  const q=($('#skillSearch')?.value||'').trim();
+  if(!q){ log('error','SKILLS','enter a skill search query first'); $('#skillSearch')?.focus(); return; }
+  showView('chat');
+  transmit(`Search ${source} for Hermes/Zuzu compatible skills or tools about: ${q}. Return the best options with install/source links, risks, and how to add the chosen one as a Zuzu skill. Do not install anything yet.`,{speak:false});
+}
+
 document.addEventListener('click',async e=>{
   const b=e.target.closest('[data-project],[data-session],[data-delete-project],[data-delete-session],[data-delete-skill],[data-delete-memory]'); if(!b||!WS)return;
   try{
@@ -132,6 +156,11 @@ $('#runShortcut').onclick=()=>{
 $('#installApp').onclick=()=>{
   alert('On iPhone: open this dashboard in Safari, tap Share, then Add to Home Screen. Create an Apple Shortcut named “Zuzu Control” with the app actions you approve. Zuzu can pass any command you enter here into that Shortcut.');
 };
+document.querySelectorAll('[data-shortcut-command]').forEach(button=>button.addEventListener('click',()=>{
+  $('#shortcutCommand').value = button.dataset.shortcutCommand || '';
+  log('status','MOBILE',`shortcut command ready: ${$('#shortcutCommand').value}`);
+}));
+
 const isiOS=/iPhone|iPad|iPod/i.test(navigator.userAgent);
 const standalone=window.matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
 $('#mobileCapability').textContent=isiOS?(standalone?'Installed as an iPhone app · Shortcuts control ready':'Open in Safari and choose Add to Home Screen'):'Apple Shortcuts control is available when this dashboard is opened on iPhone.';
@@ -185,13 +214,21 @@ document.addEventListener('click',e=>{const b=e.target.closest('[data-detach]');
 
 
 // ── Stage 2: live camera / screen vision inside the Zuzu core ──
-let visualStream = null, visualKind = '', visualFacing = 'environment', visualLastUpload = null, liveVisualSentAt = 0;
+let visualStream = null, visualKind = '', visualFacing = 'environment', visualLastUpload = null, visualObjectUrl = '', visualBrowserUrl = '', liveVisualSentAt = 0;
 function setVisualStatus(text){ const el=$('#visualMode'); if(el) el.textContent = text; }
 function setVisionBox(open){ const box=$('#coreVisionBox'); if(box) box.hidden = !open; }
+function resetVisualSurfaces(){
+  const video=$('#visualPreview'), img=$('#visualImage'), frame=$('#visualFrame'), empty=$('#visualEmpty');
+  if(video){ video.srcObject=null; video.removeAttribute('data-active'); video.hidden=false; video.removeAttribute('src'); }
+  if(img){ img.hidden=true; img.removeAttribute('src'); }
+  if(frame){ frame.hidden=true; frame.removeAttribute('src'); }
+  if(empty) empty.hidden=false;
+  if(visualObjectUrl){ URL.revokeObjectURL(visualObjectUrl); visualObjectUrl=''; }
+  visualBrowserUrl='';
+}
 function stopVisualStream(){
   if (visualStream){ visualStream.getTracks().forEach(t=>t.stop()); visualStream=null; }
-  const video=$('#visualPreview'); if(video){ video.srcObject=null; video.removeAttribute('data-active'); }
-  const empty=$('#visualEmpty'); if(empty) empty.hidden=false;
+  resetVisualSurfaces();
   visualKind=''; setVisualStatus('Vision idle'); setVisionBox(false);
   document.body.classList.remove('vision-on');
 }
@@ -209,7 +246,8 @@ async function startVisual(kind){
       visualKind = 'screen'; setVisualStatus('Screen share');
       const flip=$('#flipCamera'); if(flip) flip.hidden=true;
     }
-    const video=$('#visualPreview'); video.srcObject=visualStream; video.dataset.active='1';
+    resetVisualSurfaces();
+    const video=$('#visualPreview'); video.srcObject=visualStream; video.dataset.active='1'; video.hidden=false;
     const empty=$('#visualEmpty'); if(empty) empty.hidden=true;
     setVisionBox(true); document.body.classList.add('vision-on');
     visualStream.getVideoTracks().forEach(track => track.addEventListener('ended', stopVisualStream, {once:true}));
@@ -224,6 +262,43 @@ async function flipCamera(){
   visualFacing = visualFacing === 'environment' ? 'user' : 'environment';
   await startVisual('camera');
 }
+async function openVisualFile(file, kind){
+  if(!file) return;
+  stopVisualStream();
+  visualKind = kind;
+  visualObjectUrl = URL.createObjectURL(file);
+  const video=$('#visualPreview'), img=$('#visualImage'), empty=$('#visualEmpty'), flip=$('#flipCamera');
+  if(flip) flip.hidden=true;
+  if(kind==='image'){
+    if(video) video.hidden=true;
+    if(img){ img.src=visualObjectUrl; img.hidden=false; }
+    setVisualStatus('Picture preview');
+  } else {
+    if(img) img.hidden=true;
+    if(video){ video.src=visualObjectUrl; video.srcObject=null; video.dataset.active='1'; video.hidden=false; video.controls=true; video.loop=true; }
+    setVisualStatus('Video preview');
+  }
+  if(empty) empty.hidden=true;
+  setVisionBox(true); document.body.classList.add('vision-on');
+  await uploadFiles([file], true);
+}
+function openBrowserPreview(){
+  const raw=prompt('Open browser view inside Zuzu core. Enter URL:', 'https://');
+  if(!raw) return;
+  let url=raw.trim();
+  if(!/^https?:\/\//i.test(url)) url='https://'+url;
+  stopVisualStream(); visualKind='browser'; visualBrowserUrl=url;
+  const video=$('#visualPreview'), img=$('#visualImage'), frame=$('#visualFrame'), empty=$('#visualEmpty'), flip=$('#flipCamera');
+  if(video) video.hidden=true; if(img) img.hidden=true; if(flip) flip.hidden=true;
+  if(frame){ frame.src=url; frame.hidden=false; }
+  if(empty) empty.hidden=true;
+  setVisualStatus('Browser preview'); setVisionBox(true); document.body.classList.add('vision-on');
+  log('status','BROWSER',`preview opened: ${url}`);
+}
+function requestLaptopScreen(){
+  transmit('/pc Capture or share the current original laptop screen/browser state for me. If you can take a screenshot, save it and describe what is visible. If live sharing is not available, explain the exact limitation and the closest available control path.',{speak:false});
+}
+
 function captureVisualFrame(){
   const video=$('#visualPreview');
   if(!video || !visualStream || video.readyState < 2) throw new Error('Open livestream or screen share first.');
@@ -248,6 +323,7 @@ async function uploadVisualFrame(){
   return data;
 }
 async function attachVisualContext(message){
+  if(visualBrowserUrl) return `${message}\n\nCurrent browser preview open in Zuzu core: ${visualBrowserUrl}. Use this URL/context when answering if relevant.`;
   if(!visualStream) return message;
   try{
     const data=await uploadVisualFrame();
@@ -281,6 +357,12 @@ async function sendLiveVisualFrame(reason='current voice question'){
 }
 $('#dockCamera')?.addEventListener('click',()=>startVisual('camera'));
 $('#dockScreen')?.addEventListener('click',()=>startVisual('screen'));
+$('#dockLaptop')?.addEventListener('click',requestLaptopScreen);
+$('#dockImage')?.addEventListener('click',()=>$('#visualImageInput')?.click());
+$('#dockVideo')?.addEventListener('click',()=>$('#visualVideoInput')?.click());
+$('#dockBrowser')?.addEventListener('click',openBrowserPreview);
+$('#visualImageInput')?.addEventListener('change',e=>{openVisualFile(e.target.files?.[0],'image'); e.target.value='';});
+$('#visualVideoInput')?.addEventListener('change',e=>{openVisualFile(e.target.files?.[0],'video'); e.target.value='';});
 $('#flipCamera')?.addEventListener('click',flipCamera);
 $('#stopVisual')?.addEventListener('click',stopVisualStream);
 document.querySelectorAll('.generate-btn').forEach(b=>b.onclick=()=>{const type=b.dataset.media,prompt=$(`#${type}Prompt`).value.trim();if(!prompt)return;showView('chat');transmit(`Use my Hermes ${type} generation tools to create: ${prompt}`,{speak:false});});
@@ -332,6 +414,7 @@ let speakDone = Promise.resolve(), activeController = null;
 
 async function transmit(message, options = {}){
   if (!message.trim()) return;
+  await autoRemember(message);
   pendingLiveAttachmentParts = [];
   message = await attachVisualContext(message);
   message = attachUploadedContext(message);
