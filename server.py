@@ -35,6 +35,7 @@ import commands         # noqa: E402
 import runtime          # noqa: E402
 import voice            # noqa: E402
 import workspace        # noqa: E402
+import ngrok_setup      # noqa: E402
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -105,12 +106,14 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
             pass
 
-    def _bytes(self, data, ctype, code=200):
+    def _bytes(self, data, ctype, code=200, headers=None):
         try:
             self.send_response(code)
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(data)))
             self.send_header("Cache-Control", "no-store")
+            for name, value in (headers or {}).items():
+                self.send_header(name, value)
             self.end_headers()
             self.wfile.write(data)
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
@@ -139,6 +142,15 @@ class Handler(BaseHTTPRequestHandler):
         if not self._host_ok():
             return self._json({"error": "invalid host"}, 403)
         p = urlparse(self.path).path
+        if p == "/connect-ngrok.html":
+            if not ngrok_setup.STORE.active():
+                return self._bytes(b"Setup is expired or already completed. Return to your chat.", "text/plain", 410)
+            return self._bytes((UI / "connect-ngrok.html").read_bytes(), "text/html; charset=utf-8", headers={
+                "Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
+                "Referrer-Policy": "no-referrer",
+                "X-Content-Type-Options": "nosniff",
+                "X-Frame-Options": "DENY",
+            })
         if p == "/api/status":
             hermes_health = runtime.hermes_health_snapshot()
             runtime_name = "hermes" if hermes_health["connected"] else "mock"
@@ -191,6 +203,8 @@ class Handler(BaseHTTPRequestHandler):
         p = urlparse(self.path).path
         if not self._host_ok() or not self._origin_ok():
             return self._json({"error": "request origin rejected"}, 403)
+        if p == "/api/setup/ngrok":
+            return ngrok_setup.handle_post(self)
         if not self._token_ok():
             return self._json({"error": "unauthorized"}, 401)
         ctype = self.headers.get("Content-Type", "").split(";", 1)[0].lower()
