@@ -11,7 +11,7 @@
 <title>Zuzu · Hermes</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-192.png">
-<link rel="stylesheet" href="styles.css?v=20">
+<link rel="stylesheet" href="styles.css?v=21">
 </head>
 <body>
 <div class="grid-bg"></div>
@@ -60,7 +60,8 @@
       </div>
       <div class="composer glass">
         <textarea id="input" rows="2" spellcheck="false" aria-label="Message Zuzu" placeholder="Message Zuzu…"></textarea>
-        <div class="composer-actions"><span class="tip" id="tip">Enter to send · Shift+Enter for a new line</span><button id="mute" class="icon-btn on" title="Mute Zuzu speech" aria-label="Mute Zuzu speech">Sound</button><button id="run" class="send-btn">Send</button></div>
+        <div id="chatAttachments" class="chat-attachments" hidden></div>
+        <div class="composer-actions"><span class="tip" id="tip">Enter to send · Shift+Enter for a new line</span><label class="icon-btn attach-label" title="Attach files or images">Attach<input id="chatFileUpload" type="file" multiple accept="image/*,.pdf,.txt,.md,.csv,.json,.doc,.docx,.xls,.xlsx,.ppt,.pptx" hidden></label><button id="mute" class="icon-btn on" title="Mute Zuzu speech" aria-label="Mute Zuzu speech">Sound</button><button id="run" class="send-btn">Send</button></div>
       </div>
     </section>
 
@@ -116,7 +117,7 @@
 <nav class="mobile-nav" role="tablist" aria-label="Mobile navigation"><button class="active" role="tab" data-view="chat" aria-selected="true">Chat</button><button role="tab" data-view="projects" aria-selected="false">Projects</button><button role="tab" data-view="models" aria-selected="false">Models</button><button role="tab" data-view="memory" aria-selected="false">Brain</button><button role="tab" data-view="settings" aria-selected="false">Settings</button></nav>
 <dialog id="editorDialog"><form method="dialog" id="editorForm"><div class="dialog-head"><h2 id="dialogTitle">Add</h2><button value="cancel" aria-label="Close">×</button></div><div id="dialogFields"></div><div class="dialog-actions"><button value="cancel" class="secondary-btn">Cancel</button><button id="dialogSave" value="default" class="primary-btn">Save</button></div></form></dialog>
 <script src="live-bridge.js?v=11"></script>
-<script src="app.js?v=20"></script>
+<script src="app.js?v=21"></script>
 </body>
 </html>
 

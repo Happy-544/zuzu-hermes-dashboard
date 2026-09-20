@@ -135,7 +135,53 @@ $('#installApp').onclick=()=>{
 const isiOS=/iPhone|iPad|iPod/i.test(navigator.userAgent);
 const standalone=window.matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
 $('#mobileCapability').textContent=isiOS?(standalone?'Installed as an iPhone app · Shortcuts control ready':'Open in Safari and choose Add to Home Screen'):'Apple Shortcuts control is available when this dashboard is opened on iPhone.';
-$('#fileUpload').onchange=async e=>{for(const file of e.target.files){const r=await fetch('/api/upload',{method:'POST',headers:apiHeaders({'content-type':file.type||'application/octet-stream','x-filename':file.name}),body:file}); if(!r.ok)log('error','UPLOAD',`Could not upload ${file.name}`);} await loadWorkspace(); e.target.value='';};
+let activeAttachments = [], pendingLiveAttachmentParts = [];
+const MAX_INLINE_IMAGE = 8 * 1024 * 1024;
+function fileToBase64(file){
+  return new Promise(resolve => {
+    if(!file.type?.startsWith('image/') || file.size > MAX_INLINE_IMAGE) return resolve('');
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result||'').split(',')[1]||'');
+    reader.onerror = () => resolve('');
+    reader.readAsDataURL(file);
+  });
+}
+async function uploadFiles(files, activate=false){
+  const list = Array.from(files||[]); if(!list.length) return [];
+  const uploaded = [];
+  for(const file of list){
+    try{
+      const inlineData = await fileToBase64(file);
+      const r=await fetch('/api/upload',{method:'POST',headers:apiHeaders({'content-type':file.type||'application/octet-stream','x-filename':file.name}),body:file});
+      const data=await r.json();
+      if(!r.ok) throw new Error(data.error||`HTTP ${r.status}`);
+      uploaded.push({...data,type:file.type||'application/octet-stream',inlineData});
+      log('complete','UPLOAD',`${file.name} attached`);
+    }catch(err){ log('error','UPLOAD',`Could not upload ${file.name}: ${String(err.message||err)}`); }
+  }
+  if(activate && uploaded.length){ activeAttachments.push(...uploaded); renderActiveAttachments(); showView('chat'); }
+  await loadWorkspace(); return uploaded;
+}
+function renderActiveAttachments(){
+  const box=$('#chatAttachments'); if(!box) return;
+  box.hidden = activeAttachments.length === 0;
+  box.innerHTML = activeAttachments.map((f,i)=>`<span class="attachment-chip"><b>${esc(f.type?.startsWith('image/')?'Image':'File')}</b>${esc(f.name)}<button type="button" data-detach="${i}" aria-label="Remove attachment">×</button></span>`).join('');
+}
+function describeAttachment(f){
+  const kind = f.type?.startsWith('image/') ? 'image' : 'file';
+  return `- ${kind}: ${f.name} (${Math.max(1,Math.round((f.size||0)/1024))} KB) local path: ${f.path}`;
+}
+function attachUploadedContext(message){
+  if(!activeAttachments.length) return message;
+  pendingLiveAttachmentParts = activeAttachments.filter(f=>f.inlineData).map(f=>({inlineData:{mimeType:f.type||'image/jpeg',data:f.inlineData}}));
+  const summary = activeAttachments.map(describeAttachment).join('\n');
+  log('send','FILES',`attached ${activeAttachments.length} file/image${activeAttachments.length===1?'':'s'}`);
+  activeAttachments = []; renderActiveAttachments();
+  return `${message}\n\nAttached files/images for this request:\n${summary}\nUse these attachments as direct context. If an attachment is an image, inspect it; if it is a document/file, open or read the local path through Hermes tools when needed.`;
+}
+$('#fileUpload').onchange=async e=>{await uploadFiles(e.target.files,false); e.target.value='';};
+$('#chatFileUpload')?.addEventListener('change',async e=>{await uploadFiles(e.target.files,true); e.target.value='';});
+document.addEventListener('click',e=>{const b=e.target.closest('[data-detach]'); if(!b)return; activeAttachments.splice(Number(b.dataset.detach),1); renderActiveAttachments();});
 
 
 // ── Stage 2: live camera / screen vision inside the Zuzu core ──
@@ -286,12 +332,16 @@ let speakDone = Promise.resolve(), activeController = null;
 
 async function transmit(message, options = {}){
   if (!message.trim()) return;
+  pendingLiveAttachmentParts = [];
   message = await attachVisualContext(message);
+  message = attachUploadedContext(message);
   // With Live connected, typed and spoken turns share the same voice session.
   // Tool requests return through hermes_action; no second TTS voice overlaps it.
   if (liveReady && liveWs?.readyState === WebSocket.OPEN && !message.trim().startsWith('/')) {
     setUserText(message.trim().slice(0,90));
-    liveWs.send(JSON.stringify({clientContent:{turns:[{role:'user',parts:[{text:message}]}],turnComplete:true}}));
+    const parts = [{text:message}, ...pendingLiveAttachmentParts];
+    pendingLiveAttachmentParts = [];
+    liveWs.send(JSON.stringify({clientContent:{turns:[{role:'user',parts}],turnComplete:true}}));
     return;
   }
   if (running){
