@@ -137,39 +137,50 @@ const standalone=window.matchMedia('(display-mode: standalone)').matches||naviga
 $('#mobileCapability').textContent=isiOS?(standalone?'Installed as an iPhone app · Shortcuts control ready':'Open in Safari and choose Add to Home Screen'):'Apple Shortcuts control is available when this dashboard is opened on iPhone.';
 $('#fileUpload').onchange=async e=>{for(const file of e.target.files){const r=await fetch('/api/upload',{method:'POST',headers:apiHeaders({'content-type':file.type||'application/octet-stream','x-filename':file.name}),body:file}); if(!r.ok)log('error','UPLOAD',`Could not upload ${file.name}`);} await loadWorkspace(); e.target.value='';};
 
-// ── Stage 2: live camera / screen vision ──
-let visualStream = null, visualKind = '', visualLastUpload = null;
+
+// ── Stage 2: live camera / screen vision inside the Zuzu core ──
+let visualStream = null, visualKind = '', visualFacing = 'environment', visualLastUpload = null, liveVisualSentAt = 0;
 function setVisualStatus(text){ const el=$('#visualMode'); if(el) el.textContent = text; }
+function setVisionBox(open){ const box=$('#coreVisionBox'); if(box) box.hidden = !open; }
 function stopVisualStream(){
   if (visualStream){ visualStream.getTracks().forEach(t=>t.stop()); visualStream=null; }
   const video=$('#visualPreview'); if(video){ video.srcObject=null; video.removeAttribute('data-active'); }
   const empty=$('#visualEmpty'); if(empty) empty.hidden=false;
-  visualKind=''; setVisualStatus('Vision idle');
+  visualKind=''; setVisualStatus('Vision idle'); setVisionBox(false);
+  document.body.classList.remove('vision-on');
 }
 async function startVisual(kind){
   try{
     stopVisualStream();
     if (!navigator.mediaDevices){ throw new Error('Camera/screen sharing is not available in this browser.'); }
     if (kind === 'camera'){
-      visualStream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}, audio:false});
-      visualKind = 'camera'; setVisualStatus('Camera live');
+      visualStream = await navigator.mediaDevices.getUserMedia({video:{facingMode:visualFacing}, audio:false});
+      visualKind = 'camera'; setVisualStatus(visualFacing === 'user' ? 'Front camera' : 'Back camera');
+      const flip=$('#flipCamera'); if(flip) flip.hidden=false;
     } else {
       if (!navigator.mediaDevices.getDisplayMedia){ throw new Error('Screen sharing is not available on this browser/device.'); }
       visualStream = await navigator.mediaDevices.getDisplayMedia({video:true, audio:false});
-      visualKind = 'screen'; setVisualStatus('Screen live');
+      visualKind = 'screen'; setVisualStatus('Screen share');
+      const flip=$('#flipCamera'); if(flip) flip.hidden=true;
     }
     const video=$('#visualPreview'); video.srcObject=visualStream; video.dataset.active='1';
     const empty=$('#visualEmpty'); if(empty) empty.hidden=true;
+    setVisionBox(true); document.body.classList.add('vision-on');
     visualStream.getVideoTracks().forEach(track => track.addEventListener('ended', stopVisualStream, {once:true}));
-    log('status','VISION',`${visualKind} preview started`);
+    log('status','VISION',`${visualKind} preview opened in Zuzu core`);
   }catch(err){
     log('error','VISION',String(err.message||err));
-    setVisualStatus('Vision unavailable');
+    setVisualStatus('Vision unavailable'); setVisionBox(true);
   }
+}
+async function flipCamera(){
+  if (visualKind !== 'camera') return;
+  visualFacing = visualFacing === 'environment' ? 'user' : 'environment';
+  await startVisual('camera');
 }
 function captureVisualFrame(){
   const video=$('#visualPreview');
-  if(!video || !visualStream || video.readyState < 2) throw new Error('Open camera or screen share first.');
+  if(!video || !visualStream || video.readyState < 2) throw new Error('Open livestream or screen share first.');
   const canvas=document.createElement('canvas');
   const w=video.videoWidth || 1280, h=video.videoHeight || 720;
   const max=1280, scale=Math.min(1, max/Math.max(w,h));
@@ -177,29 +188,55 @@ function captureVisualFrame(){
   const ctx=canvas.getContext('2d'); ctx.drawImage(video,0,0,canvas.width,canvas.height);
   return new Promise(resolve => canvas.toBlob(blob => resolve(blob), 'image/jpeg', .82));
 }
-async function askAboutVisual(){
+async function uploadVisualFrame(){
+  if(!visualStream) return null;
+  const blob=await captureVisualFrame();
+  if(!blob) return null;
+  const stamp=new Date().toISOString().replace(/[:.]/g,'-');
+  const filename=`zuzu-${visualKind||'vision'}-${stamp}.jpg`;
+  const r=await fetch('/api/upload',{method:'POST',headers:apiHeaders({'content-type':'image/jpeg','x-filename':filename}),body:blob});
+  const data=await r.json();
+  if(!r.ok) throw new Error(data.error||`HTTP ${r.status}`);
+  visualLastUpload=data;
+  loadWorkspace().catch(()=>{});
+  return data;
+}
+async function attachVisualContext(message){
+  if(!visualStream) return message;
   try{
-    const blob=await captureVisualFrame();
-    if(!blob) throw new Error('Could not capture this view.');
-    const stamp=new Date().toISOString().replace(/[:.]/g,'-');
-    const filename=`zuzu-${visualKind||'vision'}-${stamp}.jpg`;
-    const r=await fetch('/api/upload',{method:'POST',headers:apiHeaders({'content-type':'image/jpeg','x-filename':filename}),body:blob});
-    const data=await r.json();
-    if(!r.ok) throw new Error(data.error||`HTTP ${r.status}`);
-    visualLastUpload=data;
-    await loadWorkspace();
-    const question=$('#visualQuestion').value.trim() || 'Describe what you can see and tell me what I should know.';
-    showView('chat');
-    log('send','VISION',`sent ${visualKind||'visual'} frame to Zuzu`);
-    transmit(`Look at this ${visualKind||'visual'} capture from my device and answer my question. Image file on this computer: ${data.path}\nQuestion: ${question}`);
+    const data=await uploadVisualFrame();
+    if(!data) return message;
+    log('send','VISION',`attached ${visualKind||'visual'} frame`);
+    return `${message}\n\nCurrent ${visualKind||'visual'} frame is attached for context. Image file on this computer: ${data.path}`;
   }catch(err){
     log('error','VISION',String(err.message||err));
+    return message;
   }
 }
-$('#startCamera')?.addEventListener('click',()=>startVisual('camera'));
-$('#startScreen')?.addEventListener('click',()=>startVisual('screen'));
+async function sendLiveVisualFrame(reason='current voice question'){
+  if(!visualStream || !liveReady || liveWs?.readyState !== WebSocket.OPEN) return;
+  const nowMs=Date.now();
+  if(nowMs-liveVisualSentAt < 3500) return;
+  liveVisualSentAt=nowMs;
+  try{
+    const blob=await captureVisualFrame();
+    const reader=new FileReader();
+    reader.onload=()=>{
+      const base64=String(reader.result||'').split(',')[1]||'';
+      if(!base64 || liveWs?.readyState !== WebSocket.OPEN) return;
+      liveWs.send(JSON.stringify({clientContent:{turns:[{role:'user',parts:[
+        {text:`Visual context from my open ${visualKind||'camera'} for ${reason}. Use it when answering my current voice/chat question.`},
+        {inlineData:{mimeType:'image/jpeg',data:base64}}
+      ]}],turnComplete:true}}));
+      log('send','VISION','sent live visual frame');
+    };
+    reader.readAsDataURL(blob);
+  }catch(err){ log('error','VISION',String(err.message||err)); }
+}
+$('#dockCamera')?.addEventListener('click',()=>startVisual('camera'));
+$('#dockScreen')?.addEventListener('click',()=>startVisual('screen'));
+$('#flipCamera')?.addEventListener('click',flipCamera);
 $('#stopVisual')?.addEventListener('click',stopVisualStream);
-$('#askVisual')?.addEventListener('click',askAboutVisual);
 document.querySelectorAll('.generate-btn').forEach(b=>b.onclick=()=>{const type=b.dataset.media,prompt=$(`#${type}Prompt`).value.trim();if(!prompt)return;showView('chat');transmit(`Use my Hermes ${type} generation tools to create: ${prompt}`,{speak:false});});
 function drawMemoryBrain(){
   const canvas=$('#memoryCanvas'); if(!canvas||!WS)return; const rect=canvas.getBoundingClientRect();
@@ -249,6 +286,7 @@ let speakDone = Promise.resolve(), activeController = null;
 
 async function transmit(message, options = {}){
   if (!message.trim()) return;
+  message = await attachVisualContext(message);
   // With Live connected, typed and spoken turns share the same voice session.
   // Tool requests return through hermes_action; no second TTS voice overlaps it.
   if (liveReady && liveWs?.readyState === WebSocket.OPEN && !message.trim().startsWith('/')) {
@@ -555,6 +593,7 @@ async function startGeminiLive(){
       if (!content) return;
       if (content.inputTranscription?.text){
         setUserText(content.inputTranscription.text.slice(0,90));
+        sendLiveVisualFrame(content.inputTranscription.text.slice(0,80));
       }
       if (content.outputTranscription?.text){
         if (!liveAnswerStarted) { answer=''; liveAnswerStarted=true; }

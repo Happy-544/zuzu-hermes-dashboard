@@ -11,7 +11,7 @@
 <title>Zuzu · Hermes</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-192.png">
-<link rel="stylesheet" href="styles.css?v=19">
+<link rel="stylesheet" href="styles.css?v=20">
 </head>
 <body>
 <div class="grid-bg"></div>
@@ -53,9 +53,9 @@
               <g class="spark-field"><circle cx="124" cy="160" r="3"/><circle cx="172" cy="115" r="2"/><circle cx="385" cy="130" r="3"/><circle cx="424" cy="229" r="2"/><circle cx="390" cy="384" r="3"/><circle cx="193" cy="411" r="2"/><circle cx="104" cy="301" r="2"/><circle cx="323" cy="92" r="2"/><circle cx="452" cy="326" r="2"/><circle cx="271" cy="432" r="3"/></g>
               <g class="signal-ellipses"><ellipse cx="228" cy="260" rx="14" ry="5"/><ellipse cx="260" cy="260" rx="18" ry="6"/><ellipse cx="292" cy="260" rx="14" ry="5"/></g>
             </svg>
-            <div class="core-state"><div class="core-status"><strong id="stword">READY</strong><small id="strun">تفضّل، أنا معاك</small></div><div class="core-user" id="userText">قولّي محتاج إيه</div><button id="mic" class="core-voice-btn" title="Voice input" aria-label="Start voice input">Zuzu Voice</button><div class="core-output" id="responseWrap"><span class="rtag core-hidden-tag" id="rtag" aria-hidden="true">IDLE</span><div class="rbody" id="response"><span class="rplaceholder">تفضّل، أنا معاك</span></div></div></div>
+            <div class="core-state"><div class="core-status"><strong id="stword">READY</strong><small id="strun">تفضّل، أنا معاك</small></div><div class="core-user" id="userText">قولّي محتاج إيه</div><button id="mic" class="core-voice-btn" title="Voice input" aria-label="Start voice input">Zuzu Voice</button><div class="core-output" id="responseWrap"><span class="rtag core-hidden-tag" id="rtag" aria-hidden="true">IDLE</span><div class="rbody" id="response"><span class="rplaceholder">تفضّل، أنا معاك</span></div></div></div><div class="core-vision-box" id="coreVisionBox" hidden><div class="core-vision-head"><span id="visualMode">Vision idle</span><button id="flipCamera" type="button">Flip</button><button id="stopVisual" type="button">×</button></div><video id="visualPreview" playsinline autoplay muted></video><div id="visualEmpty" class="vision-empty">Open livestream or screen share.</div></div>
           </div>
-          <div class="core-details"><span><i class="online"></i> Online</span><span id="core-model">Gemini</span></div>
+          <div class="core-details"><span><i class="online"></i> Online</span><span id="core-model">Gemini</span></div><div class="core-visual-actions"><button id="dockCamera" type="button">Livestream</button><button id="dockScreen" type="button">Screen share</button></div>
         </aside>
       </div>
       <div class="composer glass">
@@ -97,7 +97,7 @@
 
     <section class="view" role="tabpanel" data-view-panel="studio" hidden>
       <div class="view-head"><div><span class="kicker">Create</span><h1>Media studio</h1></div><label class="primary-btn upload-label">Upload file<input id="fileUpload" type="file" multiple hidden></label></div>
-      <div class="studio-grid"><article class="panel glass vision-card"><div class="panel-head"><div><h2>Live vision</h2><p>Open camera or share your screen/tab, then ask Zuzu about what she sees.</p></div><span id="visualMode" class="runtime-badge">Vision idle</span></div><div class="vision-stage"><video id="visualPreview" playsinline autoplay muted></video><div id="visualEmpty" class="vision-empty">Camera or screen preview will appear here.</div></div><textarea id="visualQuestion" rows="3" placeholder="Ask Zuzu about this view…"></textarea><div class="vision-actions"><button id="startCamera" type="button" class="secondary-btn">Open camera</button><button id="startScreen" type="button" class="secondary-btn">Share screen/tab</button><button id="askVisual" type="button" class="primary-btn">Ask Zuzu about this</button><button id="stopVisual" type="button" class="secondary-btn">Stop</button></div><small class="form-note">On iPhone, camera works in Safari/PWA after permission. Screen sharing is limited by iOS; use it from desktop browsers when unavailable.</small></article><article class="panel glass"><h2>Files & images</h2><p>Attach local material to the active project.</p><div id="uploadList" class="upload-list"></div></article><article class="panel glass"><h2>Image generation</h2><textarea id="imagePrompt" rows="4" placeholder="Describe the image you want…"></textarea><button class="primary-btn generate-btn" data-media="image">Generate image</button></article><article class="panel glass"><h2>Video generation</h2><textarea id="videoPrompt" rows="4" placeholder="Describe the video, movement and duration…"></textarea><button class="primary-btn generate-btn" data-media="video">Generate video</button></article></div>
+      <div class="studio-grid"><article class="panel glass"><h2>Files & images</h2><p>Attach local material to the active project.</p><div id="uploadList" class="upload-list"></div></article><article class="panel glass"><h2>Image generation</h2><textarea id="imagePrompt" rows="4" placeholder="Describe the image you want…"></textarea><button class="primary-btn generate-btn" data-media="image">Generate image</button></article><article class="panel glass"><h2>Video generation</h2><textarea id="videoPrompt" rows="4" placeholder="Describe the video, movement and duration…"></textarea><button class="primary-btn generate-btn" data-media="video">Generate video</button></article></div>
     </section>
 
     <section class="view" role="tabpanel" data-view-panel="settings" hidden>
@@ -116,7 +116,7 @@
 <nav class="mobile-nav" role="tablist" aria-label="Mobile navigation"><button class="active" role="tab" data-view="chat" aria-selected="true">Chat</button><button role="tab" data-view="projects" aria-selected="false">Projects</button><button role="tab" data-view="models" aria-selected="false">Models</button><button role="tab" data-view="memory" aria-selected="false">Brain</button><button role="tab" data-view="settings" aria-selected="false">Settings</button></nav>
 <dialog id="editorDialog"><form method="dialog" id="editorForm"><div class="dialog-head"><h2 id="dialogTitle">Add</h2><button value="cancel" aria-label="Close">×</button></div><div id="dialogFields"></div><div class="dialog-actions"><button value="cancel" class="secondary-btn">Cancel</button><button id="dialogSave" value="default" class="primary-btn">Save</button></div></form></dialog>
 <script src="live-bridge.js?v=11"></script>
-<script src="app.js?v=19"></script>
+<script src="app.js?v=20"></script>
 </body>
 </html>
 

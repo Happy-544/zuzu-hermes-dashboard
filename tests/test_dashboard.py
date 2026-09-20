@@ -101,7 +101,7 @@ class InterfaceTests(unittest.TestCase):
     def test_workspace_features_are_wired(self):
         html = (ROOT / "ui" / "index.html").read_text(encoding="utf-8")
         js = (ROOT / "ui" / "app.js").read_text(encoding="utf-8")
-        for element in ("providerSelect", "personaText", "memoryCanvas", "fileUpload", "imagePrompt", "videoPrompt", "computerControl", "mobileControl", "visualPreview", "startCamera", "startScreen", "askVisual", "visualQuestion"):
+        for element in ("providerSelect", "personaText", "memoryCanvas", "fileUpload", "imagePrompt", "videoPrompt", "computerControl", "mobileControl", "visualPreview", "dockCamera", "dockScreen", "flipCamera", "coreVisionBox"):
             self.assertIn(f'id="{element}"', html)
         self.assertIn("/api/workspace", js)
         self.assertIn("/api/upload", js)
@@ -109,6 +109,8 @@ class InterfaceTests(unittest.TestCase):
         self.assertIn("getDisplayMedia", js)
         self.assertIn("getUserMedia", js)
         self.assertIn("captureVisualFrame", js)
+        self.assertIn("attachVisualContext", js)
+        self.assertIn("sendLiveVisualFrame", js)
         self.assertIn("payload instanceof Blob", js)
         self.assertIn("await payload.text()", js)
 
@@ -140,8 +142,8 @@ class InterfaceTests(unittest.TestCase):
         self.assertIn("is waiting for task details", js)
         self.assertIn('id="top-hermes"', html)
         self.assertIn('id="sy-hermes"', html)
-        self.assertIn("app.js?v=19", html)
-        self.assertIn("jarvis-shell-v19", worker)
+        self.assertIn("app.js?v=20", html)
+        self.assertIn("jarvis-shell-v20", worker)
         self.assertIn("fetch(event.request).then", worker)
 
     def test_job_polling_is_visibility_aware_and_quota_friendly(self):
