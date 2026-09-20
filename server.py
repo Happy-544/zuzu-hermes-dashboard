@@ -1,5 +1,5 @@
 """
-JARVIS Live — a HUD that drives Hermes Agent.
+Zuzu Live — a HUD that drives Hermes Agent.
 
     python3 server.py
 
@@ -67,7 +67,7 @@ def _allowed_origins():
         origins.add(public_origin)
     return origins
 
-# The Jarvis persona, appended to every run. Without it, the model answers as a
+# The Zuzu persona, appended to every run. Without it, the model answers as a
 # coding agent and narrates its own tooling — which is not what you want spoken
 # out loud. Edit persona.md to change how it talks.
 _PERSONA_FILE = ROOT / "persona.md"
@@ -232,7 +232,7 @@ class Handler(BaseHTTPRequestHandler):
                 # saved persona, memory, skills and profile context as text chat.
                 auth["system"] = persona()
                 auth["system"] += (
-                    "\nVoice role: You are the single spoken interface for JARVIS. "
+                    "\nVoice role: You are Zuzu, the single spoken interface for the user. "
                     "Speak naturally in the user's language, defaulting to Egyptian Arabic. "
                     "For actions on the user's Windows computer, browser, files, tools, "
                     "or saved information, call hermes_action with the user's exact request. "
@@ -293,7 +293,7 @@ class Handler(BaseHTTPRequestHandler):
 
         if p == "/api/run":
             if not RUN_LOCK.acquire(blocking=False):
-                return self._json({"error": "JARVIS is already processing a request"}, 409)
+                return self._json({"error": "Zuzu is already processing a request"}, 409)
             try:
                 return self._stream_run(raw)
             finally:
@@ -388,7 +388,7 @@ def main():
                  if perm == "bypass" else "")
 
     print(f"""
-  JARVIS · Hermes Live HUD
+  Zuzu · Hermes Live HUD
   ──────────────────────────────────────────────
   brain        {brain}
   profile      {runtime.PROFILE}

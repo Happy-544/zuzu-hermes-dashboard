@@ -89,7 +89,7 @@ class InterfaceTests(unittest.TestCase):
         for name in ("chat", "projects", "models", "tools", "memory", "studio", "missions", "activity", "settings"):
             self.assertIn(f'data-view-panel="{name}"', html)
             self.assertGreaterEqual(html.count(f'data-view="{name}"'), 1)
-        self.assertIn('aria-label="Message JARVIS"', html)
+        self.assertIn('aria-label="Message Zuzu"', html)
 
     def test_mobile_layout_has_no_fixed_desktop_width(self):
         css = (ROOT / "ui" / "styles.css").read_text(encoding="utf-8")
@@ -137,8 +137,8 @@ class InterfaceTests(unittest.TestCase):
         self.assertIn("is waiting for task details", js)
         self.assertIn('id="top-hermes"', html)
         self.assertIn('id="sy-hermes"', html)
-        self.assertIn("app.js?v=12", html)
-        self.assertIn("jarvis-shell-v12", worker)
+        self.assertIn("app.js?v=13", html)
+        self.assertIn("jarvis-shell-v13", worker)
         self.assertIn("fetch(event.request).then", worker)
 
     def test_job_polling_is_visibility_aware_and_quota_friendly(self):
@@ -147,6 +147,19 @@ class InterfaceTests(unittest.TestCase):
         self.assertIn("document.visibilityState === 'hidden'", js)
         self.assertIn("jobPollInFlight", js)
         self.assertNotIn("setInterval(pollJobs, 4000)", js)
+
+    def test_zuzu_brand_and_face_visualizer_are_wired(self):
+        html = (ROOT / "ui" / "index.html").read_text(encoding="utf-8")
+        css = (ROOT / "ui" / "styles.css").read_text(encoding="utf-8")
+        manifest = (ROOT / "ui" / "manifest.webmanifest").read_text(encoding="utf-8")
+        persona = (ROOT / "persona.md").read_text(encoding="utf-8")
+        self.assertIn("<title>Zuzu · Hermes</title>", html)
+        self.assertIn('class="zuzu-face"', html)
+        self.assertIn("zuzu-mouth", html)
+        self.assertIn("mouthTalk", css)
+        self.assertIn(".listening .face-eye", css)
+        self.assertIn('"short_name": "Zuzu"', manifest)
+        self.assertIn("You are Zuzu", persona)
 
 
 class WorkspaceTests(unittest.TestCase):

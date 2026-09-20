@@ -1,4 +1,4 @@
-/* JARVIS Live HUD — drives Hermes Agent, streams telemetry.
+/* Zuzu Live HUD — drives Hermes Agent, streams telemetry.
 
    The brain is your own `hermes` CLI/profile, so configured Hermes tools,
    browser automation, skills, memory, MCP servers and third-party connectors are live. */
@@ -87,7 +87,7 @@ function renderWorkspace(){
   $('#apiState').textContent = settings.apiConfigured ? 'An API key is configured. Leave the field blank to keep it.' : 'No API key is configured for this provider.';
   $('#profileName').value=settings.profile||'default'; $('#workdir').value=settings.workdir||'~';
   $('#personaText').value=settings.persona||''; $('#computerControl').checked=!!settings.computerControl; $('#mobileControl').checked=!!settings.mobileControl;
-  $('#shortcutName').value=settings.shortcutName||'JARVIS Control';
+  $('#shortcutName').value=settings.shortcutName||'Zuzu Control';
   $('#liveModel').value=settings.liveModel||''; $('#voiceSelect').value=settings.voice||'Kore';
   $('#skillList').innerHTML=(WS.skills||[]).map(s=>`<div class="list-card"><div><b>${esc(s.name)}</b><small>${esc(s.instructions.slice(0,120))}</small></div><button class="danger-link" data-delete-skill="${esc(s.id)}">Delete</button></div>`).join('')||'<div class="empty-state">No custom skills yet.</div>';
   $('#memoryList').innerHTML=(WS.memory||[]).map(m=>`<div class="list-card"><div><b>${esc(m.label)}</b><small>${esc(m.value.slice(0,160))}</small></div><button class="danger-link" data-delete-memory="${esc(m.id)}">Delete</button></div>`).join('')||'<div class="empty-state">Add a fact, preference or relationship.</div>';
@@ -106,7 +106,7 @@ const addProject=()=>openEditor('New project',[{name:'name',label:'Project name'
 $('#addProject').onclick=addProject; $('#quickProject').onclick=()=>{showView('projects');addProject();};
 $('#addSession').onclick=()=>openEditor('New chat',[{name:'name',label:'Chat name'}],v=>workspaceRequest({action:'add_session',projectId:WS.selectedProject,...v}));
 $('#addSkill').onclick=()=>openEditor('Create skill',[{name:'name',label:'Skill name'},{name:'instructions',label:'Instructions',long:true}],v=>workspaceRequest({action:'add_skill',...v}));
-$('#addMemory').onclick=()=>openEditor('Add memory',[{name:'label',label:'Memory label'},{name:'value',label:'What JARVIS should remember',long:true}],v=>workspaceRequest({action:'add_memory',...v}));
+$('#addMemory').onclick=()=>openEditor('Add memory',[{name:'label',label:'Memory label'},{name:'value',label:'What Zuzu should remember',long:true}],v=>workspaceRequest({action:'add_memory',...v}));
 document.addEventListener('click',async e=>{
   const b=e.target.closest('[data-project],[data-session],[data-delete-project],[data-delete-session],[data-delete-skill],[data-delete-memory]'); if(!b||!WS)return;
   try{
@@ -129,7 +129,7 @@ $('#runShortcut').onclick=()=>{
   window.location.href=url;
 };
 $('#installApp').onclick=()=>{
-  alert('On iPhone: open this dashboard in Safari, tap Share, then Add to Home Screen. Create an Apple Shortcut named “JARVIS Control” with the app actions you approve. JARVIS can pass any command you enter here into that Shortcut.');
+  alert('On iPhone: open this dashboard in Safari, tap Share, then Add to Home Screen. Create an Apple Shortcut named “Zuzu Control” with the app actions you approve. Zuzu can pass any command you enter here into that Shortcut.');
 };
 const isiOS=/iPhone|iPad|iPod/i.test(navigator.userAgent);
 const standalone=window.matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
@@ -247,7 +247,7 @@ async function transmit(message, options = {}){
   running = false;
   clearInterval(tick);
   scheduleJobPoll(1500);
-  await speakDone;                 // don't return until Jarvis has finished talking
+  await speakDone;                 // don't return until Zuzu has finished talking
 }
 
 function handle(ev){
@@ -320,11 +320,11 @@ function cleanForSpeech(text){
 }
 
 /* ══════════ continuous voice conversation ══════════
-   Click VOICE once. From then on: listen → you stop → transcribe → Jarvis
+   Click VOICE once. From then on: listen -> you stop -> transcribe -> Zuzu
    answers and speaks → it listens again, automatically. No re-clicking between
    turns. Click VOICE again (or press Esc) to end the conversation.
 
-   Gemini Live stays full duplex while JARVIS speaks, so the user can interrupt.
+   Gemini Live stays full duplex while Zuzu speaks, so the user can interrupt.
    Echo cancellation plus local voice activity stops queued playback immediately.
    The non-Live fallbacks still use `suppress` to avoid hearing their own TTS. */
 let convo = false, suppress = false;
@@ -439,7 +439,7 @@ async function startGeminiLive(){
       model:`models/${auth.model}`,
       generationConfig:{responseModalities:['AUDIO'],thinkingConfig:{thinkingBudget:0},speechConfig:{voiceConfig:{prebuiltVoiceConfig:{voiceName:auth.voice||'Kore'}}}},
       inputAudioTranscription:{}, outputAudioTranscription:{}, tools:auth.tools || [],
-      systemInstruction:{parts:[{text:auth.system || 'You are JARVIS. Speak warmly, naturally, briefly, and helpfully.'}]}
+      systemInstruction:{parts:[{text:auth.system || 'You are Zuzu. Speak warmly, naturally, briefly, and helpfully.'}]}
     }}));
     const connectedSocket = liveWs;
     liveBridge = new HermesVoiceBridge(executeLiveAction, message => {
@@ -454,7 +454,7 @@ async function startGeminiLive(){
       if (msg.setupComplete && !liveReady){
         liveReady = true; convo = true; suppress = false;
         sessionStorage.setItem('jarvis-voice-resume','1');
-        $('#mic').classList.add('on'); $('#mic').textContent = '● JARVIS Voice';
+        $('#mic').classList.add('on'); $('#mic').textContent = '● Zuzu Voice';
         setState('listening','LISTENING','تفضّل، أنا سامعاك');
         log('voice','VOICE',`${auth.model} · ${auth.voice} · Hermes actions connected`);
         liveSource = liveInputCtx.createMediaStreamSource(micStream);
@@ -760,7 +760,7 @@ $('#cmds').addEventListener('click', e => {
   const b = e.target.closest('.cmd'); if (!b) return;
   const cmd = b.dataset.cmd;
   if (running){
-    log('note','BUSY',`${cmd} not sent — JARVIS is still working.`);
+    log('note','BUSY',`${cmd} not sent — Zuzu is still working.`);
     return;
   }
 
@@ -803,7 +803,7 @@ function sendFromInput(){
   const raw = $('#input').value.trim();
   if (!raw && !armed) return;
   const full = (armed && !raw.startsWith('/')) ? `${armed} ${raw}` : (raw || armed);
-  $('#input').value = ''; $('#input').placeholder = 'Message JARVIS'; disarm(); $('#tip').textContent = defaultTip;
+  $('#input').value = ''; $('#input').placeholder = 'Message Zuzu'; disarm(); $('#tip').textContent = defaultTip;
   log('send','SEND',`transmit: ${full}`);
   transmit(full);
 }
@@ -922,7 +922,7 @@ function renderStatus(s){
   sys('profile', s.profile || 'default');
   sys('runtime', brain, (s.runtime === 'mock' || (!hermesReady && !hermesChecking)) ? 'warn' : 'ok');
   sys('clock', now());
-  $('#top-gw').textContent = 'JARVIS online';
+  $('#top-gw').textContent = 'Zuzu online';
   $('#top-hermes').textContent = `Hermes ${hermesLabel.toLowerCase()}`;
   $('#top-profile').textContent = 'Profile: ' + (s.profile || 'default');
   $('#top-voice').textContent = `${sttLabel} · ${ttsLabel}`;
@@ -936,7 +936,7 @@ function renderStatus(s){
     log('status','BOOT',`dashboard online · Hermes ${hermesLabel.toLowerCase()} · ${s.runtime} conversation · profile=${s.profile || 'default'}`);
     log('voice','VOICE',`channel ready — ${sttLabel} / ${ttsLabel}`);
   }
-  $('#mic').textContent = RT.live ? 'JARVIS Voice' : (RT.stt ? 'Voice live' : 'Voice');
+  $('#mic').textContent = RT.live ? 'Zuzu Voice' : (RT.stt ? 'Voice live' : 'Voice');
   setState('', 'STANDBY', 'awaiting uplink');
 }
 async function refreshStatus(attempt = 0){
@@ -950,7 +950,7 @@ async function refreshStatus(attempt = 0){
     }
   }catch(_){
     sys('gw','Offline','warn');
-    $('#top-gw').textContent = 'JARVIS offline';
+    $('#top-gw').textContent = 'Zuzu offline';
     $('#top-hermes').textContent = 'Hermes unknown';
     if (!bootLogged) log('error','STATUS','server unreachable');
   }
