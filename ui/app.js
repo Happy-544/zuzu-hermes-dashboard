@@ -456,7 +456,7 @@ async function startGeminiLive(){
       if (msg.setupComplete && !liveReady){
         liveReady = true; convo = true; suppress = false;
         sessionStorage.setItem('jarvis-voice-resume','1');
-        $('#mic').classList.add('on'); $('#mic').textContent = '● Zuzu Voice';
+        $('#mic').classList.add('on'); $('#mic').textContent = 'Listening';
         setState('listening','LISTENING','تفضّل، أنا سامعاك');
         log('voice','VOICE',`${auth.model} · ${auth.voice} · Hermes actions connected`);
         liveSource = liveInputCtx.createMediaStreamSource(micStream);
@@ -574,14 +574,14 @@ async function micToggle(){
     actx.createMediaStreamSource(micStream).connect(analyser);
     vdata = new Uint8Array(analyser.fftSize);
     convo = true; suppress = false;
-    $('#mic').classList.add('on'); $('#mic').textContent = '● ElevenLabs Live';
+    $('#mic').classList.add('on'); $('#mic').textContent = 'Listening';
     log('voice','VOICE','ElevenLabs voice conversation open · listening');
     beginTurn();
     return;
   }
   if (SpeechRecognition){
     convo = true; suppress = false;
-    $('#mic').classList.add('on'); $('#mic').textContent = '● Browser Live';
+    $('#mic').classList.add('on'); $('#mic').textContent = 'Listening';
     log('voice','VOICE','browser speech recognition open · listening');
     setState('listening','LISTENING','browser speech online');
     startBrowserRecognition();
@@ -610,9 +610,9 @@ function stopConvo(manual=true){
   if (actx){ actx.close().catch(()=>{}); actx=null; analyser=null; }
   if (wakeLock){ try{wakeLock.release();}catch(_){} wakeLock=null; }
   document.body.classList.remove('speaking');
-  $('#mic').classList.remove('on'); $('#mic').textContent = '◉ VOICE';
+  $('#mic').classList.remove('on'); $('#mic').textContent = 'Zuzu Voice';
   log('voice','VOICE','conversation closed');
-  setState('', 'STANDBY', 'awaiting uplink');
+  setState('', 'READY', 'تفضّل، أنا معاك');
 }
 
 // ── browser speech turn ──
@@ -813,7 +813,7 @@ $('#run').onclick = sendFromInput;
 $('#mic').onclick = micToggle;
 $('#showCommands').onclick = () => transmit('/commands', {speak:false});
 $('#missionBtn').onclick = () => transmit('/mission', {speak:false});
-$('#clearBtn').onclick = () => { answer=''; $('#response').innerHTML='<span class="rplaceholder">Display cleared. Standing by.</span>'; log('note','CLEAR','response panel cleared'); };
+$('#clearBtn').onclick = () => { answer=''; $('#response').innerHTML='<span class="rplaceholder">تفضّل، أنا معاك</span>'; log('note','CLEAR','response panel cleared'); };
 document.querySelectorAll('[data-quick]').forEach(b => b.onclick = () =>
   transmit(b.dataset.quick, {speak:false}));
 document.querySelectorAll('[data-compose]').forEach(b => b.onclick = () => {
@@ -938,8 +938,8 @@ function renderStatus(s){
     log('status','BOOT',`dashboard online · Hermes ${hermesLabel.toLowerCase()} · ${s.runtime} conversation · profile=${s.profile || 'default'}`);
     log('voice','VOICE',`channel ready — ${sttLabel} / ${ttsLabel}`);
   }
-  $('#mic').textContent = RT.live ? 'Zuzu Voice' : (RT.stt ? 'Voice live' : 'Voice');
-  setState('', 'STANDBY', 'awaiting uplink');
+  $('#mic').textContent = RT.live ? 'Zuzu Voice' : (RT.stt ? 'Voice live' : 'Zuzu Voice');
+  setState('', 'READY', 'تفضّل، أنا معاك');
 }
 async function refreshStatus(attempt = 0){
   try{
