@@ -1,5 +1,5 @@
-const CACHE='jarvis-shell-v28';
-const SHELL=['/live-bridge.js?v=11','/styles.css?v=28','/app.js?v=28','/manifest.webmanifest','/icon-192.png','/icon-512.png'];
+const CACHE='jarvis-shell-v29';
+const SHELL=['/live-bridge.js?v=11','/styles.css?v=29','/app.js?v=29','/manifest.webmanifest','/icon-192.png','/icon-512.png'];
 self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(SHELL)).then(()=>self.skipWaiting())));
 self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(key=>key!==CACHE).map(key=>caches.delete(key)))).then(()=>self.clients.claim())));
 self.addEventListener('fetch',event=>{

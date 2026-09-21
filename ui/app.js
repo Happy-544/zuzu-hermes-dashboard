@@ -454,28 +454,82 @@ function normalizeBrowserTarget(input, mode='google'){
   if(/^google\s*:/i.test(raw)) return googleSearchUrl(raw.replace(/^google\s*:/i,'').trim());
   return mode === 'youtube' ? youtubeSearchUrl(raw) : googleSearchUrl(raw);
 }
-function showBrowserUrl(url, status='Browser preview'){
-  if(!url) return;
+function setFrameUrl(url, status='Browser preview'){
   stopVisualStream(); visualKind='browser'; visualBrowserUrl=url;
-  const opened=openExternalUrl(url);
-  showExternalLauncher(url, status, opened);
-  log('status','BROWSER',`${opened?'opened external browser':'browser link ready'}: ${url}`);
+  const video=$('#visualPreview'), img=$('#visualImage'), frame=$('#visualFrame'), empty=$('#visualEmpty'), flip=$('#flipCamera');
+  if(video){ video.hidden=true; video.removeAttribute('src'); video.srcObject=null; video.removeAttribute('data-active'); }
+  if(img) img.hidden=true; if(flip) flip.hidden=true; if(empty) empty.hidden=true;
+  if(frame){ frame.removeAttribute('srcdoc'); frame.src=url; frame.hidden=false; }
+  setVisualStatus(status); setVisionBox(true); document.body.classList.add('vision-on');
 }
+function showSearchResultsPanel(data, mode='web'){
+  const best=data.best || (data.results||[])[0];
+  const title=mode==='youtube'?'YouTube results':'Browser results';
+  const rows=(data.results||[]).map((r,i)=>`<button type="button" data-open-result="${escapeAttr(r.embed||r.url)}" data-result-mode="${mode}"><b>${i+1}. ${escapeAttr(r.title||r.url)}</b><small>${escapeAttr(r.url)}</small></button>`).join('');
+  const html=`<div class="external-launcher search-results"><b>${title}</b><span>${escapeAttr(data.query||'')}</span>${rows||'<span>No results</span>'}</div>`;
+  const video=$('#visualPreview'), img=$('#visualImage'), frame=$('#visualFrame'), empty=$('#visualEmpty'), flip=$('#flipCamera');
+  if(video) video.hidden=true; if(img) img.hidden=true; if(flip) flip.hidden=true; if(frame) frame.hidden=true;
+  if(empty){ empty.innerHTML=html; empty.hidden=false; }
+  setVisualStatus(title); setVisionBox(true); document.body.classList.add('vision-on');
+  if(best){
+    if(mode==='youtube' && best.embed) setFrameUrl(best.embed, best.title || 'YouTube video');
+    else showExternalLauncher(best.url, best.title || 'Browser result', false);
+  }
+}
+async function resolveAndShowYoutube(queryOrUrl, status='Video / YouTube'){
+  if(!queryOrUrl) return;
+  const raw=String(queryOrUrl).trim();
+  if(/^https?:\/\//i.test(raw)){
+    const embed=youtubeEmbedUrl(raw);
+    if(embed && embed !== raw) setFrameUrl(embed, status);
+    else showExternalLauncher(raw, status, false);
+    return;
+  }
+  setVisualStatus('Searching YouTube…'); setVisionBox(true); document.body.classList.add('vision-on');
+  try{
+    const r=await fetch(`/api/youtube-search?q=${encodeURIComponent(raw)}`,{headers:apiHeaders()});
+    const data=await r.json(); if(!r.ok) throw new Error(data.error||`HTTP ${r.status}`);
+    showSearchResultsPanel(data,'youtube');
+    log('complete','YOUTUBE',`opened ${data.best?.title||raw}`);
+  }catch(err){
+    const url=youtubeSearchUrl(raw);
+    showExternalLauncher(url, 'YouTube search', openExternalUrl(url));
+    log('error','YOUTUBE',String(err.message||err));
+  }
+}
+async function resolveAndShowBrowser(queryOrUrl, status='Browser preview'){
+  if(!queryOrUrl) return;
+  const raw=String(queryOrUrl).trim();
+  if(/^https?:\/\//i.test(raw) || isProbablyDomain(raw)){
+    const url=normalizeBrowserTarget(raw,'google');
+    showExternalLauncher(url, status, openExternalUrl(url));
+    return;
+  }
+  setVisualStatus('Searching web…'); setVisionBox(true); document.body.classList.add('vision-on');
+  try{
+    const r=await fetch(`/api/web-search?q=${encodeURIComponent(raw)}`,{headers:apiHeaders()});
+    const data=await r.json(); if(!r.ok) throw new Error(data.error||`HTTP ${r.status}`);
+    showSearchResultsPanel(data,'web');
+    log('complete','BROWSER',`found ${data.best?.title||raw}`);
+  }catch(err){
+    const url=googleSearchUrl(raw);
+    showExternalLauncher(url, 'Google search', openExternalUrl(url));
+    log('error','BROWSER',String(err.message||err));
+  }
+}
+function showBrowserUrl(url, status='Browser preview'){ return resolveAndShowBrowser(url, status); }
 function showVideoUrl(url, status='Video / YouTube'){
   if(!url) return;
-  stopVisualStream(); visualKind='remote-video'; visualBrowserUrl=url;
-  const lower=url.toLowerCase();
+  const lower=String(url).toLowerCase();
   if(/\.(mp4|webm|ogg)(\?|#|$)/i.test(lower)){
+    stopVisualStream(); visualKind='remote-video'; visualBrowserUrl=url;
     const video=$('#visualPreview'), img=$('#visualImage'), frame=$('#visualFrame'), empty=$('#visualEmpty'), flip=$('#flipCamera');
-    if(img) img.hidden=true; if(flip) flip.hidden=true; if(empty) empty.hidden=true;
-    if(frame) frame.hidden=true;
+    if(img) img.hidden=true; if(flip) flip.hidden=true; if(empty) empty.hidden=true; if(frame) frame.hidden=true;
     if(video){ video.src=url; video.srcObject=null; video.dataset.active='1'; video.hidden=false; video.controls=true; video.loop=false; }
     setVisualStatus(status); setVisionBox(true); document.body.classList.add('vision-on');
     return;
   }
-  const opened=openExternalUrl(url);
-  showExternalLauncher(url, status, opened);
-  log('status','VIDEO',`${opened?'opened external video':'video link ready'}: ${url}`);
+  return resolveAndShowYoutube(url, status);
 }
 function requestLaptopPicture(){
   transmit('/pc Take a screenshot or create/find the picture you want to show me from the laptop, save it if needed, and return a direct file path or URL. Describe what I should judge, then ask me what I think.',{speak:false});
@@ -483,9 +537,8 @@ function requestLaptopPicture(){
 function requestLaptopVideo(){
   const raw=prompt('Show YouTube/video in Zuzu core. Paste a URL or type a search:', '');
   if(raw && raw.trim()){
-    const url=normalizeBrowserTarget(raw, 'youtube');
-    showVideoUrl(url, /^https?:\/\//i.test(raw.trim()) ? 'Video / YouTube' : 'YouTube search');
-    log('status','VIDEO',`showing ${url}`);
+    showVideoUrl(raw.trim(), /^https?:\/\//i.test(raw.trim()) ? 'Video / YouTube' : 'YouTube search');
+    log('status','VIDEO',`searching/showing ${raw.trim()}`);
     return;
   }
   transmit('/pc Find or open the video/YouTube item relevant to my current request and return the direct URL so the dashboard can display it to me. If you cannot open it directly, return the best URL and explain why.',{speak:false});
@@ -493,7 +546,7 @@ function requestLaptopVideo(){
 function openBrowserPreview(){
   const raw=prompt('Open browser view inside Zuzu core. Enter a URL or search words:', '');
   if(!raw) return;
-  showBrowserUrl(normalizeBrowserTarget(raw, 'google'), 'Browser search');
+  showBrowserUrl(raw.trim(), 'Browser search');
 }
 function requestLaptopScreen(){
   startLaptopLive();
@@ -562,6 +615,14 @@ document.addEventListener('click', e => {
   if(!b) return;
   const url=b.getAttribute('data-copy-url')||'';
   navigator.clipboard?.writeText(url).then(()=>log('complete','COPY','link copied')).catch(()=>log('error','COPY','copy failed'));
+});
+document.addEventListener('click', e => {
+  const b=e.target.closest('[data-open-result]');
+  if(!b) return;
+  const url=b.getAttribute('data-open-result')||'';
+  const mode=b.getAttribute('data-result-mode')||'web';
+  if(mode==='youtube') setFrameUrl(url, 'YouTube video');
+  else showExternalLauncher(url, 'Browser result', openExternalUrl(url));
 });
 $('#dockLaptop')?.addEventListener('click',requestLaptopScreen);
 $('#dockImage')?.addEventListener('click',showLaptopSnapshot);
@@ -685,10 +746,9 @@ function browserIntentFromMessage(message){
 function maybeOpenRequestedBrowserPreview(message){
   const intent=browserIntentFromMessage(message);
   if(!intent || !intent.query) return '';
-  const url=normalizeBrowserTarget(intent.query, intent.mode);
-  if(intent.mode==='youtube') showVideoUrl(url, 'YouTube search');
-  else showBrowserUrl(url, 'Google search');
-  return `Zuzu has already opened this ${intent.mode === 'youtube' ? 'YouTube' : 'browser'} preview for the user: ${url}. Use it as visible context; if it cannot play inside the frame, tell the user to open it externally or use laptop browser control.`;
+  if(intent.mode==='youtube') showVideoUrl(intent.query, 'YouTube search');
+  else showBrowserUrl(intent.query, 'Google search');
+  return `Zuzu is opening a ${intent.mode === 'youtube' ? 'YouTube video/search' : 'browser search'} for the user inside the visual panel using this query: ${intent.query}. Use it as visible context and do not claim nothing opened unless the resolver reports an error.`;
 }
 
 async function transmit(message, options = {}){

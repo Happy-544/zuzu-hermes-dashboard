@@ -17,6 +17,8 @@ import re
 import secrets
 import sys
 import threading
+import urllib.parse
+import urllib.request
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
@@ -132,6 +134,67 @@ def persona(client_extra=""):
     return "\n\n".join(x for x in (base, custom, bridge, self_awareness, relevant, command_context, client_extra) if x)
 
 
+def _fetch_text(url, timeout=10):
+    req = urllib.request.Request(url, headers={
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.9,ar;q=0.8",
+    })
+    with urllib.request.urlopen(req, timeout=timeout) as response:
+        raw = response.read(2_000_000)
+    return raw.decode("utf-8", "replace")
+
+
+def _youtube_search(query):
+    query = re.sub(r"\s+", " ", str(query or "")).strip()[:180]
+    if not query:
+        raise ValueError("empty YouTube search")
+    html = _fetch_text("https://www.youtube.com/results?search_query=" + urllib.parse.quote_plus(query))
+    seen = set()
+    videos = []
+    for match in re.finditer(r'"videoId"\s*:\s*"([A-Za-z0-9_-]{11})"', html):
+        vid = match.group(1)
+        if vid in seen:
+            continue
+        seen.add(vid)
+        around = html[max(0, match.start() - 900):match.end() + 1600]
+        title_match = re.search(r'"title"\s*:\s*\{\s*"runs"\s*:\s*\[\s*\{\s*"text"\s*:\s*"(.*?)"', around)
+        title = title_match.group(1).encode("utf-8").decode("unicode_escape", "ignore") if title_match else query
+        videos.append({
+            "id": vid,
+            "title": title,
+            "url": f"https://www.youtube.com/watch?v={vid}",
+            "embed": f"https://www.youtube.com/embed/{vid}?autoplay=1&playsinline=1&rel=0",
+        })
+        if len(videos) >= 5:
+            break
+    if not videos:
+        raise RuntimeError("No YouTube videos found")
+    return {"query": query, "results": videos, "best": videos[0]}
+
+
+def _web_search(query):
+    query = re.sub(r"\s+", " ", str(query or "")).strip()[:220]
+    if not query:
+        raise ValueError("empty web search")
+    html = _fetch_text("https://duckduckgo.com/html/?q=" + urllib.parse.quote_plus(query))
+    results = []
+    for m in re.finditer(r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>', html, re.I | re.S):
+        href = m.group(1).replace("&amp;", "&")
+        title = re.sub(r"<.*?>", "", m.group(2))
+        title = re.sub(r"\s+", " ", title).strip()
+        if "uddg=" in href:
+            parsed = urllib.parse.urlparse(href)
+            params = urllib.parse.parse_qs(parsed.query)
+            href = urllib.parse.unquote(params.get("uddg", [href])[0])
+        if href.startswith("http"):
+            results.append({"title": title or href, "url": href})
+        if len(results) >= 8:
+            break
+    if not results:
+        results = [{"title": f"Search Google for {query}", "url": "https://www.google.com/search?q=" + urllib.parse.quote_plus(query)}]
+    return {"query": query, "results": results, "best": results[0]}
+
+
 def capture_laptop_screen_jpeg():
     """Capture the visible Windows desktop for mobile live-screen preview."""
     try:
@@ -236,6 +299,24 @@ class Handler(BaseHTTPRequestHandler):
             return self._bytes(f.read_bytes(), mimetypes.guess_type(f.name)[0] or "application/octet-stream", headers={
                 "Cache-Control": "private, no-store",
             })
+
+        if p == "/api/youtube-search":
+            if not self._token_ok():
+                return self._json({"error": "unauthorized"}, 401)
+            query = urllib.parse.parse_qs(urlparse(self.path).query).get("q", [""])[0]
+            try:
+                return self._json(_youtube_search(query))
+            except Exception as e:  # noqa: BLE001
+                return self._json({"error": str(e)[:240]}, 503)
+
+        if p == "/api/web-search":
+            if not self._token_ok():
+                return self._json({"error": "unauthorized"}, 401)
+            query = urllib.parse.parse_qs(urlparse(self.path).query).get("q", [""])[0]
+            try:
+                return self._json(_web_search(query))
+            except Exception as e:  # noqa: BLE001
+                return self._json({"error": str(e)[:240]}, 503)
 
         if p == "/api/status":
             hermes_health = runtime.hermes_health_snapshot()

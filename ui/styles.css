@@ -58,3 +58,6 @@ input:focus-visible,select:focus-visible{outline:2px solid var(--cyan);outline-o
 
 /* v28: external browser/video launcher card */
 .external-launcher{width:min(92%,520px);display:flex;flex-direction:column;align-items:center;gap:10px;padding:18px;text-align:center}.external-launcher b{color:#ffe0a3;font-size:16px}.external-launcher span{color:#ffdba2;font-size:13px}.external-launcher small{max-width:100%;word-break:break-all;color:#ffbd64;font:700 11px/1.35 var(--mono)}.external-launcher a,.external-launcher button{border:1px solid rgba(255,176,46,.76);border-radius:999px;background:#ffad2f;color:#150b02;padding:10px 15px;font-weight:900;text-decoration:none;cursor:pointer}.external-launcher button{background:transparent;color:#ffe0a3}
+
+/* v29: in-Zuzu browser and YouTube result picker */
+.search-results{align-items:stretch;overflow:auto;height:100%;width:100%;padding:14px}.search-results button{display:flex;flex-direction:column;gap:4px;text-align:left;border:1px solid rgba(255,176,46,.24);border-radius:14px;background:rgba(255,176,46,.08);color:#ffe0a3;padding:10px;cursor:pointer}.search-results button b{font-size:12px}.search-results button small{font-size:10px;color:#ffbd64;word-break:break-all}

@@ -144,6 +144,10 @@ class InterfaceTests(unittest.TestCase):
         self.assertIn("youtubeSearchUrl", js)
         self.assertIn("showExternalLauncher", js)
         self.assertIn("openExternalUrl", js)
+        self.assertIn("resolveAndShowYoutube", js)
+        self.assertIn("resolveAndShowBrowser", js)
+        self.assertIn("/api/youtube-search", (ROOT / "server.py").read_text(encoding="utf-8"))
+        self.assertIn("/api/web-search", (ROOT / "server.py").read_text(encoding="utf-8"))
         self.assertIn("external-launcher", (ROOT / "ui" / "styles.css").read_text(encoding="utf-8"))
         self.assertIn("allow-popups", html)
         self.assertIn("clientDeviceContext", js)
@@ -192,8 +196,8 @@ class InterfaceTests(unittest.TestCase):
         self.assertIn("is waiting for task details", js)
         self.assertIn('id="top-hermes"', html)
         self.assertIn('id="sy-hermes"', html)
-        self.assertIn("app.js?v=28", html)
-        self.assertIn("jarvis-shell-v28", worker)
+        self.assertIn("app.js?v=29", html)
+        self.assertIn("jarvis-shell-v29", worker)
         self.assertIn("fetch(event.request).then", worker)
 
     def test_job_polling_is_visibility_aware_and_quota_friendly(self):
