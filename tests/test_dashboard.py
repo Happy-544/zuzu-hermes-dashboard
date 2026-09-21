@@ -7,6 +7,7 @@ from unittest import mock
 
 import commands
 import runtime
+import server
 import workspace
 
 
@@ -81,6 +82,13 @@ class RuntimeTests(unittest.TestCase):
     def test_gemini_fallback_does_not_switch_to_36(self):
         self.assertEqual(runtime.GEMINI_MODEL, "gemini-2.5-flash")
         self.assertEqual(runtime.GEMINI_FALLBACK_MODEL, "gemini-2.5-flash")
+
+    def test_public_tunnel_hosts_are_allowed(self):
+        self.assertTrue(server._host_allowed("locate-weekends-think-rec.trycloudflare.com"))
+        self.assertTrue(server._host_allowed("polyester-garden-twiddle.ngrok-free.dev"))
+        self.assertTrue(server._origin_allowed("https://locate-weekends-think-rec.trycloudflare.com"))
+        self.assertTrue(server._origin_allowed("https://polyester-garden-twiddle.ngrok-free.dev"))
+        self.assertFalse(server._host_allowed("evil.example.com"))
 
 
 class InterfaceTests(unittest.TestCase):

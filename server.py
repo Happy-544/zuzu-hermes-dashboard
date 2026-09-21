@@ -50,22 +50,35 @@ MAX_AUDIO_BODY = 12 * 1024 * 1024
 MAX_UPLOAD_BODY = 25 * 1024 * 1024
 
 
-def _allowed_hosts():
-    local = {f"127.0.0.1:{PORT}", f"localhost:{PORT}"}
-    public_origin = os.environ.get("JARVIS_PUBLIC_ORIGIN", "").strip().rstrip("/")
+def _configured_public_origin():
+    return os.environ.get("JARVIS_PUBLIC_ORIGIN", "").strip().rstrip("/")
+
+
+def _host_allowed(host):
+    host = (host or "").strip().lower()
+    if host in {f"127.0.0.1:{PORT}", f"localhost:{PORT}"}:
+        return True
+    public_origin = _configured_public_origin()
     if public_origin:
         parsed = urlparse(public_origin)
-        if parsed.netloc:
-            local.add(parsed.netloc)
-    return local
+        if parsed.netloc and host == parsed.netloc.lower():
+            return True
+    bare = host.split(":", 1)[0]
+    return bare.endswith(".trycloudflare.com") or bare.endswith(".ngrok-free.dev")
 
 
-def _allowed_origins():
-    origins = {f"http://127.0.0.1:{PORT}", f"http://localhost:{PORT}"}
-    public_origin = os.environ.get("JARVIS_PUBLIC_ORIGIN", "").strip().rstrip("/")
-    if public_origin:
-        origins.add(public_origin)
-    return origins
+def _origin_allowed(origin):
+    if not origin:
+        return False
+    origin = origin.strip().rstrip("/")
+    if origin in {f"http://127.0.0.1:{PORT}", f"http://localhost:{PORT}"}:
+        return True
+    public_origin = _configured_public_origin()
+    if public_origin and origin == public_origin:
+        return True
+    parsed = urlparse(origin)
+    host = parsed.netloc.lower()
+    return parsed.scheme in {"https", "http"} and (host.endswith(".trycloudflare.com") or host.endswith(".ngrok-free.dev"))
 
 # The Zuzu persona, appended to every run. Without it, the model answers as a
 # coding agent and narrates its own tooling — which is not what you want spoken
@@ -132,11 +145,11 @@ class Handler(BaseHTTPRequestHandler):
 
     def _host_ok(self):
         host = self.headers.get("Host", "")
-        return host in _allowed_hosts()
+        return _host_allowed(host)
 
     def _origin_ok(self):
         origin = self.headers.get("Origin")
-        return origin in _allowed_origins()
+        return _origin_allowed(origin)
 
     def _token_ok(self):
         supplied = self.headers.get("X-Jarvis-Token", "")

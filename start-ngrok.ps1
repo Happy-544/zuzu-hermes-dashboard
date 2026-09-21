@@ -21,7 +21,7 @@ Set-Location -LiteralPath $project
 do {
     $stamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
     Add-Content -LiteralPath $log -Value "[$stamp] starting JARVIS public tunnel"
-    & $ngrok http --config $config --inspect=false --url $publicUrl 8731 *>> $log
+    & $ngrok http --config $config --inspect=false --url $publicUrl http://127.0.0.1:8731 *>> $log
     $exitCode = $LASTEXITCODE
     $stamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
     Add-Content -LiteralPath $log -Value "[$stamp] ngrok exited with code $exitCode"
