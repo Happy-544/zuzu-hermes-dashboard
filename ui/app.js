@@ -300,7 +300,7 @@ function resetVisualSurfaces(){
   if(video){ video.srcObject=null; video.removeAttribute('data-active'); video.hidden=false; video.removeAttribute('src'); video.controls=false; video.loop=false; }
   if(img){ img.hidden=true; img.removeAttribute('src'); }
   if(frame){ frame.hidden=true; frame.removeAttribute('src'); frame.removeAttribute('srcdoc'); }
-  if(empty) empty.hidden=false;
+  if(empty){ empty.hidden=false; empty.innerHTML='Show laptop live screen, screenshot, picture, video, YouTube, browser, camera, or screen share.'; }
   if(visualObjectUrl){ URL.revokeObjectURL(visualObjectUrl); visualObjectUrl=''; }
   visualBrowserUrl='';
 }
@@ -420,9 +420,30 @@ function isBlockedFrameUrl(url){
 function escapeAttr(value){
   return String(value||'').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 }
-function previewLauncherHtml(url, status='Browser preview'){
+function openExternalUrl(url){
+  try{
+    const opened = window.open(url, '_blank', 'noopener,noreferrer');
+    if (opened) return true;
+  }catch(_){}
+  try{
+    const a=document.createElement('a');
+    a.href=url; a.target='_blank'; a.rel='noopener noreferrer';
+    document.body.appendChild(a); a.click(); a.remove();
+    return true;
+  }catch(_){ return false; }
+}
+function launcherMarkup(url, status='Browser preview', opened=false){
   const safeUrl=escapeAttr(url), safeStatus=escapeAttr(status);
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{height:100%;margin:0;background:radial-gradient(circle at center,rgba(255,176,46,.22),rgba(6,10,12,.94));color:#ffe0a3;font-family:system-ui,-apple-system,Segoe UI,sans-serif}body{display:grid;place-items:center;text-align:center}.box{width:min(86%,520px);border:1px solid rgba(255,176,46,.55);border-radius:22px;padding:24px;background:rgba(0,0,0,.42);box-shadow:0 0 42px rgba(255,144,18,.24)}h1{font-size:20px;margin:0 0 10px}p{font-size:14px;line-height:1.5;color:#ffe9c4}.url{word-break:break-all;color:#ffd27b;font-size:12px;margin:14px 0}a,button{display:inline-block;border:1px solid rgba(255,176,46,.8);background:#ffad2f;color:#120b02;border-radius:999px;padding:12px 18px;font-weight:800;text-decoration:none;margin:8px;cursor:pointer}.ghost{background:transparent;color:#ffe0a3}</style></head><body><div class="box"><h1>${safeStatus}</h1><p>This site blocks being shown inside Zuzu's frame, so open it in a real browser tab.</p><div class="url">${safeUrl}</div><a href="${safeUrl}" target="_blank" rel="noopener">Open now</a><button class="ghost" onclick="navigator.clipboard&&navigator.clipboard.writeText('${safeUrl.replace(/'/g,'&#39;')}')">Copy link</button></div></body></html>`;
+  const openedText = opened ? 'Opened in a real browser tab.' : 'Tap Open now to launch it in a real browser tab.';
+  return `<div class="external-launcher"><b>${safeStatus}</b><span>${openedText}</span><small>${safeUrl}</small><a href="${safeUrl}" target="_blank" rel="noopener noreferrer">Open now</a><button type="button" data-copy-url="${safeUrl}">Copy link</button></div>`;
+}
+function showExternalLauncher(url, status='Browser preview', opened=false){
+  const video=$('#visualPreview'), img=$('#visualImage'), frame=$('#visualFrame'), empty=$('#visualEmpty'), flip=$('#flipCamera');
+  if(video){ video.hidden=true; video.removeAttribute('src'); video.srcObject=null; video.removeAttribute('data-active'); }
+  if(img) img.hidden=true; if(flip) flip.hidden=true;
+  if(frame){ frame.hidden=true; frame.removeAttribute('src'); frame.removeAttribute('srcdoc'); }
+  if(empty){ empty.innerHTML=launcherMarkup(url, status, opened); empty.hidden=false; }
+  setVisualStatus(status); setVisionBox(true); document.body.classList.add('vision-on');
 }
 function normalizeBrowserTarget(input, mode='google'){
   const raw=String(input||'').trim();
@@ -436,38 +457,25 @@ function normalizeBrowserTarget(input, mode='google'){
 function showBrowserUrl(url, status='Browser preview'){
   if(!url) return;
   stopVisualStream(); visualKind='browser'; visualBrowserUrl=url;
-  const video=$('#visualPreview'), img=$('#visualImage'), frame=$('#visualFrame'), empty=$('#visualEmpty'), flip=$('#flipCamera');
-  if(video) video.hidden=true; if(img) img.hidden=true; if(flip) flip.hidden=true;
-  if(frame){
-    frame.removeAttribute('srcdoc');
-    if(isBlockedFrameUrl(url)) frame.srcdoc=previewLauncherHtml(url, status);
-    else frame.src=url;
-    frame.hidden=false;
-  }
-  if(empty) empty.hidden=true;
-  setVisualStatus(status); setVisionBox(true); document.body.classList.add('vision-on');
-  log('status','BROWSER',`preview opened: ${url}`);
+  const opened=openExternalUrl(url);
+  showExternalLauncher(url, status, opened);
+  log('status','BROWSER',`${opened?'opened external browser':'browser link ready'}: ${url}`);
 }
 function showVideoUrl(url, status='Video / YouTube'){
   if(!url) return;
   stopVisualStream(); visualKind='remote-video'; visualBrowserUrl=url;
-  const video=$('#visualPreview'), img=$('#visualImage'), frame=$('#visualFrame'), empty=$('#visualEmpty'), flip=$('#flipCamera');
-  if(img) img.hidden=true; if(flip) flip.hidden=true; if(empty) empty.hidden=true;
   const lower=url.toLowerCase();
   if(/\.(mp4|webm|ogg)(\?|#|$)/i.test(lower)){
+    const video=$('#visualPreview'), img=$('#visualImage'), frame=$('#visualFrame'), empty=$('#visualEmpty'), flip=$('#flipCamera');
+    if(img) img.hidden=true; if(flip) flip.hidden=true; if(empty) empty.hidden=true;
     if(frame) frame.hidden=true;
     if(video){ video.src=url; video.srcObject=null; video.dataset.active='1'; video.hidden=false; video.controls=true; video.loop=false; }
-  }else{
-    if(video) video.hidden=true;
-    if(frame){
-      frame.removeAttribute('srcdoc');
-      const embed=youtubeEmbedUrl(url);
-      if(embed === url && isBlockedFrameUrl(url)) frame.srcdoc=previewLauncherHtml(url, status);
-      else frame.src=embed;
-      frame.hidden=false;
-    }
+    setVisualStatus(status); setVisionBox(true); document.body.classList.add('vision-on');
+    return;
   }
-  setVisualStatus(status); setVisionBox(true); document.body.classList.add('vision-on');
+  const opened=openExternalUrl(url);
+  showExternalLauncher(url, status, opened);
+  log('status','VIDEO',`${opened?'opened external video':'video link ready'}: ${url}`);
 }
 function requestLaptopPicture(){
   transmit('/pc Take a screenshot or create/find the picture you want to show me from the laptop, save it if needed, and return a direct file path or URL. Describe what I should judge, then ask me what I think.',{speak:false});
@@ -549,6 +557,12 @@ async function sendLiveVisualFrame(reason='current voice question'){
 }
 $('#dockCamera')?.addEventListener('click',()=>startVisual('camera'));
 $('#dockScreen')?.addEventListener('click',()=>startVisual('screen'));
+document.addEventListener('click', e => {
+  const b=e.target.closest('[data-copy-url]');
+  if(!b) return;
+  const url=b.getAttribute('data-copy-url')||'';
+  navigator.clipboard?.writeText(url).then(()=>log('complete','COPY','link copied')).catch(()=>log('error','COPY','copy failed'));
+});
 $('#dockLaptop')?.addEventListener('click',requestLaptopScreen);
 $('#dockImage')?.addEventListener('click',showLaptopSnapshot);
 $('#dockVideo')?.addEventListener('click',requestLaptopVideo);
