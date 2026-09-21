@@ -299,7 +299,7 @@ function resetVisualSurfaces(){
   const video=$('#visualPreview'), img=$('#visualImage'), frame=$('#visualFrame'), empty=$('#visualEmpty');
   if(video){ video.srcObject=null; video.removeAttribute('data-active'); video.hidden=false; video.removeAttribute('src'); video.controls=false; video.loop=false; }
   if(img){ img.hidden=true; img.removeAttribute('src'); }
-  if(frame){ frame.hidden=true; frame.removeAttribute('src'); }
+  if(frame){ frame.hidden=true; frame.removeAttribute('src'); frame.removeAttribute('srcdoc'); }
   if(empty) empty.hidden=false;
   if(visualObjectUrl){ URL.revokeObjectURL(visualObjectUrl); visualObjectUrl=''; }
   visualBrowserUrl='';
@@ -411,6 +411,19 @@ function googleSearchUrl(query){
 function youtubeSearchUrl(query){
   return `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`;
 }
+function isBlockedFrameUrl(url){
+  try{
+    const u=new URL(url, location.href);
+    return /(^|\.)google\./i.test(u.hostname) || /(^|\.)youtube\.com$/i.test(u.hostname) || /(^|\.)youtu\.be$/i.test(u.hostname);
+  }catch(_){ return false; }
+}
+function escapeAttr(value){
+  return String(value||'').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+}
+function previewLauncherHtml(url, status='Browser preview'){
+  const safeUrl=escapeAttr(url), safeStatus=escapeAttr(status);
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{height:100%;margin:0;background:radial-gradient(circle at center,rgba(255,176,46,.22),rgba(6,10,12,.94));color:#ffe0a3;font-family:system-ui,-apple-system,Segoe UI,sans-serif}body{display:grid;place-items:center;text-align:center}.box{width:min(86%,520px);border:1px solid rgba(255,176,46,.55);border-radius:22px;padding:24px;background:rgba(0,0,0,.42);box-shadow:0 0 42px rgba(255,144,18,.24)}h1{font-size:20px;margin:0 0 10px}p{font-size:14px;line-height:1.5;color:#ffe9c4}.url{word-break:break-all;color:#ffd27b;font-size:12px;margin:14px 0}a,button{display:inline-block;border:1px solid rgba(255,176,46,.8);background:#ffad2f;color:#120b02;border-radius:999px;padding:12px 18px;font-weight:800;text-decoration:none;margin:8px;cursor:pointer}.ghost{background:transparent;color:#ffe0a3}</style></head><body><div class="box"><h1>${safeStatus}</h1><p>This site blocks being shown inside Zuzu's frame, so open it in a real browser tab.</p><div class="url">${safeUrl}</div><a href="${safeUrl}" target="_blank" rel="noopener">Open now</a><button class="ghost" onclick="navigator.clipboard&&navigator.clipboard.writeText('${safeUrl.replace(/'/g,'&#39;')}')">Copy link</button></div></body></html>`;
+}
 function normalizeBrowserTarget(input, mode='google'){
   const raw=String(input||'').trim();
   if(!raw) return '';
@@ -425,7 +438,12 @@ function showBrowserUrl(url, status='Browser preview'){
   stopVisualStream(); visualKind='browser'; visualBrowserUrl=url;
   const video=$('#visualPreview'), img=$('#visualImage'), frame=$('#visualFrame'), empty=$('#visualEmpty'), flip=$('#flipCamera');
   if(video) video.hidden=true; if(img) img.hidden=true; if(flip) flip.hidden=true;
-  if(frame){ frame.src=url; frame.hidden=false; }
+  if(frame){
+    frame.removeAttribute('srcdoc');
+    if(isBlockedFrameUrl(url)) frame.srcdoc=previewLauncherHtml(url, status);
+    else frame.src=url;
+    frame.hidden=false;
+  }
   if(empty) empty.hidden=true;
   setVisualStatus(status); setVisionBox(true); document.body.classList.add('vision-on');
   log('status','BROWSER',`preview opened: ${url}`);
@@ -441,7 +459,13 @@ function showVideoUrl(url, status='Video / YouTube'){
     if(video){ video.src=url; video.srcObject=null; video.dataset.active='1'; video.hidden=false; video.controls=true; video.loop=false; }
   }else{
     if(video) video.hidden=true;
-    if(frame){ frame.src=youtubeEmbedUrl(url); frame.hidden=false; }
+    if(frame){
+      frame.removeAttribute('srcdoc');
+      const embed=youtubeEmbedUrl(url);
+      if(embed === url && isBlockedFrameUrl(url)) frame.srcdoc=previewLauncherHtml(url, status);
+      else frame.src=embed;
+      frame.hidden=false;
+    }
   }
   setVisualStatus(status); setVisionBox(true); document.body.classList.add('vision-on');
 }
