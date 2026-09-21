@@ -127,7 +127,7 @@ def take_finished():
         return done
 
 
-_CMD = re.compile(r"^\s*/(new|profile|goal|personality|kanban|mission|missions|background|tools|toolsets|connectors|connect|music|playlist|remind|reminder|followup|status|commands|help|browser|clear)\b\s*(.*)$", re.I | re.S)
+_CMD = re.compile(r"^\s*/(new|profile|goal|personality|kanban|mission|missions|background|tools|toolsets|connectors|connect|music|playlist|remind|reminder|followup|busy|now|status|commands|help|browser|clear)\b\s*(.*)$", re.I | re.S)
 
 
 def _hermes_command(*args):
@@ -173,6 +173,7 @@ def _commands_reply():
 /music <request> — play music or prepare a playlist through connected music tools
 /playlist <request> — build or update a playlist through connected music tools
 /remind <request> — create a follow-up, reminder, or monitoring mission
+/busy or /now — show what Zuzu/Hermes is currently doing
 /toolsets — ask Hermes to list available toolsets
 /status — local Hermes runtime/profile/status
 /browser <task> — ask Hermes to use browser/Chrome tools
@@ -203,6 +204,9 @@ def handle(message, runner=None):
         profile = os.environ.get("HERMES_PROFILE", os.environ.get("JARVIS_PROFILE", "default"))
         runtime = os.environ.get("HERMES_CMD", "hermes")
         return dict(message=None, reply=f"Hermes dashboard online. profile={profile}; runtime={runtime}; workdir={os.getcwd()}; voice=browser Web Speech + optional ElevenLabs.", note="status read")
+
+    if cmd in ("busy", "now"):
+        return dict(message="Report exactly what is currently running in Zuzu/Hermes, using the runtime active-operation state if available. If nothing is running, say that clearly. Do not guess.", note="busy state requested", hermes=False, busy=True)
 
     if cmd in ("tools", "toolsets"):
         if cmd == "tools":

@@ -182,8 +182,8 @@ class InterfaceTests(unittest.TestCase):
         self.assertIn("is waiting for task details", js)
         self.assertIn('id="top-hermes"', html)
         self.assertIn('id="sy-hermes"', html)
-        self.assertIn("app.js?v=24", html)
-        self.assertIn("jarvis-shell-v24", worker)
+        self.assertIn("app.js?v=25", html)
+        self.assertIn("jarvis-shell-v25", worker)
         self.assertIn("fetch(event.request).then", worker)
 
     def test_job_polling_is_visibility_aware_and_quota_friendly(self):
@@ -192,6 +192,22 @@ class InterfaceTests(unittest.TestCase):
         self.assertIn("document.visibilityState === 'hidden'", js)
         self.assertIn("jobPollInFlight", js)
         self.assertNotIn("setInterval(pollJobs, 4000)", js)
+
+    def test_active_operation_and_busy_command_are_wired(self):
+        html = (ROOT / "ui" / "index.html").read_text(encoding="utf-8")
+        js = (ROOT / "ui" / "app.js").read_text(encoding="utf-8")
+        commands_source = (ROOT / "commands.py").read_text(encoding="utf-8")
+        runtime_source = (ROOT / "runtime.py").read_text(encoding="utf-8")
+        server_source = (ROOT / "server.py").read_text(encoding="utf-8")
+        self.assertIn('data-cmd="/busy"', html)
+        self.assertIn("describeActiveOperation", js)
+        self.assertIn("active_operation", js)
+        self.assertIn("busy|now", commands_source)
+        self.assertIn("/busy or /now", commands_source)
+        self.assertIn("active_operation_snapshot", runtime_source)
+        self.assertIn("describe_active_operation", runtime_source)
+        self.assertIn("active_operation", server_source)
+
 
     def test_zuzu_brand_and_face_visualizer_are_wired(self):
         html = (ROOT / "ui" / "index.html").read_text(encoding="utf-8")

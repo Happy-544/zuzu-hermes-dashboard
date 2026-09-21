@@ -75,6 +75,7 @@ def gemini_available():
 # frontend fetch.
 EXECUTION_LOCK = threading.RLock()
 _ACTIVE_PROC = None
+_ACTIVE_OPERATION = None
 _ACTIVE_LOCK = threading.Lock()
 _TOOL_CACHE_LOCK = threading.Lock()
 _TOOL_CACHE = []
@@ -98,6 +99,32 @@ def cancel_active():
         return True
     except Exception:
         return False
+
+
+def _short_request(text, limit=180):
+    clean = re.sub(r"\s+", " ", str(text or "")).strip()
+    return clean[:limit] + ("…" if len(clean) > limit else "")
+
+
+def active_operation_snapshot():
+    with _ACTIVE_LOCK:
+        op = dict(_ACTIVE_OPERATION or {})
+        proc = _ACTIVE_PROC
+    if proc is not None and proc.poll() is None:
+        if op:
+            op["elapsed_ms"] = _mono_ms() - int(op.get("started_ms") or _mono_ms())
+        return op or {"kind": "hermes", "label": "Hermes action", "detail": "Hermes is running", "elapsed_ms": 0}
+    return None
+
+
+def describe_active_operation():
+    op = active_operation_snapshot()
+    if not op:
+        return "Nothing is running right now."
+    seconds = max(0, int((op.get("elapsed_ms") or 0) / 1000))
+    label = op.get("label") or "Hermes action"
+    detail = op.get("detail") or ""
+    return f"Running now: {label}. {detail} ({seconds}s elapsed)."
 
 
 def valid_session(sid):
@@ -391,7 +418,7 @@ def run_hermes(message, session_id=None, system=None):
 
 
 def _run_hermes_locked(message, session_id=None, system=None):
-    global _ACTIVE_PROC
+    global _ACTIVE_PROC, _ACTIVE_OPERATION
     started = _mono_ms()
     cmd = build_command(message, session_id, system)
     yield dict(t="status", model=active_model(), tools=len(hermes_tools_snapshot()),
@@ -422,6 +449,13 @@ def _run_hermes_locked(message, session_id=None, system=None):
                                 env=child_env, encoding="utf-8", errors="replace")
         with _ACTIVE_LOCK:
             _ACTIVE_PROC = proc
+            _ACTIVE_OPERATION = {
+                "kind": "hermes",
+                "label": "Hermes action",
+                "detail": _short_request(message),
+                "started_ms": started,
+                "session_id": session_id,
+            }
     except FileNotFoundError:
         raise RuntimeError("Hermes CLI not found. Set HERMES_CMD to your Hermes executable.")
 
@@ -530,6 +564,7 @@ def _run_hermes_locked(message, session_id=None, system=None):
         with _ACTIVE_LOCK:
             if _ACTIVE_PROC is proc:
                 _ACTIVE_PROC = None
+                _ACTIVE_OPERATION = None
 
 
 def run_mock(message, session_id=None, system=None):

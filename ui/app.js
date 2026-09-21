@@ -632,7 +632,11 @@ async function transmit(message, options = {}){
       method:'POST', headers:apiHeaders({'content-type':'application/json'}),
       body: JSON.stringify({message, fresh}), signal:activeController.signal
     });
-    if (!res.ok) throw new Error(`backend returned HTTP ${res.status}`);
+    if (!res.ok){
+      const data=await res.json().catch(()=>({}));
+      if(res.status===409 && data.message) throw new Error(data.message);
+      throw new Error(data.error || `backend returned HTTP ${res.status}`);
+    }
     const reader = res.body.getReader();
     const dec = new TextDecoder();
     let buf = '';
@@ -841,7 +845,10 @@ async function executeLiveAction(request, signal){
     method:'POST', headers:apiHeaders({'content-type':'application/json'}),
     body:JSON.stringify({message:request}), signal
   });
-  if (!response.ok) throw new Error(response.status === 409 ? 'An action is already running. Wait for its result.' : `Action failed: HTTP ${response.status}`);
+  if (!response.ok){
+    const data=await response.json().catch(()=>({}));
+    throw new Error(response.status === 409 ? (data.message || 'An action is already running. Wait for its result.') : (data.error || `Action failed: HTTP ${response.status}`));
+  }
   const reader=response.body.getReader(), decoder=new TextDecoder();
   let buffer='', result='', failure='', completed=false;
   const consume=line=>{
@@ -1242,6 +1249,7 @@ const TIPS = {
   '/music':'Say what to play or find, e.g. “play chill Arabic music”.',
   '/playlist':'Say the playlist style, source, or mood.',
   '/remind':'Say what to follow up and when.',
+  '/busy':'Tell me exactly what Zuzu or Hermes is doing right now.',
   '/background':'Say a mission, e.g. “research competitors and save a report”.',
   '/mission':'Add or read mission queue items.',
   '/personality':'Set the persona, e.g. “calm, laconic, Stark tower operator”.',
@@ -1315,6 +1323,36 @@ function scheduleJobPoll(delay = nextJobPollDelay()){
   jobPollTimer = setTimeout(pollJobs, delay);
 }
 
+let lastActiveOperationText = '';
+
+function describeActiveOperation(op){
+  if (!op) return '';
+  const label = op.label || op.kind || 'Zuzu task';
+  const detail = op.detail ? ` — ${op.detail}` : '';
+  const started = Number(op.started_ms || 0);
+  const elapsed = started ? Math.max(1, Math.round((Date.now() - started) / 1000)) : 0;
+  const suffix = elapsed ? ` · ${elapsed}s` : '';
+  return `${label}${detail}${suffix}`;
+}
+
+function renderActiveOperation(op, source='status'){
+  const text = describeActiveOperation(op);
+  if (text){
+    sys('brain', `Working · ${text}`, 'warn');
+    setState('listening', 'WORKING', text.slice(0, 120));
+    if (text !== lastActiveOperationText){
+      lastActiveOperationText = text;
+      log('note', 'BUSY', text);
+    }
+    return true;
+  }
+  if (lastActiveOperationText && source !== 'status'){
+    log('note', 'READY', 'No active Zuzu/Hermes task is running.');
+  }
+  lastActiveOperationText = '';
+  return false;
+}
+
 async function pollJobs(){
   if (jobPollInFlight){
     scheduleJobPoll();
@@ -1323,6 +1361,7 @@ async function pollJobs(){
   jobPollInFlight = true;
   try {
     const j = await fetch('/api/jobs', {headers:apiHeaders()}).then(r => r.json());
+    renderActiveOperation(j.active_operation, 'jobs');
     for (const d of (j.done || [])){
       log('complete','MISSION', `${d.mission} → ${(d.result||'').slice(0,200)}`);
       if (!running) speak(`Mission complete. ${(d.result||'').slice(0,300)}`);
@@ -1370,7 +1409,8 @@ function renderStatus(s){
   const sttLabel = RT.live ? 'Gemini Live' : (RT.stt ? 'ElevenLabs STT' : (RT.browserStt ? 'Browser STT' : 'Text only'));
   sys('gw', 'Online', 'ok');
   sys('hermes', hermesLabel, hermesReady ? 'ok' : (hermesChecking ? '' : 'warn'));
-  sys('brain', brain, s.runtime === 'mock' ? 'warn' : 'ok');
+  const hasActiveOperation = renderActiveOperation(s.active_operation, 'status');
+  if (!hasActiveOperation) sys('brain', brain, s.runtime === 'mock' ? 'warn' : 'ok');
   sys('voice', `${sttLabel} / ${ttsLabel}`, (RT.browserStt||RT.stt) ? 'ok' : 'warn');
   sys('profile', s.profile || 'default');
   sys('runtime', brain, (s.runtime === 'mock' || (!hermesReady && !hermesChecking)) ? 'warn' : 'ok');
@@ -1379,7 +1419,8 @@ function renderStatus(s){
   $('#top-hermes').textContent = `Hermes ${hermesLabel.toLowerCase()}`;
   $('#top-profile').textContent = 'Profile: ' + (s.profile || 'default');
   $('#top-voice').textContent = `${sttLabel} · ${ttsLabel}`;
-  const model = document.querySelector('#core-model'); if (model) model.textContent = s.model || brain;
+  const activeText = describeActiveOperation(s.active_operation);
+  const model = document.querySelector('#core-model'); if (model) model.textContent = activeText || s.model || brain;
   const tools = (s.tools || []).slice(0, 18);
   $('#toolsList').innerHTML = tools.length
     ? tools.map(t => `<span class="chip">${esc(t)}</span>`).join('')
@@ -1411,3 +1452,4 @@ async function refreshStatus(attempt = 0){
 defaultTip = $('#tip').textContent;
 loadWorkspace();
 refreshStatus();
+

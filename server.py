@@ -240,6 +240,7 @@ class Handler(BaseHTTPRequestHandler):
                 tts=voice.tts_provider(),
                 live_voice=voice.live_available(),
                 live_model=voice.GEMINI_LIVE_MODEL if voice.live_available() else "",
+                active_operation=runtime.active_operation_snapshot(),
                 session=SESSION["id"]))
         if p == "/api/jobs":
             if not self._token_ok():
@@ -247,7 +248,8 @@ class Handler(BaseHTTPRequestHandler):
             # finished background missions, reported once each
             return self._json(dict(done=commands.take_finished(),
                                    running=[j for j in commands.jobs_snapshot()
-                                            if j["status"] == "running"]))
+                                            if j["status"] == "running"],
+                                   active_operation=runtime.active_operation_snapshot()))
         if p == "/api/workspace":
             if not self._token_ok():
                 return self._json({"error": "unauthorized"}, 401)
@@ -359,7 +361,11 @@ class Handler(BaseHTTPRequestHandler):
 
         if p == "/api/run":
             if not RUN_LOCK.acquire(blocking=False):
-                return self._json({"error": "Zuzu is already processing a request"}, 409)
+                return self._json({
+                    "error": "Zuzu is already processing a request",
+                    "active_operation": runtime.active_operation_snapshot(),
+                    "message": runtime.describe_active_operation(),
+                }, 409)
             try:
                 return self._stream_run(raw)
             finally:
@@ -401,6 +407,10 @@ class Handler(BaseHTTPRequestHandler):
                 emit(dict(t="note", message=cmd["note"]))
             if cmd.get("fresh"):
                 SESSION["id"] = None
+            if cmd.get("busy"):
+                emit(dict(t="delta", text=runtime.describe_active_operation()))
+                emit(dict(t="complete", ms=0))
+                return
             if cmd.get("message") is None:
                 # answered locally — no model call needed
                 emit(dict(t="delta", text=cmd.get("reply", "Done.")))
