@@ -90,6 +90,14 @@ class RuntimeTests(unittest.TestCase):
         self.assertTrue(server._origin_allowed("https://polyester-garden-twiddle.ngrok-free.dev"))
         self.assertFalse(server._host_allowed("evil.example.com"))
 
+    def test_laptop_screen_and_upload_display_endpoints_exist(self):
+        server_source = (ROOT / "server.py").read_text(encoding="utf-8")
+        workspace_source = (ROOT / "workspace.py").read_text(encoding="utf-8")
+        self.assertIn("/api/laptop-screen", server_source)
+        self.assertIn("capture_laptop_screen_jpeg", server_source)
+        self.assertIn('p.startswith("/uploads/")', server_source)
+        self.assertIn('"url": f"/uploads/{target.name}"', workspace_source)
+
 
 class InterfaceTests(unittest.TestCase):
     def test_primary_views_and_mobile_navigation_exist(self):
@@ -124,6 +132,10 @@ class InterfaceTests(unittest.TestCase):
         self.assertIn("autoRemember", js)
         self.assertIn("openBrowserPreview", js)
         self.assertIn("requestLaptopScreen", js)
+        self.assertIn("startLaptopLive", js)
+        self.assertIn("showLaptopSnapshot", js)
+        self.assertIn("showMediaFromAnswer", js)
+        self.assertIn("/api/laptop-screen", js)
         self.assertIn("sendLiveVisualFrame", js)
         self.assertIn("payload instanceof Blob", js)
         self.assertIn("await payload.text()", js)
@@ -158,8 +170,8 @@ class InterfaceTests(unittest.TestCase):
         self.assertIn("is waiting for task details", js)
         self.assertIn('id="top-hermes"', html)
         self.assertIn('id="sy-hermes"', html)
-        self.assertIn("app.js?v=22", html)
-        self.assertIn("jarvis-shell-v22", worker)
+        self.assertIn("app.js?v=23", html)
+        self.assertIn("jarvis-shell-v23", worker)
         self.assertIn("fetch(event.request).then", worker)
 
     def test_job_polling_is_visibility_aware_and_quota_friendly(self):

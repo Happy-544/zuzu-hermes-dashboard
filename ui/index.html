@@ -11,7 +11,7 @@
 <title>Zuzu · Hermes</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-192.png">
-<link rel="stylesheet" href="styles.css?v=22">
+<link rel="stylesheet" href="styles.css?v=23">
 </head>
 <body>
 <div class="grid-bg"></div>
@@ -53,9 +53,9 @@
               <g class="spark-field"><circle cx="124" cy="160" r="3"/><circle cx="172" cy="115" r="2"/><circle cx="385" cy="130" r="3"/><circle cx="424" cy="229" r="2"/><circle cx="390" cy="384" r="3"/><circle cx="193" cy="411" r="2"/><circle cx="104" cy="301" r="2"/><circle cx="323" cy="92" r="2"/><circle cx="452" cy="326" r="2"/><circle cx="271" cy="432" r="3"/></g>
               <g class="signal-ellipses"><ellipse cx="228" cy="260" rx="14" ry="5"/><ellipse cx="260" cy="260" rx="18" ry="6"/><ellipse cx="292" cy="260" rx="14" ry="5"/></g>
             </svg>
-            <div class="core-state"><div class="core-status"><strong id="stword">READY</strong><small id="strun">تفضّل، أنا معاك</small></div><div class="core-user" id="userText">قولّي محتاج إيه</div><button id="mic" class="core-voice-btn" title="Voice input" aria-label="Start voice input">Zuzu Voice</button><div class="core-output" id="responseWrap"><span class="rtag core-hidden-tag" id="rtag" aria-hidden="true">IDLE</span><div class="rbody" id="response"><span class="rplaceholder">تفضّل، أنا معاك</span></div></div></div><div class="core-vision-box" id="coreVisionBox" hidden><div class="core-vision-head"><span id="visualMode">Vision idle</span><button id="flipCamera" type="button">Flip</button><button id="stopVisual" type="button">×</button></div><video id="visualPreview" playsinline autoplay muted></video><img id="visualImage" alt="Zuzu shared image preview" hidden><iframe id="visualFrame" title="Zuzu browser preview" sandbox="allow-same-origin allow-scripts allow-forms" hidden></iframe><div id="visualEmpty" class="vision-empty">Open livestream, screen share, picture, video, or browser.</div></div>
+            <div class="core-state"><div class="core-status"><strong id="stword">READY</strong><small id="strun">تفضّل، أنا معاك</small></div><div class="core-user" id="userText">قولّي محتاج إيه</div><button id="mic" class="core-voice-btn" title="Voice input" aria-label="Start voice input">Zuzu Voice</button><div class="core-output" id="responseWrap"><span class="rtag core-hidden-tag" id="rtag" aria-hidden="true">IDLE</span><div class="rbody" id="response"><span class="rplaceholder">تفضّل، أنا معاك</span></div></div></div><div class="core-vision-box" id="coreVisionBox" hidden><div class="core-vision-head"><span id="visualMode">Vision idle</span><button id="flipCamera" type="button">Flip</button><button id="stopVisual" type="button">×</button></div><video id="visualPreview" playsinline autoplay muted></video><img id="visualImage" alt="Zuzu shared image preview" hidden><iframe id="visualFrame" title="Zuzu browser preview" sandbox="allow-same-origin allow-scripts allow-forms" hidden></iframe><div id="visualEmpty" class="vision-empty">Show laptop live screen, screenshot, picture, video, YouTube, browser, camera, or screen share.</div></div>
           </div>
-          <div class="core-details"><span><i class="online"></i> Online</span><span id="core-model">Gemini</span></div><div class="core-visual-actions"><button id="dockCamera" type="button">Livestream</button><button id="dockScreen" type="button">Screen share</button><button id="dockLaptop" type="button">Laptop screen</button><button id="dockImage" type="button">Picture</button><button id="dockVideo" type="button">Video</button><button id="dockBrowser" type="button">Browser</button><input id="visualImageInput" type="file" accept="image/*" hidden><input id="visualVideoInput" type="file" accept="video/*" hidden></div>
+          <div class="core-details"><span><i class="online"></i> Online</span><span id="core-model">Gemini</span></div><div class="core-visual-actions"><button id="dockCamera" type="button">Livestream</button><button id="dockScreen" type="button">Screen share</button><button id="dockLaptop" type="button">Laptop live</button><button id="dockImage" type="button">Screenshot</button><button id="dockVideo" type="button">Video / YouTube</button><button id="dockBrowser" type="button">Browser view</button></div>
         </aside>
       </div>
       <div class="composer glass">
@@ -117,7 +117,7 @@
 <nav class="mobile-nav" role="tablist" aria-label="Mobile navigation"><button class="active" role="tab" data-view="chat" aria-selected="true">Chat</button><button role="tab" data-view="projects" aria-selected="false">Projects</button><button role="tab" data-view="models" aria-selected="false">Models</button><button role="tab" data-view="memory" aria-selected="false">Brain</button><button role="tab" data-view="settings" aria-selected="false">Settings</button></nav>
 <dialog id="editorDialog"><form method="dialog" id="editorForm"><div class="dialog-head"><h2 id="dialogTitle">Add</h2><button value="cancel" aria-label="Close">×</button></div><div id="dialogFields"></div><div class="dialog-actions"><button value="cancel" class="secondary-btn">Cancel</button><button id="dialogSave" value="default" class="primary-btn">Save</button></div></form></dialog>
 <script src="live-bridge.js?v=11"></script>
-<script src="app.js?v=22"></script>
+<script src="app.js?v=23"></script>
 </body>
 </html>
 

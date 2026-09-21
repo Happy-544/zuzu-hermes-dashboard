@@ -8,6 +8,7 @@ configured tools, browser/Chrome automation, MCP servers, skills, memory, and
 third-party integrations that your normal Hermes sessions have. Voice can use the
 browser Web Speech API, with optional server-side ElevenLabs STT/TTS if present.
 """
+import io
 import json
 import mimetypes
 import os
@@ -100,6 +101,22 @@ def persona():
         "the dashboard auto-captures explicit remember/save requests before this run reaches Hermes."
     )
     return "\n\n".join(x for x in (base, custom, bridge, relevant, extra) if x)
+
+
+def capture_laptop_screen_jpeg():
+    """Capture the visible Windows desktop for mobile live-screen preview."""
+    try:
+        from PIL import ImageGrab
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError("Pillow screen capture is not available") from exc
+    try:
+        image = ImageGrab.grab(all_screens=True)
+        image.thumbnail((1600, 1000))
+        output = io.BytesIO()
+        image.convert("RGB").save(output, format="JPEG", quality=78, optimize=True)
+        return output.getvalue()
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(f"Laptop screen capture failed: {exc}") from exc
 # One continuing Hermes conversation until the user hits /new.
 SESSION = {"id": None}
 
@@ -169,6 +186,28 @@ class Handler(BaseHTTPRequestHandler):
                 "X-Content-Type-Options": "nosniff",
                 "X-Frame-Options": "DENY",
             })
+        if p == "/api/laptop-screen":
+            if not self._token_ok():
+                return self._json({"error": "unauthorized"}, 401)
+            try:
+                return self._bytes(capture_laptop_screen_jpeg(), "image/jpeg", headers={
+                    "Cache-Control": "no-store, max-age=0",
+                    "Pragma": "no-cache",
+                })
+            except Exception as e:  # noqa: BLE001
+                return self._json({"error": str(e)[:240]}, 503)
+
+        if p.startswith("/uploads/"):
+            if not self._token_ok():
+                return self._json({"error": "unauthorized"}, 401)
+            name = pathlib.Path(urlparse(self.path).path).name
+            f = (workspace.UPLOADS / name).resolve()
+            if not str(f).startswith(str(workspace.UPLOADS.resolve())) or not f.is_file():
+                return self._bytes(b"not found", "text/plain", 404)
+            return self._bytes(f.read_bytes(), mimetypes.guess_type(f.name)[0] or "application/octet-stream", headers={
+                "Cache-Control": "private, no-store",
+            })
+
         if p == "/api/status":
             hermes_health = runtime.hermes_health_snapshot()
             runtime_name = "hermes" if hermes_health["connected"] else "mock"

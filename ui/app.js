@@ -214,12 +214,16 @@ document.addEventListener('click',e=>{const b=e.target.closest('[data-detach]');
 
 
 // ── Stage 2: live camera / screen vision inside the Zuzu core ──
-let visualStream = null, visualKind = '', visualFacing = 'environment', visualLastUpload = null, visualObjectUrl = '', visualBrowserUrl = '', liveVisualSentAt = 0;
+let visualStream = null, visualKind = '', visualFacing = 'environment', visualLastUpload = null, visualObjectUrl = '', visualBrowserUrl = '', laptopScreenTimer = null, liveVisualSentAt = 0;
 function setVisualStatus(text){ const el=$('#visualMode'); if(el) el.textContent = text; }
 function setVisionBox(open){ const box=$('#coreVisionBox'); if(box) box.hidden = !open; }
+function stopLaptopScreen(){
+  if(laptopScreenTimer){ clearInterval(laptopScreenTimer); laptopScreenTimer=null; }
+}
 function resetVisualSurfaces(){
+  stopLaptopScreen();
   const video=$('#visualPreview'), img=$('#visualImage'), frame=$('#visualFrame'), empty=$('#visualEmpty');
-  if(video){ video.srcObject=null; video.removeAttribute('data-active'); video.hidden=false; video.removeAttribute('src'); }
+  if(video){ video.srcObject=null; video.removeAttribute('data-active'); video.hidden=false; video.removeAttribute('src'); video.controls=false; video.loop=false; }
   if(img){ img.hidden=true; img.removeAttribute('src'); }
   if(frame){ frame.hidden=true; frame.removeAttribute('src'); }
   if(empty) empty.hidden=false;
@@ -262,25 +266,95 @@ async function flipCamera(){
   visualFacing = visualFacing === 'environment' ? 'user' : 'environment';
   await startVisual('camera');
 }
-async function openVisualFile(file, kind){
-  if(!file) return;
+function youtubeEmbedUrl(url){
+  try{
+    const u=new URL(url);
+    if(u.hostname.includes('youtube.com')){
+      const id=u.searchParams.get('v') || u.pathname.split('/').filter(Boolean).pop();
+      return id ? `https://www.youtube.com/embed/${encodeURIComponent(id)}` : url;
+    }
+    if(u.hostname === 'youtu.be'){
+      const id=u.pathname.split('/').filter(Boolean)[0];
+      return id ? `https://www.youtube.com/embed/${encodeURIComponent(id)}` : url;
+    }
+  }catch{}
+  return url;
+}
+function showImageBlob(blob, status='Laptop screenshot'){
   stopVisualStream();
-  visualKind = kind;
-  visualObjectUrl = URL.createObjectURL(file);
-  const video=$('#visualPreview'), img=$('#visualImage'), empty=$('#visualEmpty'), flip=$('#flipCamera');
+  visualKind='laptop-image';
+  visualObjectUrl = URL.createObjectURL(blob);
+  const video=$('#visualPreview'), img=$('#visualImage'), frame=$('#visualFrame'), empty=$('#visualEmpty'), flip=$('#flipCamera');
   if(flip) flip.hidden=true;
-  if(kind==='image'){
-    if(video) video.hidden=true;
-    if(img){ img.src=visualObjectUrl; img.hidden=false; }
-    setVisualStatus('Picture preview');
-  } else {
-    if(img) img.hidden=true;
-    if(video){ video.src=visualObjectUrl; video.srcObject=null; video.dataset.active='1'; video.hidden=false; video.controls=true; video.loop=true; }
-    setVisualStatus('Video preview');
-  }
+  if(video) video.hidden=true;
+  if(frame) frame.hidden=true;
+  if(img){ img.src=visualObjectUrl; img.hidden=false; }
   if(empty) empty.hidden=true;
+  setVisualStatus(status);
   setVisionBox(true); document.body.classList.add('vision-on');
-  await uploadFiles([file], true);
+}
+async function fetchLaptopScreen(status='Laptop screenshot'){
+  const r=await fetch(`/api/laptop-screen?t=${Date.now()}`,{headers:apiHeaders()});
+  if(!r.ok){
+    const data=await r.json().catch(()=>({error:`HTTP ${r.status}`}));
+    throw new Error(data.error||`HTTP ${r.status}`);
+  }
+  return r.blob();
+}
+async function showLaptopSnapshot(){
+  try{
+    const blob=await fetchLaptopScreen('Laptop screenshot');
+    showImageBlob(blob,'Laptop screenshot');
+    log('complete','LAPTOP','screenshot shown in Zuzu core');
+  }catch(err){
+    log('error','LAPTOP',String(err.message||err));
+  }
+}
+async function refreshLaptopLive(){
+  try{
+    const blob=await fetchLaptopScreen('Laptop live');
+    showImageBlob(blob,'Laptop live');
+  }catch(err){
+    stopLaptopScreen();
+    setVisualStatus('Laptop screen unavailable');
+    log('error','LAPTOP',String(err.message||err));
+  }
+}
+async function startLaptopLive(){
+  stopVisualStream();
+  visualKind='laptop-live';
+  setVisualStatus('Laptop live');
+  setVisionBox(true); document.body.classList.add('vision-on');
+  await refreshLaptopLive();
+  laptopScreenTimer=setInterval(refreshLaptopLive, 1200);
+}
+function showVideoUrl(url, status='Video / YouTube'){
+  if(!url) return;
+  stopVisualStream(); visualKind='remote-video'; visualBrowserUrl=url;
+  const video=$('#visualPreview'), img=$('#visualImage'), frame=$('#visualFrame'), empty=$('#visualEmpty'), flip=$('#flipCamera');
+  if(img) img.hidden=true; if(flip) flip.hidden=true; if(empty) empty.hidden=true;
+  const lower=url.toLowerCase();
+  if(/\.(mp4|webm|ogg)(\?|#|$)/i.test(lower)){
+    if(frame) frame.hidden=true;
+    if(video){ video.src=url; video.srcObject=null; video.dataset.active='1'; video.hidden=false; video.controls=true; video.loop=false; }
+  }else{
+    if(video) video.hidden=true;
+    if(frame){ frame.src=youtubeEmbedUrl(url); frame.hidden=false; }
+  }
+  setVisualStatus(status); setVisionBox(true); document.body.classList.add('vision-on');
+}
+function requestLaptopPicture(){
+  transmit('/pc Take a screenshot or create/find the picture you want to show me from the laptop, save it if needed, and return a direct file path or URL. Describe what I should judge, then ask me what I think.',{speak:false});
+}
+function requestLaptopVideo(){
+  const raw=prompt('Paste a YouTube/video URL to show in Zuzu core, or leave empty so Zuzu/Hermes can find one:', '');
+  if(raw && raw.trim()){
+    const url=/^https?:\/\//i.test(raw.trim()) ? raw.trim() : `https://${raw.trim()}`;
+    showVideoUrl(url);
+    log('status','VIDEO',`showing ${url}`);
+    return;
+  }
+  transmit('/pc Find or open the video/YouTube item relevant to my current request and return the direct URL so the dashboard can display it to me. If you cannot open it directly, return the best URL and explain why.',{speak:false});
 }
 function openBrowserPreview(){
   const raw=prompt('Open browser view inside Zuzu core. Enter URL:', 'https://');
@@ -296,7 +370,7 @@ function openBrowserPreview(){
   log('status','BROWSER',`preview opened: ${url}`);
 }
 function requestLaptopScreen(){
-  transmit('/pc Capture or share the current original laptop screen/browser state for me. If you can take a screenshot, save it and describe what is visible. If live sharing is not available, explain the exact limitation and the closest available control path.',{speak:false});
+  startLaptopLive();
 }
 
 function captureVisualFrame(){
@@ -358,11 +432,9 @@ async function sendLiveVisualFrame(reason='current voice question'){
 $('#dockCamera')?.addEventListener('click',()=>startVisual('camera'));
 $('#dockScreen')?.addEventListener('click',()=>startVisual('screen'));
 $('#dockLaptop')?.addEventListener('click',requestLaptopScreen);
-$('#dockImage')?.addEventListener('click',()=>$('#visualImageInput')?.click());
-$('#dockVideo')?.addEventListener('click',()=>$('#visualVideoInput')?.click());
+$('#dockImage')?.addEventListener('click',showLaptopSnapshot);
+$('#dockVideo')?.addEventListener('click',requestLaptopVideo);
 $('#dockBrowser')?.addEventListener('click',openBrowserPreview);
-$('#visualImageInput')?.addEventListener('change',e=>{openVisualFile(e.target.files?.[0],'image'); e.target.value='';});
-$('#visualVideoInput')?.addEventListener('change',e=>{openVisualFile(e.target.files?.[0],'video'); e.target.value='';});
 $('#flipCamera')?.addEventListener('click',flipCamera);
 $('#stopVisual')?.addEventListener('click',stopVisualStream);
 document.querySelectorAll('.generate-btn').forEach(b=>b.onclick=()=>{const type=b.dataset.media,prompt=$(`#${type}Prompt`).value.trim();if(!prompt)return;showView('chat');transmit(`Use my Hermes ${type} generation tools to create: ${prompt}`,{speak:false});});
@@ -490,6 +562,38 @@ async function transmit(message, options = {}){
   await speakDone;                 // don't return until Zuzu has finished talking
 }
 
+function firstMediaReference(text){
+  const body=String(text||'');
+  const urls=[...body.matchAll(/https?:\/\/[^\s)>"']+/gi)].map(m=>m[0].replace(/[.,;]+$/,''));
+  const uploadPath=[...body.matchAll(/(?:^|\s)([A-Za-z]:\\[^\n\r]+?\\uploads\\[^\s)>"']+\.(?:png|jpe?g|gif|webp|mp4|webm|ogg))/gi)].map(m=>m[1]);
+  for(const path of uploadPath){
+    const name=path.split(/\\+/).pop();
+    if(name) return {kind:/\.(mp4|webm|ogg)$/i.test(name)?'video':'image', url:`/uploads/${encodeURIComponent(name)}`};
+  }
+  for(const url of urls){
+    if(/\.(png|jpe?g|gif|webp)(\?|#|$)/i.test(url)) return {kind:'image', url};
+    if(/\.(mp4|webm|ogg)(\?|#|$)/i.test(url) || /(?:youtube\.com|youtu\.be)/i.test(url)) return {kind:'video', url};
+  }
+  return null;
+}
+async function showMediaFromAnswer(text){
+  const media=firstMediaReference(text);
+  if(!media) return;
+  try{
+    if(media.kind==='video'){
+      showVideoUrl(media.url,'Zuzu video');
+      log('complete','DISPLAY',`video shown: ${media.url}`);
+      return;
+    }
+    const r=await fetch(media.url,{headers:apiHeaders()});
+    if(!r.ok) throw new Error(`HTTP ${r.status}`);
+    showImageBlob(await r.blob(),'Zuzu picture');
+    log('complete','DISPLAY',`picture shown: ${media.url}`);
+  }catch(err){
+    log('error','DISPLAY',String(err.message||err));
+  }
+}
+
 function handle(ev){
   switch (ev.t){
     case 'status':
@@ -523,6 +627,7 @@ function handle(ev){
       setTag('done', 'COMPLETE');
       log('complete', 'COMPLETE', ev.ms!=null?`run completed in ${ev.ms}ms`:'run completed');
       renderAnswer(true);
+      showMediaFromAnswer(answer);
       speakDone = speakThisRun ? speak(answer) : Promise.resolve();
       break;
     case 'error':

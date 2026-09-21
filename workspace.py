@@ -200,9 +200,9 @@ def store_upload(filename, content):
     UPLOADS.mkdir(exist_ok=True)
     target = UPLOADS / f"{int(time.time())}_{safe}"
     target.write_bytes(content)
-    return {"name": safe, "path": str(target), "size": len(content)}
+    return {"name": safe, "path": str(target), "url": f"/uploads/{target.name}", "size": len(content)}
 
 
 def uploads():
     if not UPLOADS.exists(): return []
-    return [{"name": p.name, "size": p.stat().st_size, "path": str(p)} for p in sorted(UPLOADS.iterdir(), key=lambda x: x.stat().st_mtime, reverse=True)[:30] if p.is_file()]
+    return [{"name": p.name, "size": p.stat().st_size, "path": str(p), "url": f"/uploads/{p.name}"} for p in sorted(UPLOADS.iterdir(), key=lambda x: x.stat().st_mtime, reverse=True)[:30] if p.is_file()]
