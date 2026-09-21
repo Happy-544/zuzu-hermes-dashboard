@@ -50,9 +50,11 @@ class RuntimeTests(unittest.TestCase):
                 self.assertEqual(runtime._hermes_base(), [r"C:\Users\Test\hermes.exe"])
                 self.assertEqual(runtime._host_path("/mnt/d/Mark/config.json"), r"D:\Mark\config.json")
 
-    def test_hermes_chat_uses_current_cli_flags(self):
+    def test_hermes_chat_uses_selected_backend_cli_flags(self):
         with mock.patch.object(runtime, "_hermes_base", return_value=["hermes"]):
-            with mock.patch.object(runtime, "PROFILE", "Ali"), mock.patch.object(runtime, "PROVIDER", "gemini"):
+            with mock.patch.object(runtime, "PROFILE", "Ali"), \
+                 mock.patch.object(runtime, "PROVIDER", "gemini"), \
+                 mock.patch.object(runtime, "MODEL", "gemini-2.5-flash"):
                 command = runtime.build_command("Inspect the desktop", system="Be concise")
         self.assertEqual(command[:4], ["hermes", "chat", "-Q", "-q"])
         self.assertNotIn("--profile", command)
@@ -60,6 +62,17 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(command[command.index("--model") + 1], "gemini-2.5-flash")
         self.assertEqual(command[command.index("--provider") + 1], "google")
         self.assertIn("--source", command)
+        self.assertEqual(runtime.active_model(), "Hermes via google · gemini-2.5-flash")
+
+    def test_hermes_profile_default_does_not_add_backend_flags(self):
+        with mock.patch.object(runtime, "_hermes_base", return_value=["hermes"]):
+            with mock.patch.object(runtime, "PROVIDER", "hermes"), \
+                 mock.patch.object(runtime, "MODEL", "Hermes profile default"):
+                command = runtime.build_command("Inspect the desktop")
+                active = runtime.active_model()
+        self.assertNotIn("--model", command)
+        self.assertNotIn("--provider", command)
+        self.assertEqual(active, "Hermes profile default")
 
     def test_all_conversation_runs_use_hermes(self):
         events = [{"t": "delta", "text": "one agent"}]

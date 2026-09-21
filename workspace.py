@@ -14,8 +14,8 @@ UPLOADS = ROOT / "uploads"
 LOCK = threading.RLock()
 
 MODELS = {
-    "gemini": ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite", "gemini-3.6-flash"],
     "hermes": ["Hermes profile default"],
+    "gemini": ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite"],
     "openai": ["gpt-5.4", "gpt-5.4-mini"],
     "anthropic": ["claude-sonnet-4-6", "claude-opus-4-6"],
     "openrouter": ["openrouter/auto"],
@@ -143,9 +143,10 @@ def action(payload):
             "shortcutName": str(src.get("shortcutName", DEFAULT["settings"]["shortcutName"])).strip()[:120],
         }
         data["settings"] = clean
+        gemini_chat_model = clean["model"] if provider == "gemini" else os.environ.get("GEMINI_CHAT_MODEL", "gemini-2.5-flash")
         env = {"JARVIS_PROVIDER": provider, "JARVIS_MODEL": clean["model"],
                "HERMES_PROFILE": clean["profile"], "JARVIS_WORKDIR": clean["workdir"],
-               "GEMINI_CHAT_MODEL": clean["model"] if provider == "gemini" else os.environ.get("GEMINI_CHAT_MODEL", "gemini-2.5-flash"),
+               "GEMINI_CHAT_MODEL": gemini_chat_model,
                "GEMINI_LIVE_MODEL": clean["liveModel"], "GEMINI_TTS_VOICE": clean["voice"],
                "JARVIS_API_BASE": str(src.get("apiBase", "")).strip()[:500]}
         api_key = str(src.get("apiKey", "")).strip()

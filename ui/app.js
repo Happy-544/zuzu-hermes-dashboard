@@ -100,9 +100,9 @@ function renderWorkspace(){
   $('#sessionContext').textContent = selected ? selected.name : 'Choose a project';
   $('#sessionList').innerHTML = (selected?.sessions||[]).map(s => `<div class="session-row ${s.id===WS.selectedSession?'selected':''}"><button data-session="${esc(s.id)}">${esc(s.name)}</button><button class="danger-link" data-delete-session="${esc(s.id)}">×</button></div>`).join('') || '<div class="empty-state">Create the first chat in this project.</div>';
   const settings=WS.settings||{};
-  $('#providerSelect').innerHTML = Object.keys(WS.models||{}).map(p=>`<option value="${esc(p)}" ${p===settings.provider?'selected':''}>${esc(p[0].toUpperCase()+p.slice(1))}</option>`).join('');
+  $('#providerSelect').innerHTML = Object.keys(WS.models||{}).map(p=>`<option value="${esc(p)}" ${p===settings.provider?'selected':''}>${esc(providerLabel(p))}</option>`).join('');
   renderModelOptions(); $('#apiBase').value=settings.apiBase||'';
-  $('#apiState').textContent = settings.apiConfigured ? 'An API key is configured. Leave the field blank to keep it.' : 'No API key is configured for this provider.';
+  $('#apiState').textContent = settings.apiConfigured ? 'An API key is configured. Leave the field blank to keep it.' : 'No API key is configured for this provider. Hermes may still use credentials already saved in the Hermes profile.';
   $('#profileName').value=settings.profile||'default'; $('#workdir').value=settings.workdir||'~';
   $('#personaText').value=settings.persona||''; $('#computerControl').checked=!!settings.computerControl; $('#mobileControl').checked=!!settings.mobileControl;
   $('#shortcutName').value=settings.shortcutName||'Zuzu Control';
@@ -113,14 +113,18 @@ function renderWorkspace(){
   renderCapabilityCatalogue();
   drawMemoryBrain();
 }
+function providerLabel(provider){
+  return ({hermes:'Hermes profile default', gemini:'Gemini for Hermes', openai:'OpenAI for Hermes', anthropic:'Anthropic for Hermes', openrouter:'OpenRouter for Hermes', ollama:'Ollama local for Hermes'}[provider] || String(provider||'Provider'));
+}
 function renderModelOptions(){
   if(!WS) return; const provider=$('#providerSelect').value;
   const current=WS.settings?.provider===provider?WS.settings.model:'';
-  $('#modelSelect').innerHTML=(WS.models?.[provider]||[]).map(m=>`<option ${m===current?'selected':''}>${esc(m)}</option>`).join('');
-  $('#customModel').value=(WS.models?.[provider]||[]).includes(current)?'':current;
+  const models=WS.models?.[provider]||[];
+  $('#modelSelect').innerHTML=models.map(m=>`<option ${m===current?'selected':''}>${esc(m)}</option>`).join('');
+  $('#customModel').value=models.includes(current)?'':current;
 }
 $('#providerSelect').onchange=renderModelOptions;
-$('#modelForm').onsubmit=async e=>{e.preventDefault(); const s=WS.settings; await workspaceRequest({action:'save_settings',settings:{...s,provider:$('#providerSelect').value,model:$('#customModel').value.trim()||$('#modelSelect').value,apiBase:$('#apiBase').value.trim(),apiKey:$('#apiKey').value.trim()}}); $('#apiKey').value=''; log('complete','SETTINGS','provider updated'); refreshStatus();};
+$('#modelForm').onsubmit=async e=>{e.preventDefault(); const s=WS.settings; const provider=$('#providerSelect').value; const model=$('#customModel').value.trim()||$('#modelSelect').value; await workspaceRequest({action:'save_settings',settings:{...s,provider,model,apiBase:$('#apiBase').value.trim(),apiKey:$('#apiKey').value.trim()}}); $('#apiKey').value=''; log('complete','HERMES MODEL',`Hermes will run via ${providerLabel(provider)} · ${model}`); refreshStatus();};
 const addProject=()=>openEditor('New project',[{name:'name',label:'Project name'},{name:'folder',label:'Folder on this computer',placeholder:'C:\\Projects\\My project'}],v=>workspaceRequest({action:'add_project',...v}));
 $('#addProject').onclick=addProject; $('#quickProject').onclick=()=>{showView('projects');addProject();};
 $('#addSession').onclick=()=>openEditor('New chat',[{name:'name',label:'Chat name'}],v=>workspaceRequest({action:'add_session',projectId:WS.selectedProject,...v}));

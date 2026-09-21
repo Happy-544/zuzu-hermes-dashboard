@@ -210,21 +210,11 @@ def hermes_health_snapshot(wait=False):
 
 
 def runtime_kind():
-    if PROVIDER in {"gemini", "openai", "anthropic", "openrouter", "ollama"}:
-        if PROVIDER == "gemini":
-            return "gemini" if gemini_available() else "mock"
-        if PROVIDER == "ollama":
-            return "ollama"
-        return PROVIDER if os.environ.get(f"{PROVIDER.upper()}_API_KEY", "").strip() else "mock"
-    if PROVIDER == "hermes":
-        ok, _ = _can_launch_hermes()
-        return "hermes" if ok else "mock"
-    if RUNTIME == "gemini":
-        return "gemini" if gemini_available() else "mock"
+    # Text/chat runs always go through Hermes so tools, skills, memory, browser
+    # and computer control stay in one agent. PROVIDER only selects Hermes'
+    # inference backend through CLI flags.
     if RUNTIME == "mock":
         return "mock"
-    if RUNTIME == "hermes":
-        return "hermes"
     ok, _ = _can_launch_hermes()
     return "hermes" if ok else "mock"
 
@@ -276,14 +266,37 @@ def run_gemini(message, system=None):
 
 
 def _provider_model():
-    return (MODEL or {"openai": "gpt-5.4-mini", "anthropic": "claude-sonnet-4-6",
-                      "openrouter": "openrouter/auto", "ollama": "llama3.2"}.get(PROVIDER, "")).strip()
+    defaults = {
+        "gemini": GEMINI_MODEL or "gemini-2.5-flash",
+        "openai": "gpt-5.4-mini",
+        "anthropic": "claude-sonnet-4-6",
+        "openrouter": "openrouter/auto",
+        "ollama": "llama3.2",
+    }
+    return (MODEL or defaults.get(PROVIDER, "")).strip()
+
+
+def _hermes_provider_flag():
+    return {"gemini": "google"}.get(PROVIDER, PROVIDER)
+
+
+def hermes_backend_override():
+    """Return the provider/model flags that Zuzu will pass into Hermes.
+
+    Zuzu stays a dashboard around Hermes. A non-`hermes` provider here selects
+    the inference backend for Hermes CLI, not a separate direct-chat agent.
+    """
+    if PROVIDER == "hermes":
+        return None, "Hermes profile default"
+    model = _provider_model()
+    return _hermes_provider_flag(), model
 
 
 def active_model():
-    if PROVIDER == "hermes":
-        return "Hermes profile default"
-    return GEMINI_MODEL if runtime_kind() == "gemini" else (_provider_model() or MODEL or "Hermes default")
+    provider, model = hermes_backend_override()
+    if not provider:
+        return model
+    return f"Hermes via {provider} · {model}"
 
 
 def run_provider(message, system=None):
@@ -331,12 +344,11 @@ def build_command(message, session_id=None, system=None):
     # Hermes owns every turn and supplies tools, memory, skills and approvals.
     # The dashboard selection chooses Hermes' inference backend; it does not
     # create a separate direct-chat agent.
-    if PROVIDER == "gemini":
-        # Use Google's native resolver; OPENAI_BASE_URL is ignored by the
-        # installed Hermes custom resolver and can silently select another host.
-        cmd += ["--provider", "google", "--model", GEMINI_MODEL]
-    elif PROVIDER in {"openai", "anthropic", "openrouter", "ollama"}:
-        cmd += ["--provider", PROVIDER, "--model", _provider_model()]
+    provider, model = hermes_backend_override()
+    if provider and model:
+        # Use provider/model as Hermes CLI flags. This keeps Hermes as the
+        # executing agent while changing only Hermes' inference backend.
+        cmd += ["--provider", provider, "--model", model]
     if valid_session(session_id):
         cmd += ["--resume", str(session_id)]
     # Hermes v0.21+ inherits the selected profile from HERMES_PROFILE. The
