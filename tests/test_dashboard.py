@@ -98,6 +98,13 @@ class RuntimeTests(unittest.TestCase):
         self.assertIn('p.startswith("/uploads/")', server_source)
         self.assertIn('"url": f"/uploads/{target.name}"', workspace_source)
 
+    def test_self_modification_and_connector_commands_exist(self):
+        commands_source = (ROOT / "commands.py").read_text(encoding="utf-8")
+        server_source = (ROOT / "server.py").read_text(encoding="utf-8")
+        self.assertIn("music|playlist|remind|reminder|followup", commands_source)
+        self.assertIn("Zuzu system awareness", server_source)
+        self.assertIn("Do not answer 'I cannot modify myself'", server_source)
+
 
 class InterfaceTests(unittest.TestCase):
     def test_primary_views_and_mobile_navigation_exist(self):
@@ -117,7 +124,7 @@ class InterfaceTests(unittest.TestCase):
     def test_workspace_features_are_wired(self):
         html = (ROOT / "ui" / "index.html").read_text(encoding="utf-8")
         js = (ROOT / "ui" / "app.js").read_text(encoding="utf-8")
-        for element in ("providerSelect", "personaText", "memoryCanvas", "fileUpload", "imagePrompt", "videoPrompt", "computerControl", "mobileControl", "visualPreview", "dockCamera", "dockScreen", "flipCamera", "coreVisionBox", "chatFileUpload", "chatAttachments", "visualImage", "visualFrame", "dockLaptop", "dockBrowser", "skillSearch"):
+        for element in ("providerSelect", "personaText", "memoryCanvas", "fileUpload", "imagePrompt", "videoPrompt", "computerControl", "mobileControl", "visualPreview", "dockCamera", "dockScreen", "flipCamera", "coreVisionBox", "chatFileUpload", "chatAttachments", "visualImage", "visualFrame", "dockLaptop", "dockBrowser", "skillSearch", "catalogueGrid", "brainDetail", "brainPrev", "brainNext"):
             self.assertIn(f'id="{element}"', html)
         self.assertIn("/api/workspace", js)
         self.assertIn("/api/upload", js)
@@ -136,6 +143,11 @@ class InterfaceTests(unittest.TestCase):
         self.assertIn("showLaptopSnapshot", js)
         self.assertIn("showMediaFromAnswer", js)
         self.assertIn("/api/laptop-screen", js)
+        self.assertIn("CAPABILITY_CATALOG", js)
+        self.assertIn("renderCapabilityCatalogue", js)
+        self.assertIn("selectBrainNode", js)
+        self.assertIn("Self modification protocol", js)
+        self.assertIn("Spotify / Apple Music", js)
         self.assertIn("sendLiveVisualFrame", js)
         self.assertIn("payload instanceof Blob", js)
         self.assertIn("await payload.text()", js)
@@ -170,8 +182,8 @@ class InterfaceTests(unittest.TestCase):
         self.assertIn("is waiting for task details", js)
         self.assertIn('id="top-hermes"', html)
         self.assertIn('id="sy-hermes"', html)
-        self.assertIn("app.js?v=23", html)
-        self.assertIn("jarvis-shell-v23", worker)
+        self.assertIn("app.js?v=24", html)
+        self.assertIn("jarvis-shell-v24", worker)
         self.assertIn("fetch(event.request).then", worker)
 
     def test_job_polling_is_visibility_aware_and_quota_friendly(self):
@@ -192,6 +204,15 @@ class InterfaceTests(unittest.TestCase):
         self.assertIn('class="core-output"', html)
         self.assertIn('class="core-voice-btn"', html)
         self.assertIn('id="userText"', html)
+        self.assertIn('id="brainDetail"', html)
+        self.assertIn('id="catalogueGrid"', html)
+        self.assertIn('Capability catalogue', html)
+        self.assertIn('data-cmd="/connect"', html)
+        self.assertIn('data-cmd="/music"', html)
+        self.assertIn('data-cmd="/playlist"', html)
+        self.assertIn('data-cmd="/remind"', html)
+        self.assertNotIn('قولّي محتاج', html)
+        self.assertNotIn('تفضّل، أنا معاك', html)
         self.assertNotIn('ZUZU CORE', html)
         self.assertIn("mouthTalk", css)
         self.assertIn(".listening .core-arc", css)

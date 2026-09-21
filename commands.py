@@ -127,7 +127,7 @@ def take_finished():
         return done
 
 
-_CMD = re.compile(r"^\s*/(new|profile|goal|personality|kanban|mission|missions|background|tools|toolsets|connectors|connect|status|commands|help|browser|clear)\b\s*(.*)$", re.I | re.S)
+_CMD = re.compile(r"^\s*/(new|profile|goal|personality|kanban|mission|missions|background|tools|toolsets|connectors|connect|music|playlist|remind|reminder|followup|status|commands|help|browser|clear)\b\s*(.*)$", re.I | re.S)
 
 
 def _hermes_command(*args):
@@ -170,6 +170,9 @@ def _commands_reply():
 /tools — show Hermes tool status from `hermes tools list`
 /connectors — explain that connected Hermes tools transfer into this dashboard
 /connect <name> — ask Hermes how to connect a third-party app generally
+/music <request> — play music or prepare a playlist through connected music tools
+/playlist <request> — build or update a playlist through connected music tools
+/remind <request> — create a follow-up, reminder, or monitoring mission
 /toolsets — ask Hermes to list available toolsets
 /status — local Hermes runtime/profile/status
 /browser <task> — ask Hermes to use browser/Chrome tools
@@ -219,9 +222,26 @@ def handle(message, runner=None):
         target = (arg or "third-party app").strip()
         return dict(message=(
             f"Explain the correct Hermes-native way to connect {target} as a third-party app/tool. "
-            "Be generic: the dashboard should inherit whatever is connected to Hermes, not maintain separate credentials. "
-            "Include the relevant Hermes command family if known, like hermes tools, hermes mcp, hermes gateway setup, or a skill."
+            "Cover accounts such as email, drives, shopping, Shopify, music apps, social apps, and payments if relevant. "
+            "The dashboard should inherit whatever is connected to Hermes and should not expose credentials in chat. "
+            "Include the relevant Hermes command family if known, like hermes tools, hermes mcp, hermes gateway setup, OAuth connector setup, or a skill."
         ), note=f"connector help: {target[:40]}", hermes=True)
+
+    if cmd in ("music", "playlist"):
+        request = arg or ("play something I usually like" if cmd == "music" else "make a playlist from my preferences")
+        return dict(message=(
+            f"Use connected Hermes music tools or browser/computer tools to handle this music request: {request}. "
+            "If Spotify, Apple Music, YouTube Music, or another music account is not connected yet, explain the safest connection path. "
+            "Do not invent playback success; report whether playback/playlist creation actually happened."
+        ), note=f"music request: {request[:50]}", hermes=True)
+
+    if cmd in ("remind", "reminder", "followup"):
+        request = arg or "ask me what reminder or follow-up I want"
+        return dict(message=(
+            f"Create or explain the best Hermes-native follow-up/reminder/monitoring setup for this request: {request}. "
+            "Use cronjob, background mission, calendar, todo, or connected notification tools if available. "
+            "Confirm the schedule, trigger, where the update will appear, and any missing permission."
+        ), note=f"reminder request: {request[:50]}", hermes=True)
 
     if cmd == "browser":
         task = arg or "open or inspect Google Chrome using the configured Hermes browser/computer-use tools and report what is available"

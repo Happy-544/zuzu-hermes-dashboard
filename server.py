@@ -100,7 +100,15 @@ def persona():
         "Use it as durable user memory. If the user asks to remember or save a fact, acknowledge that Zuzu saved it; "
         "the dashboard auto-captures explicit remember/save requests before this run reaches Hermes."
     )
-    return "\n\n".join(x for x in (base, custom, bridge, relevant, extra) if x)
+    self_awareness = (
+        f"Zuzu system awareness: Zuzu is this local dashboard project at {ROOT}. "
+        "The dashboard is the user's interface to Hermes, not a separate powerless chatbot. "
+        "If the user asks to modify Zuzu, her UI, voice, memory, tools, providers, catalogue, reminders, music, account connectors, "
+        "or how she behaves, treat it as an actionable local project/tooling request. "
+        "Use Hermes computer/file/browser/tools when available, inspect the current system state, and report real limits only after checking. "
+        "Do not answer 'I cannot modify myself' unless the actual tool attempt is unavailable or denied."
+    )
+    return "\n\n".join(x for x in (base, custom, bridge, self_awareness, relevant, extra) if x)
 
 
 def capture_laptop_screen_jpeg():
@@ -293,6 +301,7 @@ class Handler(BaseHTTPRequestHandler):
                     "Speak naturally in the user's language, defaulting to Egyptian Arabic. "
                     "For actions on the user's Windows computer, browser, files, tools, "
                     "or saved information, call hermes_action with the user's exact request. "
+                    "For requests to modify Zuzu herself, the dashboard UI, tools, skills, providers, account connectors, music, playlists, reminders, or memory, call hermes_action instead of refusing. "
                     "It connects to the local Hermes agent with real tools. "
                     "Do not claim you lack those capabilities without calling it. "
                     "Wait for the tool result before reporting completion; never invent success. "

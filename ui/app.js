@@ -53,6 +53,23 @@ showView(localStorage.getItem('jarvis-view') || 'chat', false);
 
 // ── projects, settings, skills, memory and files ──
 let WS = null;
+let brainNodes = [], brainSelectedIndex = -1, brainMotion = 0, brainAnimation = null;
+const CAPABILITY_CATALOG = [
+  {type:'hermes', source:'Hermes catalogue', name:'Hermes browser automation', desc:'Open sites, inspect pages, gather evidence and report results through the active Hermes profile.', prompt:'Find and enable the best Hermes browser automation workflow for Zuzu, then explain the exact commands and safety limits.'},
+  {type:'hermes', source:'Hermes catalogue', name:'Hermes computer use', desc:'Control Windows apps and show the laptop state back to the mobile dashboard.', prompt:'Inspect the active Hermes computer_use capability and show how Zuzu should use it for Windows app control and screenshots.'},
+  {type:'tool', source:'Hermes tools', name:'Vision and image analysis', desc:'Let Zuzu inspect screenshots, camera frames and uploaded images.', prompt:'Check Hermes vision/image-analysis tools and return the best way to use them from Zuzu.'},
+  {type:'tool', source:'Hermes tools', name:'Image generation', desc:'Create images and return direct files or links that Zuzu can show in the core.', prompt:'Check available Hermes image generation tools and return usage examples that save/show the result in Zuzu.'},
+  {type:'skill', source:'Zuzu skill', name:'PC presentation mode', desc:'Reusable behavior for taking screenshots, showing previews, and asking the user for approval.', instructions:'When showing work from the laptop, take or request a screenshot, display it in Zuzu core when possible, describe what changed, and ask the user to approve before destructive actions.'},
+  {type:'skill', source:'Zuzu skill', name:'Arabic voice persona', desc:'Keep Zuzu natural in Egyptian Arabic while preserving technical accuracy.', instructions:'Speak mainly in Egyptian Arabic when the user does. Keep answers warm, short, and direct. Do not claim a tool is unavailable until Hermes has been asked when the request is actionable.'},
+  {type:'plugin', source:'GitHub', name:'GitHub MCP/tools search', desc:'Search GitHub for installable MCP servers, skills, plugins, and automation helpers.', prompt:'Search GitHub for Zuzu/Hermes compatible MCP servers, plugins, tools, and skills for this topic. Return source links, install risk, and exact setup steps. Do not install.'},
+  {type:'model', source:'Hugging Face', name:'Hugging Face models and Spaces', desc:'Find vision, speech, video, and local model helpers from Hugging Face.', prompt:'Search Hugging Face for models, Spaces, or tools matching this topic. Return options with links, hardware/API requirements, and how Zuzu could use them. Do not install.'},
+  {type:'plugin', source:'Plugin catalogue', name:'Codex/OpenAI plugins', desc:'Discover connected plugins or recommended plugins that can expand Zuzu.', prompt:'List relevant Codex/OpenAI plugins or connectors for this topic, including what each plugin adds and whether it needs installation or account connection.'},
+  {type:'plugin', source:'Account connectors', name:'Email and Drive accounts', desc:'Connect Gmail, Google Drive, Docs, Sheets, Dropbox, Box, or similar accounts through safe OAuth/connectors.', prompt:'Explain the safest way to connect email and drive accounts to Hermes/Zuzu. Include Gmail, Google Drive, Dropbox and Box options if available, and do not request or expose passwords.'},
+  {type:'plugin', source:'Commerce connectors', name:'Shopping and Shopify accounts', desc:'Connect Shopify or shopping/admin accounts through approved connectors and browser workflows.', prompt:'Explain how to connect Shopify and shopping/admin accounts to Hermes/Zuzu using connectors or browser tools. Mention permissions, safety boundaries, and confirmation steps.'},
+  {type:'plugin', source:'Music connectors', name:'Spotify / Apple Music', desc:'Play music and build playlists from the user’s preferences when a music connector or browser session is available.', prompt:'Find the best way to connect Spotify, Apple Music, or YouTube Music to Zuzu. Include playlist creation, playback limits on mobile/browser, and required account connection steps.'},
+  {type:'tool', source:'Hermes cronjob', name:'Follow-up reminders', desc:'Create reminders, scheduled checks, and update notifications through Hermes cronjob/background tools.', prompt:'Set up or explain a Hermes-native reminder/follow-up flow for the user request. Use cronjob, background mission, calendar or todo tools when available; ask for missing time/frequency only if required.'},
+  {type:'skill', source:'Zuzu skill', name:'Self modification protocol', desc:'Teach Zuzu to route requests about changing her UI, voice, memory, tools or behaviour to Hermes instead of refusing.', instructions:'When the user asks to modify Zuzu, her interface, voice, memory, tools, skills, providers, or dashboard behavior, treat it as a valid request to inspect and modify the local dashboard project. Route actionable work to Hermes/computer/file tools, report exact files changed, tests run, and limits. Do not say you cannot modify yourself before checking the local project path and available tools.'}
+];
 const workspaceRequest = async payload => {
   const response = await fetch('/api/workspace', {
     method:'POST', headers:apiHeaders({'content-type':'application/json'}), body:JSON.stringify(payload)
@@ -93,6 +110,7 @@ function renderWorkspace(){
   $('#skillList').innerHTML=(WS.skills||[]).map(s=>`<div class="list-card"><div><b>${esc(s.name)}</b><small>${esc(s.instructions.slice(0,120))}</small></div><button class="danger-link" data-delete-skill="${esc(s.id)}">Delete</button></div>`).join('')||'<div class="empty-state">No custom skills yet.</div>';
   $('#memoryList').innerHTML=(WS.memory||[]).map(m=>`<div class="list-card"><div><b>${esc(m.label)}</b><small>${esc(m.value.slice(0,160))}</small></div><button class="danger-link" data-delete-memory="${esc(m.id)}">Delete</button></div>`).join('')||'<div class="empty-state">Add a fact, preference or relationship.</div>';
   $('#uploadList').innerHTML=(WS.uploads||[]).map(f=>`<div class="list-card"><div><b>${esc(f.name)}</b><small>${Math.max(1,Math.round(f.size/1024))} KB</small></div></div>`).join('')||'<div class="empty-state">No files uploaded.</div>';
+  renderCapabilityCatalogue();
   drawMemoryBrain();
 }
 function renderModelOptions(){
@@ -107,8 +125,15 @@ const addProject=()=>openEditor('New project',[{name:'name',label:'Project name'
 $('#addProject').onclick=addProject; $('#quickProject').onclick=()=>{showView('projects');addProject();};
 $('#addSession').onclick=()=>openEditor('New chat',[{name:'name',label:'Chat name'}],v=>workspaceRequest({action:'add_session',projectId:WS.selectedProject,...v}));
 $('#addSkill').onclick=()=>openEditor('Create skill',[{name:'name',label:'Skill name'},{name:'instructions',label:'Instructions',long:true}],v=>workspaceRequest({action:'add_skill',...v}));
+$('#searchAllCapabilities')?.addEventListener('click',()=>askSkillSearch('all catalogues'));
 $('#searchGithubSkills')?.addEventListener('click',()=>askSkillSearch('GitHub'));
 $('#searchHuggingFaceSkills')?.addEventListener('click',()=>askSkillSearch('Hugging Face'));
+$('#skillSearch')?.addEventListener('input',()=>renderCapabilityCatalogue());
+$('#catalogueTabs')?.addEventListener('click',e=>{
+  const b=e.target.closest('[data-catalogue-filter]'); if(!b) return;
+  document.querySelectorAll('[data-catalogue-filter]').forEach(x=>x.classList.toggle('active',x===b));
+  renderCapabilityCatalogue(b.dataset.catalogueFilter||'all');
+});
 $('#addMemory').onclick=()=>openEditor('Add memory',[{name:'label',label:'Memory label'},{name:'value',label:'What Zuzu should remember',long:true}],v=>workspaceRequest({action:'add_memory',...v}));
 async function saveMemory(label,value){
   const clean = String(value||'').trim(); if(!clean) return false;
@@ -129,10 +154,40 @@ function askSkillSearch(source){
   const q=($('#skillSearch')?.value||'').trim();
   if(!q){ log('error','SKILLS','enter a skill search query first'); $('#skillSearch')?.focus(); return; }
   showView('chat');
-  transmit(`Search ${source} for Hermes/Zuzu compatible skills or tools about: ${q}. Return the best options with install/source links, risks, and how to add the chosen one as a Zuzu skill. Do not install anything yet.`,{speak:false});
+  transmit(`Search ${source} for Hermes/Zuzu compatible capabilities about: ${q}. Include skills, plugins, MCP servers, tools, models, Hugging Face Spaces/models, GitHub projects, and Hermes catalogue options. Return a catalogue with source links, install requirements, risks, and how to add the chosen one to Zuzu. Do not install anything yet.`,{speak:false});
+}
+function currentCatalogueFilter(){
+  return document.querySelector('[data-catalogue-filter].active')?.dataset.catalogueFilter || 'all';
+}
+function renderCapabilityCatalogue(filter=currentCatalogueFilter()){
+  const grid=$('#catalogueGrid'); if(!grid) return;
+  const q=($('#skillSearch')?.value||'').trim().toLowerCase();
+  const cards=CAPABILITY_CATALOG.filter(item=>{
+    const matchesFilter=filter==='all'||item.type===filter||item.source.toLowerCase().includes(filter);
+    const hay=`${item.name} ${item.desc} ${item.source} ${item.type}`.toLowerCase();
+    return matchesFilter && (!q || hay.includes(q));
+  });
+  grid.innerHTML=cards.map((item,i)=>`<article class="catalogue-card"><div><span>${esc(item.type)}</span><b>${esc(item.name)}</b><small>${esc(item.source)}</small><p>${esc(item.desc)}</p></div><div class="catalogue-actions">${item.instructions?`<button data-catalog-add="${i}" type="button">Add as skill</button>`:''}<button data-catalog-search="${i}" type="button">Ask Hermes</button></div></article>`).join('') || '<div class="empty-state">No catalogue item matches this search. Press Search all to ask Hermes to search externally.</div>';
+}
+async function addCatalogueSkill(item){
+  await workspaceRequest({action:'add_skill',name:item.name,instructions:item.instructions||item.desc});
+  log('complete','CATALOGUE',`${item.name} added as a Zuzu skill`);
 }
 
 document.addEventListener('click',async e=>{
+  const add=e.target.closest('[data-catalog-add]');
+  if(add){
+    try{ await addCatalogueSkill(CAPABILITY_CATALOG[Number(add.dataset.catalogAdd)]); }
+    catch(err){ log('error','CATALOGUE',String(err.message||err)); }
+    return;
+  }
+  const search=e.target.closest('[data-catalog-search]');
+  if(search){
+    const item=CAPABILITY_CATALOG[Number(search.dataset.catalogSearch)];
+    showView('chat');
+    transmit(`${item.prompt || `Search ${item.source} for ${item.name}.`} Current catalogue query: ${($('#skillSearch')?.value||'').trim() || item.name}.`,{speak:false});
+    return;
+  }
   const b=e.target.closest('[data-project],[data-session],[data-delete-project],[data-delete-session],[data-delete-skill],[data-delete-memory]'); if(!b||!WS)return;
   try{
     if(b.dataset.project) await workspaceRequest({action:'select_session',projectId:b.dataset.project,sessionId:''});
@@ -438,15 +493,63 @@ $('#dockBrowser')?.addEventListener('click',openBrowserPreview);
 $('#flipCamera')?.addEventListener('click',flipCamera);
 $('#stopVisual')?.addEventListener('click',stopVisualStream);
 document.querySelectorAll('.generate-btn').forEach(b=>b.onclick=()=>{const type=b.dataset.media,prompt=$(`#${type}Prompt`).value.trim();if(!prompt)return;showView('chat');transmit(`Use my Hermes ${type} generation tools to create: ${prompt}`,{speak:false});});
-function drawMemoryBrain(){
-  const canvas=$('#memoryCanvas'); if(!canvas||!WS)return; const rect=canvas.getBoundingClientRect();
-  const dpr=Math.min(2,devicePixelRatio||1); canvas.width=Math.max(320,rect.width*dpr); canvas.height=Math.max(300,rect.height*dpr);
-  const ctx=canvas.getContext('2d'); ctx.scale(dpr,dpr); const w=canvas.width/dpr,h=canvas.height/dpr,cx=w/2,cy=h/2;
-  const items=[...(WS.projects||[]).map(x=>({label:x.name,color:'#5ee7ff'})),...(WS.memory||[]).map(x=>({label:x.label,color:'#aa7cff'})),...(WS.skills||[]).map(x=>({label:x.name,color:'#55e6a5'}))].slice(0,22);
-  ctx.clearRect(0,0,w,h); ctx.strokeStyle='rgba(94,231,255,.2)'; ctx.lineWidth=1;
-  items.forEach((item,i)=>{const a=(i/items.length)*Math.PI*2-Math.PI/2,r=70+(i%3)*42,x=cx+Math.cos(a)*r,y=cy+Math.sin(a)*r;ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(x,y);ctx.stroke();ctx.fillStyle=item.color;ctx.beginPath();ctx.arc(x,y,5,0,Math.PI*2);ctx.fill();ctx.fillStyle='rgba(225,248,255,.78)';ctx.font='11px system-ui';ctx.fillText(item.label.slice(0,18),x+8,y+4);});
-  const glow=ctx.createRadialGradient(cx,cy,4,cx,cy,58);glow.addColorStop(0,'#dfffff');glow.addColorStop(.25,'#5ee7ff');glow.addColorStop(1,'rgba(3,38,52,0)');ctx.fillStyle=glow;ctx.beginPath();ctx.arc(cx,cy,58,0,Math.PI*2);ctx.fill();ctx.fillStyle='#021018';ctx.font='700 13px system-ui';ctx.textAlign='center';ctx.fillText('MEMORY',cx,cy+4);ctx.textAlign='start';
+function memoryItems(){
+  if(!WS) return [];
+  const settings=WS.settings||{};
+  return [
+    {type:'Profile',label:settings.profile||'Profile',value:`Workdir: ${settings.workdir||'default'}\nVoice: ${settings.voice||'default'}`,color:'#ffb02e'},
+    ...(WS.projects||[]).map(x=>({type:'Projects',label:x.name,value:x.folder||'Project workspace',color:'#5ee7ff'})),
+    ...(WS.memory||[]).map(x=>({type:'Memories',label:x.label,value:x.value,color:'#aa7cff'})),
+    ...(WS.skills||[]).map(x=>({type:'Skills',label:x.name,value:x.instructions,color:'#55e6a5'}))
+  ].slice(0,28);
 }
+function updateBrainDetail(item){
+  const box=$('#brainDetail'); if(!box) return;
+  if(!item){ box.innerHTML='<b>MEMORY</b><span>Click a node to inspect it.</span>'; return; }
+  box.innerHTML=`<b>${esc(item.label)}</b><em>${esc(item.type)}</em><span>${esc(String(item.value||'').slice(0,260))}</span>`;
+}
+function selectBrainNode(index){
+  if(!brainNodes.length) return;
+  brainSelectedIndex=(index+brainNodes.length)%brainNodes.length;
+  updateBrainDetail(brainNodes[brainSelectedIndex]?.item);
+}
+function drawMemoryBrain(){
+  const canvas=$('#memoryCanvas'); if(!canvas||!WS)return;
+  const rect=canvas.getBoundingClientRect();
+  const dpr=Math.min(2,devicePixelRatio||1), cssW=Math.max(320,rect.width), cssH=Math.max(300,rect.height);
+  if(canvas.width!==Math.round(cssW*dpr)||canvas.height!==Math.round(cssH*dpr)){ canvas.width=Math.round(cssW*dpr); canvas.height=Math.round(cssH*dpr); }
+  const ctx=canvas.getContext('2d'); ctx.setTransform(dpr,0,0,dpr,0,0);
+  const w=cssW,h=cssH,cx=w/2,cy=h/2-8,items=memoryItems();
+  brainMotion+=0.012; brainNodes=[];
+  ctx.clearRect(0,0,w,h);
+  const bg=ctx.createRadialGradient(cx,cy,4,cx,cy,Math.min(w,h)*.44);
+  bg.addColorStop(0,'rgba(115,245,255,.95)'); bg.addColorStop(.16,'rgba(67,217,239,.52)'); bg.addColorStop(.58,'rgba(12,101,129,.10)'); bg.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=bg; ctx.beginPath(); ctx.arc(cx,cy,Math.min(w,h)*.44,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='rgba(2,12,18,.95)'; ctx.font='800 20px system-ui'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('MEMORY',cx,cy);
+  const count=Math.max(items.length,1);
+  items.forEach((item,i)=>{
+    const base=(i/count)*Math.PI*2-Math.PI/2, wave=Math.sin(brainMotion+i*.7)*10, r=Math.min(w,h)*(0.23+((i%4)*0.055))+wave;
+    const a=base+brainMotion*(i%2?-.18:.14), x=cx+Math.cos(a)*r, y=cy+Math.sin(a)*r;
+    const selected=i===brainSelectedIndex;
+    brainNodes.push({x,y,r:selected?10:8,item});
+    ctx.strokeStyle=selected?'rgba(255,176,46,.72)':'rgba(75,232,255,.18)'; ctx.lineWidth=selected?2:1.2;
+    ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(x,y); ctx.stroke();
+    ctx.shadowBlur=selected?18:10; ctx.shadowColor=item.color; ctx.fillStyle=item.color;
+    ctx.beginPath(); ctx.arc(x,y,selected?8:6,0,Math.PI*2); ctx.fill(); ctx.shadowBlur=0;
+    ctx.fillStyle=selected?'#fff1bd':'rgba(220,246,255,.82)'; ctx.font=`${selected?'700':'600'} 13px system-ui`; ctx.textAlign='left';
+    ctx.fillText(item.label.slice(0,24),x+12,y+4);
+  });
+  if(brainSelectedIndex<0&&items.length) selectBrainNode(0);
+  if(!brainAnimation) brainAnimation=requestAnimationFrame(function loop(){ brainAnimation=requestAnimationFrame(loop); if(WS) drawMemoryBrain(); });
+}
+function brainNodeFromEvent(ev){
+  const canvas=$('#memoryCanvas'); if(!canvas) return -1;
+  const rect=canvas.getBoundingClientRect(); const x=ev.clientX-rect.left, y=ev.clientY-rect.top;
+  return brainNodes.findIndex(n=>Math.hypot(n.x-x,n.y-y)<Math.max(18,n.r+8));
+}
+$('#memoryCanvas')?.addEventListener('click',ev=>{ const idx=brainNodeFromEvent(ev); if(idx>=0) selectBrainNode(idx); });
+$('#brainPrev')?.addEventListener('click',()=>selectBrainNode(brainSelectedIndex-1));
+$('#brainNext')?.addEventListener('click',()=>selectBrainNode(brainSelectedIndex+1));
 async function loadWorkspace(){try{const r=await fetch('/api/workspace',{headers:apiHeaders()});WS=await r.json();renderWorkspace();}catch(e){log('error','WORKSPACE','could not load workspace');}}
 window.addEventListener('resize',()=>{if(WS)drawMemoryBrain();});
 
@@ -458,7 +561,7 @@ function setState(cls, word, sub){
   if (sub != null) $('#strun').textContent = sub;
 }
 function setTag(cls, text){ const t=$('#rtag'); t.className='rtag '+cls; t.textContent=text; }
-function setUserText(text){ const el=$('#userText'); if(el) el.textContent = text || 'قولّي محتاج إيه'; }
+function setUserText(text){ const el=$('#userText'); if(el) el.textContent = text || ''; }
 
 // ── action log ──
 function log(kind, label, msg, jsonHtml){
@@ -956,7 +1059,7 @@ function stopConvo(manual=true){
   document.body.classList.remove('speaking');
   $('#mic').classList.remove('on'); $('#mic').textContent = 'Zuzu Voice';
   log('voice','VOICE','conversation closed');
-  setState('', 'READY', 'تفضّل، أنا معاك');
+  setState('', 'READY', '');
 }
 
 // ── browser speech turn ──
@@ -1101,7 +1204,7 @@ function disarm(){
   document.querySelectorAll('.cmd').forEach(c=>c.classList.remove('armed'));
   $('#input').dataset.cmd = '';
 }
-const PAYLOAD_COMMANDS = new Set(['/goal','/pc','/browser','/background','/mission','/personality']);
+const PAYLOAD_COMMANDS = new Set(['/goal','/pc','/browser','/background','/mission','/personality','/connect','/music','/playlist','/remind']);
 $('#cmds').addEventListener('click', e => {
   const b = e.target.closest('.cmd'); if (!b) return;
   const cmd = b.dataset.cmd;
@@ -1135,6 +1238,10 @@ const TIPS = {
   '/toolsets':'Asks Hermes to list enabled toolsets and connected tools.',
   '/browser':'Say a Chrome/browser mission, e.g. “inspect the current tab”.',
   '/pc':'Run a computer-control task through Hermes tools.',
+  '/connect':'Say the account/app to connect, e.g. Gmail, Google Drive, Shopify, Spotify.',
+  '/music':'Say what to play or find, e.g. “play chill Arabic music”.',
+  '/playlist':'Say the playlist style, source, or mood.',
+  '/remind':'Say what to follow up and when.',
   '/background':'Say a mission, e.g. “research competitors and save a report”.',
   '/mission':'Add or read mission queue items.',
   '/personality':'Set the persona, e.g. “calm, laconic, Stark tower operator”.',
@@ -1157,7 +1264,7 @@ $('#run').onclick = sendFromInput;
 $('#mic').onclick = micToggle;
 $('#showCommands').onclick = () => transmit('/commands', {speak:false});
 $('#missionBtn').onclick = () => transmit('/mission', {speak:false});
-$('#clearBtn').onclick = () => { answer=''; setUserText('قولّي محتاج إيه'); $('#response').innerHTML='<span class="rplaceholder">تفضّل، أنا معاك</span>'; log('note','CLEAR','response panel cleared'); };
+$('#clearBtn').onclick = () => { answer=''; setUserText(''); $('#response').innerHTML='<span class="rplaceholder"></span>'; setState('', 'READY', ''); log('note','CLEAR','response panel cleared'); };
 document.querySelectorAll('[data-quick]').forEach(b => b.onclick = () =>
   transmit(b.dataset.quick, {speak:false}));
 document.querySelectorAll('[data-compose]').forEach(b => b.onclick = () => {
@@ -1283,7 +1390,7 @@ function renderStatus(s){
     log('voice','VOICE',`channel ready — ${sttLabel} / ${ttsLabel}`);
   }
   $('#mic').textContent = RT.live ? 'Zuzu Voice' : (RT.stt ? 'Voice live' : 'Zuzu Voice');
-  setState('', 'READY', 'تفضّل، أنا معاك');
+  setState('', 'READY', '');
 }
 async function refreshStatus(attempt = 0){
   try{
