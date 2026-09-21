@@ -234,8 +234,9 @@ def handle(message, runner=None):
     if cmd in ("music", "playlist"):
         request = arg or ("play something I usually like" if cmd == "music" else "make a playlist from my preferences")
         return dict(message=(
-            f"Use connected Hermes music tools or browser/computer tools to handle this music request: {request}. "
-            "If Spotify, Apple Music, YouTube Music, or another music account is not connected yet, explain the safest connection path. "
+            f"Handle this music request: {request}. Prefer the already-opened Zuzu YouTube/browser preview if the dashboard supplied one. "
+            "If a direct music connector is unavailable, use YouTube/YouTube Music or browser playback/search rather than refusing. "
+            "If playback happens on the laptop while the user is on mobile, say that clearly and provide/show the visible URL or screen state. "
             "Do not invent playback success; report whether playback/playlist creation actually happened."
         ), note=f"music request: {request[:50]}", hermes=True)
 
@@ -249,7 +250,11 @@ def handle(message, runner=None):
 
     if cmd == "browser":
         task = arg or "open or inspect Google Chrome using the configured Hermes browser/computer-use tools and report what is available"
-        return dict(message=f"Use my Hermes browser/Google Chrome tooling if available: {task}", note="browser mission armed", hermes=True)
+        return dict(message=(
+            f"Use my Hermes browser/Google Chrome tooling for this request: {task}. "
+            "If the dashboard already opened a browser/search preview, use that as visible context. "
+            "If the text is not a full URL, treat it as a search query, open/search it, and return the URL/result state."
+        ), note="browser mission armed", hermes=True)
 
     if cmd in ("pc", "computer"):
         task = arg or "inspect the computer and report what is available without changing anything"

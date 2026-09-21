@@ -103,6 +103,7 @@ class RuntimeTests(unittest.TestCase):
         server_source = (ROOT / "server.py").read_text(encoding="utf-8")
         self.assertIn("music|playlist|remind|reminder|followup", commands_source)
         self.assertIn("Zuzu system awareness", server_source)
+        self.assertIn("_client_context_prompt", server_source)
         self.assertIn("Do not answer 'I cannot modify myself'", server_source)
 
 
@@ -138,6 +139,11 @@ class InterfaceTests(unittest.TestCase):
         self.assertIn("pendingLiveAttachmentParts", js)
         self.assertIn("autoRemember", js)
         self.assertIn("openBrowserPreview", js)
+        self.assertIn("normalizeBrowserTarget", js)
+        self.assertIn("googleSearchUrl", js)
+        self.assertIn("youtubeSearchUrl", js)
+        self.assertIn("clientDeviceContext", js)
+        self.assertIn("client_context", js)
         self.assertIn("requestLaptopScreen", js)
         self.assertIn("startLaptopLive", js)
         self.assertIn("showLaptopSnapshot", js)
@@ -159,7 +165,7 @@ class InterfaceTests(unittest.TestCase):
         self.assertIn("barge-in detected", js)
         self.assertIn("stopLivePlayback()", js)
         self.assertIn("auth.system ||", js)
-        self.assertIn('auth["system"] = persona()', server)
+        self.assertIn('auth["system"] = persona(client_extra)', server)
         self.assertIn("Zuzu-Hermes memory contract", server)
         self.assertIn("Zuzu durable memory brain", (ROOT / "workspace.py").read_text(encoding="utf-8"))
 
@@ -182,8 +188,8 @@ class InterfaceTests(unittest.TestCase):
         self.assertIn("is waiting for task details", js)
         self.assertIn('id="top-hermes"', html)
         self.assertIn('id="sy-hermes"', html)
-        self.assertIn("app.js?v=25", html)
-        self.assertIn("jarvis-shell-v25", worker)
+        self.assertIn("app.js?v=26", html)
+        self.assertIn("jarvis-shell-v26", worker)
         self.assertIn("fetch(event.request).then", worker)
 
     def test_job_polling_is_visibility_aware_and_quota_friendly(self):

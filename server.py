@@ -13,6 +13,7 @@ import json
 import mimetypes
 import os
 import pathlib
+import re
 import secrets
 import sys
 import threading
@@ -87,12 +88,32 @@ def _origin_allowed(origin):
 _PERSONA_FILE = ROOT / "persona.md"
 
 
-def persona():
+
+def _client_context_prompt(ctx):
+    if not isinstance(ctx, dict):
+        return ""
+    def clean(value, limit=240):
+        return re.sub(r"\s+", " ", str(value or "")).strip()[:limit]
+    device = clean(ctx.get("device_type") or "unknown", 40)
+    platform = clean(ctx.get("platform"), 80)
+    page = clean(ctx.get("url"), 240)
+    viewport = clean(ctx.get("viewport"), 40)
+    visual_kind = clean(ctx.get("visual_kind"), 80)
+    visual_url = clean(ctx.get("visual_url"), 240)
+    note = clean(ctx.get("note"), 400)
+    return (
+        "Current Zuzu client/device context: "
+        f"device={device}; platform={platform}; viewport={viewport}; page={page}; "
+        f"visual_panel={visual_kind or 'none'}; visual_url={visual_url or 'none'}. {note} "
+        "Use this to know whether the user is on mobile or the laptop. If the user is on mobile and asks to see laptop/browser work, show or return a URL/screenshot/live-screen update through the dashboard when possible."
+    )
+
+def persona(client_extra=""):
     try:
         base = _PERSONA_FILE.read_text(encoding="utf-8").strip()
     except OSError:
         base = ""
-    extra = commands.context_block()      # profile / goal / personality / queue
+    command_context = commands.context_block()      # profile / goal / personality / queue
     custom = workspace.load().get("settings", {}).get("persona", "")
     relevant = workspace.agent_context()
     bridge = (
@@ -108,7 +129,7 @@ def persona():
         "Use Hermes computer/file/browser/tools when available, inspect the current system state, and report real limits only after checking. "
         "Do not answer 'I cannot modify myself' unless the actual tool attempt is unavailable or denied."
     )
-    return "\n\n".join(x for x in (base, custom, bridge, self_awareness, relevant, extra) if x)
+    return "\n\n".join(x for x in (base, custom, bridge, self_awareness, relevant, command_context, client_extra) if x)
 
 
 def capture_laptop_screen_jpeg():
@@ -294,10 +315,12 @@ class Handler(BaseHTTPRequestHandler):
 
         if p == "/api/live-token":
             try:
+                payload = json.loads(raw or b"{}")
+                client_extra = "\n\n".join(x for x in ((payload.get("system") or "").strip(), _client_context_prompt(payload.get("client_context"))) if x)
                 auth = voice.create_live_token()
                 # Live voice is a separate model session, so give it the same
                 # saved persona, memory, skills and profile context as text chat.
-                auth["system"] = persona()
+                auth["system"] = persona(client_extra)
                 auth["system"] += (
                     "\nVoice role: You are Zuzu, the single spoken interface for the user. "
                     "Speak naturally in the user's language, defaulting to Egyptian Arabic. "
@@ -380,7 +403,7 @@ class Handler(BaseHTTPRequestHandler):
         except json.JSONDecodeError:
             return self._json({"error": "bad json"}, 400)
         message = (payload.get("message") or "").strip()
-        extra = (payload.get("system") or "").strip()
+        extra = "\n\n".join(x for x in ((payload.get("system") or "").strip(), _client_context_prompt(payload.get("client_context"))) if x)
         system = "\n\n".join(x for x in (persona(), extra) if x) or None
         fresh = bool(payload.get("fresh"))
         if not message:

@@ -218,7 +218,26 @@ document.querySelectorAll('[data-shortcut-command]').forEach(button=>button.addE
 
 const isiOS=/iPhone|iPad|iPod/i.test(navigator.userAgent);
 const standalone=window.matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
+const isMobileClient=/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
 $('#mobileCapability').textContent=isiOS?(standalone?'Installed as an iPhone app · Shortcuts control ready':'Open in Safari and choose Add to Home Screen'):'Apple Shortcuts control is available when this dashboard is opened on iPhone.';
+function clientDeviceContext(){
+  return {
+    device_type: isMobileClient ? 'mobile' : 'desktop',
+    platform: navigator.platform || '',
+    user_agent: navigator.userAgent || '',
+    standalone,
+    url: location.href,
+    screen: `${screen.width}x${screen.height}`,
+    viewport: `${innerWidth}x${innerHeight}`,
+    visual_kind: visualKind || '',
+    visual_url: visualBrowserUrl || '',
+    note: isMobileClient ? 'The user is controlling Zuzu from a mobile browser/PWA; laptop actions happen on the Windows host and should be shown back in the Zuzu core when useful.' : 'The user is controlling Zuzu from the desktop browser on the Windows host.'
+  };
+}
+function clientContextSystemText(){
+  const ctx=clientDeviceContext();
+  return `Current Zuzu client context: device=${ctx.device_type}; platform=${ctx.platform}; standalone=${ctx.standalone}; viewport=${ctx.viewport}; page=${ctx.url}; current visual panel=${ctx.visual_kind||'none'} ${ctx.visual_url?`at ${ctx.visual_url}`:''}. ${ctx.note}`;
+}
 let activeAttachments = [], pendingLiveAttachmentParts = [];
 const MAX_INLINE_IMAGE = 8 * 1024 * 1024;
 function fileToBase64(file){
@@ -383,6 +402,34 @@ async function startLaptopLive(){
   await refreshLaptopLive();
   laptopScreenTimer=setInterval(refreshLaptopLive, 1200);
 }
+function isProbablyDomain(text){
+  return /^[a-z0-9.-]+\.[a-z]{2,}(?:[/:?#].*)?$/i.test(String(text||'').trim());
+}
+function googleSearchUrl(query){
+  return `https://www.google.com/search?igu=1&q=${encodeURIComponent(query)}`;
+}
+function youtubeSearchUrl(query){
+  return `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`;
+}
+function normalizeBrowserTarget(input, mode='google'){
+  const raw=String(input||'').trim();
+  if(!raw) return '';
+  if(/^https?:\/\//i.test(raw)) return raw;
+  if(isProbablyDomain(raw)) return `https://${raw}`;
+  if(/^youtube\s*:/i.test(raw)) return youtubeSearchUrl(raw.replace(/^youtube\s*:/i,'').trim());
+  if(/^google\s*:/i.test(raw)) return googleSearchUrl(raw.replace(/^google\s*:/i,'').trim());
+  return mode === 'youtube' ? youtubeSearchUrl(raw) : googleSearchUrl(raw);
+}
+function showBrowserUrl(url, status='Browser preview'){
+  if(!url) return;
+  stopVisualStream(); visualKind='browser'; visualBrowserUrl=url;
+  const video=$('#visualPreview'), img=$('#visualImage'), frame=$('#visualFrame'), empty=$('#visualEmpty'), flip=$('#flipCamera');
+  if(video) video.hidden=true; if(img) img.hidden=true; if(flip) flip.hidden=true;
+  if(frame){ frame.src=url; frame.hidden=false; }
+  if(empty) empty.hidden=true;
+  setVisualStatus(status); setVisionBox(true); document.body.classList.add('vision-on');
+  log('status','BROWSER',`preview opened: ${url}`);
+}
 function showVideoUrl(url, status='Video / YouTube'){
   if(!url) return;
   stopVisualStream(); visualKind='remote-video'; visualBrowserUrl=url;
@@ -402,27 +449,19 @@ function requestLaptopPicture(){
   transmit('/pc Take a screenshot or create/find the picture you want to show me from the laptop, save it if needed, and return a direct file path or URL. Describe what I should judge, then ask me what I think.',{speak:false});
 }
 function requestLaptopVideo(){
-  const raw=prompt('Paste a YouTube/video URL to show in Zuzu core, or leave empty so Zuzu/Hermes can find one:', '');
+  const raw=prompt('Show YouTube/video in Zuzu core. Paste a URL or type a search:', '');
   if(raw && raw.trim()){
-    const url=/^https?:\/\//i.test(raw.trim()) ? raw.trim() : `https://${raw.trim()}`;
-    showVideoUrl(url);
+    const url=normalizeBrowserTarget(raw, 'youtube');
+    showVideoUrl(url, /^https?:\/\//i.test(raw.trim()) ? 'Video / YouTube' : 'YouTube search');
     log('status','VIDEO',`showing ${url}`);
     return;
   }
   transmit('/pc Find or open the video/YouTube item relevant to my current request and return the direct URL so the dashboard can display it to me. If you cannot open it directly, return the best URL and explain why.',{speak:false});
 }
 function openBrowserPreview(){
-  const raw=prompt('Open browser view inside Zuzu core. Enter URL:', 'https://');
+  const raw=prompt('Open browser view inside Zuzu core. Enter a URL or search words:', '');
   if(!raw) return;
-  let url=raw.trim();
-  if(!/^https?:\/\//i.test(url)) url='https://'+url;
-  stopVisualStream(); visualKind='browser'; visualBrowserUrl=url;
-  const video=$('#visualPreview'), img=$('#visualImage'), frame=$('#visualFrame'), empty=$('#visualEmpty'), flip=$('#flipCamera');
-  if(video) video.hidden=true; if(img) img.hidden=true; if(flip) flip.hidden=true;
-  if(frame){ frame.src=url; frame.hidden=false; }
-  if(empty) empty.hidden=true;
-  setVisualStatus('Browser preview'); setVisionBox(true); document.body.classList.add('vision-on');
-  log('status','BROWSER',`preview opened: ${url}`);
+  showBrowserUrl(normalizeBrowserTarget(raw, 'google'), 'Browser search');
 }
 function requestLaptopScreen(){
   startLaptopLive();
@@ -587,12 +626,41 @@ function usageBlock(u){
 let running = false, answer = '', firstDelta = false, speakThisRun = true;
 let speakDone = Promise.resolve(), activeController = null;
 
+function browserIntentFromMessage(message){
+  const text=String(message||'').trim();
+  const lower=text.toLowerCase();
+  let m=text.match(/^\/browser\s+(.+)/i);
+  if(m) return {mode:'google', query:m[1].trim(), reason:'slash browser'};
+  m=text.match(/^\/music\s+(.+)/i);
+  if(m) return {mode:'youtube', query:m[1].trim(), reason:'music'};
+  m=text.match(/^\/playlist\s+(.+)/i);
+  if(m) return {mode:'youtube', query:m[1].trim(), reason:'playlist'};
+  m=text.match(/(?:search|google|ابحث|دور|سيرش|اعملي سيرش|اعمل سيرش)(?:\s+(?:for|عن|على|في))?\s+(.+)/i);
+  if(m) return {mode:/youtube|يوتيوب/i.test(text)?'youtube':'google', query:m[1].trim(), reason:'search'};
+  m=text.match(/(?:youtube|يوتيوب).*?(?:for|عن|على)?\s+(.+)/i);
+  if(m) return {mode:'youtube', query:m[1].trim(), reason:'youtube'};
+  if(/(?:شغلي|شغل|play)\s+/.test(lower) && /(?:اغنية|أغنية|song|music|عمرو|amr|diab)/i.test(text)){
+    return {mode:'youtube', query:text.replace(/^\/music\s*/i,'').trim(), reason:'music'};
+  }
+  return null;
+}
+function maybeOpenRequestedBrowserPreview(message){
+  const intent=browserIntentFromMessage(message);
+  if(!intent || !intent.query) return '';
+  const url=normalizeBrowserTarget(intent.query, intent.mode);
+  if(intent.mode==='youtube') showVideoUrl(url, 'YouTube search');
+  else showBrowserUrl(url, 'Google search');
+  return `Zuzu has already opened this ${intent.mode === 'youtube' ? 'YouTube' : 'browser'} preview for the user: ${url}. Use it as visible context; if it cannot play inside the frame, tell the user to open it externally or use laptop browser control.`;
+}
+
 async function transmit(message, options = {}){
   if (!message.trim()) return;
   await autoRemember(message);
   pendingLiveAttachmentParts = [];
+  const previewNote = maybeOpenRequestedBrowserPreview(message);
   message = await attachVisualContext(message);
   message = attachUploadedContext(message);
+  if (previewNote) message = `${message}\n\n${previewNote}`;
   // With Live connected, typed and spoken turns share the same voice session.
   // Tool requests return through hermes_action; no second TTS voice overlaps it.
   if (liveReady && liveWs?.readyState === WebSocket.OPEN && !message.trim().startsWith('/')) {
@@ -630,7 +698,7 @@ async function transmit(message, options = {}){
     activeController = new AbortController();
     const res = await fetch('/api/run', {
       method:'POST', headers:apiHeaders({'content-type':'application/json'}),
-      body: JSON.stringify({message, fresh}), signal:activeController.signal
+      body: JSON.stringify({message, fresh, client_context: clientDeviceContext(), system: clientContextSystemText()}), signal:activeController.signal
     });
     if (!res.ok){
       const data=await res.json().catch(()=>({}));
@@ -843,7 +911,7 @@ async function executeLiveAction(request, signal){
   log('tool', 'HERMES', 'Executing voice action');
   const response = await fetch('/api/run', {
     method:'POST', headers:apiHeaders({'content-type':'application/json'}),
-    body:JSON.stringify({message:request}), signal
+    body:JSON.stringify({message:request, client_context: clientDeviceContext(), system: clientContextSystemText()}), signal
   });
   if (!response.ok){
     const data=await response.json().catch(()=>({}));
@@ -878,7 +946,7 @@ async function startGeminiLive(){
     voiceWanted = true;
     setState('running','CONNECTING','Gemini native audio…');
     const auth = await fetch('/api/live-token', {
-      method:'POST', headers:apiHeaders({'content-type':'application/json'}), body:'{}'
+      method:'POST', headers:apiHeaders({'content-type':'application/json'}), body:JSON.stringify({client_context: clientDeviceContext(), system: clientContextSystemText()})
     }).then(async r => { const data=await r.json(); if(!r.ok) throw new Error(data.error||`HTTP ${r.status}`); return data; });
     micStream = await navigator.mediaDevices.getUserMedia(
       {audio:{echoCancellation:true, noiseSuppression:true, autoGainControl:true, channelCount:1}});
@@ -1283,7 +1351,7 @@ document.querySelectorAll('[data-compose]').forEach(b => b.onclick = () => {
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
   if (running && activeController){
-    fetch('/api/cancel', {method:'POST', headers:apiHeaders({'content-type':'application/json'}), body:'{}'}).catch(()=>{});
+    fetch('/api/cancel', {method:'POST', headers:apiHeaders({'content-type':'application/json'}), body:JSON.stringify({client_context: clientDeviceContext(), system: clientContextSystemText()})}).catch(()=>{});
     activeController.abort();
     return;
   }
@@ -1431,7 +1499,7 @@ function renderStatus(s){
     log('voice','VOICE',`channel ready — ${sttLabel} / ${ttsLabel}`);
   }
   $('#mic').textContent = RT.live ? 'Zuzu Voice' : (RT.stt ? 'Voice live' : 'Zuzu Voice');
-  setState('', 'READY', '');
+  if (!hasActiveOperation && !running && !convo) setState('', 'READY', '');
 }
 async function refreshStatus(attempt = 0){
   try{
