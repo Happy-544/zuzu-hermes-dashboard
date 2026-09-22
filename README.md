@@ -1,13 +1,13 @@
-# JARVIS · Hermes Agent Mission Control
+# Zuzu · Hermes Agent Dashboard
 
-A local, voice-enabled JARVIS dashboard for [Hermes Agent](https://github.com/NousResearch/hermes-agent). It is a visual interface over your existing Hermes profile—not a second agent runtime—so it inherits the same tools, skills, memory, browser automation, MCP servers, and third-party integrations.
+A local, voice-enabled Zuzu dashboard for [Hermes Agent](https://github.com/NousResearch/hermes-agent). It is a visual interface over your existing Hermes profile—not a second agent runtime—so it inherits the same tools, skills, memory, browser automation, MCP servers, and third-party integrations.
 
-![JARVIS Hermes dashboard](docs/screenshot.png)
+![Zuzu Hermes dashboard](docs/screenshot.png)
 
 ## What you get
 
 - Futuristic browser-based mission-control HUD
-- Natural conversational replies with a concise JARVIS voice persona
+- Natural conversational replies with the Zuzu voice persona
 - Continuous voice conversation: listen → transcribe → answer → speak → listen
 - Optional ElevenLabs speech-to-text and text-to-speech
 - Browser speech fallback when ElevenLabs is not configured
@@ -15,6 +15,15 @@ A local, voice-enabled JARVIS dashboard for [Hermes Agent](https://github.com/No
 - Hermes session continuity across voice turns
 - Access to the active Hermes profile's tools, skills, browser, memory, and MCP integrations
 - Local-only HTTP server bound to `127.0.0.1`
+
+
+## Correct GitHub repo for the new Zuzu interface
+
+Use this repository for the current Zuzu interface:
+
+<https://github.com/Happy-544/zuzu-hermes-dashboard>
+
+The older upstream repository `Itsme23476/jarvis-hermes-dashboard` still shows the legacy JARVIS layout unless that owner pulls these changes. If you see the old JARVIS screen, you installed the old repo or your browser is serving a cached copy.
 
 ## Prerequisites
 
@@ -31,8 +40,8 @@ Confirm that `hermes chat -q "Say online"` works before installing the dashboard
 ## One-command install
 
 ```bash
-git clone https://github.com/Itsme23476/jarvis-hermes-dashboard.git && \
-cd jarvis-hermes-dashboard && \
+git clone https://github.com/Happy-544/zuzu-hermes-dashboard.git && \
+cd zuzu-hermes-dashboard && \
 ./install.sh
 ```
 
@@ -46,7 +55,7 @@ No API keys are required for the basic dashboard. Browser speech APIs are used a
 
 Give this prompt to an already-installed Hermes Agent:
 
-> Install and launch the JARVIS dashboard from https://github.com/Itsme23476/jarvis-hermes-dashboard. Clone or update it under ~/jarvis-hermes-dashboard, preserve any existing private .env file, run its installer, verify http://127.0.0.1:8730/api/status reports the Hermes runtime, and tell me the local dashboard URL. Do not print or expose any credentials.
+> Install and launch the Zuzu dashboard from https://github.com/Happy-544/zuzu-hermes-dashboard. Clone or update it under ~/zuzu-hermes-dashboard, preserve any existing private .env file, run its installer, verify http://127.0.0.1:8730/api/status reports the Hermes runtime, and tell me the local dashboard URL. Do not print or expose any credentials.
 
 Hermes can perform the clone, setup, launch, and health check with its terminal tools.
 
