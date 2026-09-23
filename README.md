@@ -59,7 +59,7 @@ cd zuzu-hermes-dashboard
 .\install.ps1
 ```
 
-If this PC previously opened the old JARVIS dashboard on the same localhost port, open `http://127.0.0.1:8730/?release=34`, then press Ctrl+F5 once. The new service worker clears old `jarvis-shell-*` caches automatically.
+If this PC previously opened the old JARVIS dashboard on the same localhost port, open `http://127.0.0.1:8730/?release=35`, then press Ctrl+F5 once. The new service worker clears old `jarvis-shell-*` caches automatically.
 
 ## One-prompt installation with Hermes
 

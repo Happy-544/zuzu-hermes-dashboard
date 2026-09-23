@@ -953,7 +953,7 @@ let convo = false, suppress = false;
 let recognition = null;
 let micStream=null, recorder=null, chunks=[], actx=null, analyser=null, vdata=null;
 let vad=null, spoke=false, loudAt=0, turnStart=0;
-let floorSum=0, floorN=0, threshold=0.02, peak=0, calibrating=true;
+let floorSum=0, floorN=0, threshold=0.02, peak=0, calibrating=true, speechFrames=0;
 const SILENCE=900, MIN_TURN_MS=350, MAX_TURN_MS=18000, NO_SPEECH_MS=10000;
 let liveWs=null, liveInputCtx=null, liveOutputCtx=null, liveProcessor=null;
 let liveSource=null, liveReady=false, liveSpeaking=false, livePlayAt=0;
@@ -1319,7 +1319,7 @@ function startBrowserRecognition(){
 function beginTurn(){
   if (!convo || suppress || !micStream) return;
   chunks = []; spoke = false; peak = 0;
-  floorSum = 0; floorN = 0; calibrating = true; threshold = 0.02;
+  floorSum = 0; floorN = 0; calibrating = true; threshold = 0.02; speechFrames = 0;
   recorder = new MediaRecorder(micStream, pickMime());
   recorder.ondataavailable = e => { if (e.data?.size) chunks.push(e.data); };
   recorder.onstop = ship;
@@ -1368,9 +1368,11 @@ function vtick(){
 
   if (rms > threshold){
     loudAt = t;
-    if (!spoke){ spoke = true; log('voice','VOICE','speech detected'); }
+    if (!spoke && ++speechFrames >= 3){ spoke = true; log('voice','VOICE','speech detected'); }
   } else if (spoke && t - loudAt > SILENCE){
     return endTurn('silence');
+  } else if (!spoke){
+    speechFrames = 0;
   }
 
   // failsafes so it can never hang: cap the length, re-listen if no speech at all
@@ -1391,13 +1393,18 @@ async function ship(){
   log('voice','VOICE',`uploading ${Math.round(blob.size/1024)}KB to server STT`);
   const t0 = performance.now();
   try {
-    const r = await fetch('/api/listen', {method:'POST',
-      headers:apiHeaders({'content-type':blob.type||'audio/webm'}), body:blob}).then(r=>r.json());
-    const text = (r.text||'').trim();
+    const response = await fetch('/api/listen', {method:'POST',
+      headers:apiHeaders({'content-type':blob.type||'audio/webm'}), body:blob});
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+    const text = (result.text||'').trim();
     const ms = Math.round(performance.now() - t0);
     if (!text){
-      log('voice','VOICE','nothing transcribed');
-      if (convo) beginTurn(); else setState('','STANDBY','nothing heard');
+      log('voice','VOICE','No words recognized; listening again');
+      if (convo){
+        setState('listening','LISTENING','لم أسمع كلامًا واضحًا — حاول مرة ثانية');
+        setTimeout(() => { if (convo && !suppress) beginTurn(); }, 1200);
+      } else setState('','STANDBY','nothing heard');
       return;
     }
     log('voice','VOICE',`transcribed on server in ${ms}ms: "${text}"`);
@@ -1410,9 +1417,11 @@ async function ship(){
     suppress = false;
     if (convo) beginTurn();
   } catch(e){
-    log('error','VOICE','transcription failed');
-    suppress = false;
-    if (convo) beginTurn(); else setState('error','FAULT','transcription failed');
+    const detail = String(e?.message || e).slice(0,160);
+    log('error','VOICE',`transcription failed: ${detail}`);
+    stopConvo(false);
+    voiceWanted=false;
+    setState('error','VOICE ERROR',detail);
   }
 }
 

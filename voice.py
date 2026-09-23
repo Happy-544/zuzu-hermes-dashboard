@@ -227,7 +227,10 @@ def _transcribe_local(audio, mime):
         with _local_stt_lock:
             if _local_stt_model is None:
                 _local_stt_model = WhisperModel(LOCAL_STT_MODEL, device="cpu", compute_type="int8")
-            segments, _ = _local_stt_model.transcribe(path, beam_size=1, vad_filter=True)
+            segments, _ = _local_stt_model.transcribe(
+                path, beam_size=1, vad_filter=False,
+                no_speech_threshold=0.4, condition_on_previous_text=False,
+            )
             return " ".join(segment.text.strip() for segment in segments).strip()
     finally:
         os.unlink(path)

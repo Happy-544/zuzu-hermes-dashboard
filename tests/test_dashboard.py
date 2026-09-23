@@ -220,8 +220,8 @@ class InterfaceTests(unittest.TestCase):
         self.assertIn("is waiting for task details", js)
         self.assertIn('id="top-hermes"', html)
         self.assertIn('id="sy-hermes"', html)
-        self.assertIn("app.js?v=34", html)
-        self.assertIn("zuzu-shell-v34", worker)
+        self.assertIn("app.js?v=35", html)
+        self.assertIn("zuzu-shell-v35", worker)
         self.assertIn("fetch(event.request).then", worker)
 
     def test_job_polling_is_visibility_aware_and_quota_friendly(self):
