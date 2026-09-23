@@ -21,17 +21,22 @@ if (-not (Test-Path -LiteralPath $python)) {
     }
 }
 
+$voicePython = Join-Path $project '.venv\Scripts\python.exe'
+if (-not (Test-Path -LiteralPath $voicePython)) {
+    if ($python -eq 'py') { & py -3.12 -m venv .venv }
+    else { & $python -m venv .venv }
+    if ($LASTEXITCODE -ne 0) { throw 'Could not create the Zuzu Python environment.' }
+}
+& $voicePython -m pip install --disable-pip-version-check -q faster-whisper
+if ($LASTEXITCODE -ne 0) { throw 'Could not install local voice transcription.' }
+
 if (-not $NoOpen) {
     $env:JARVIS_OPEN = '1'
 }
 
 Write-Host ''
 Write-Host 'Zuzu is ready. Launching with the configured Hermes profile.'
-Write-Host 'Dashboard: http://127.0.0.1:8730/?release=32'
+Write-Host 'Dashboard: http://127.0.0.1:8730/?release=34'
 Write-Host ''
 
-if ($python -eq 'py') {
-    & py -3.12 server.py
-} else {
-    & $python server.py
-}
+& $voicePython server.py

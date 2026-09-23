@@ -49,7 +49,7 @@ The installer creates a private `.env` file, starts the dashboard, and opens:
 
 <http://127.0.0.1:8730>
 
-No API keys are required for the basic dashboard. Browser speech APIs are used as a fallback.
+No API keys are required for the basic dashboard. The installer adds local multilingual speech transcription for voice fallback; browser speech is used only when local transcription is unavailable.
 
 ### Windows install
 
@@ -59,7 +59,7 @@ cd zuzu-hermes-dashboard
 .\install.ps1
 ```
 
-If this PC previously opened the old JARVIS dashboard on the same localhost port, open `http://127.0.0.1:8730/?release=32`, then press Ctrl+F5 once. The new service worker clears old `jarvis-shell-*` caches automatically.
+If this PC previously opened the old JARVIS dashboard on the same localhost port, open `http://127.0.0.1:8730/?release=34`, then press Ctrl+F5 once. The new service worker clears old `jarvis-shell-*` caches automatically.
 
 ## One-prompt installation with Hermes
 
@@ -71,7 +71,7 @@ Hermes can perform the clone, setup, launch, and health check with its terminal 
 
 ## Voice setup
 
-Voice works without configuration when the browser provides SpeechRecognition and speechSynthesis. For more reliable speech, add an ElevenLabs key to the private `.env` file:
+The installer adds local speech transcription. Set `JARVIS_VOICE_MODE=local` in the private `.env` file when Gemini Live has no credits; Zuzu then sends transcribed requests to Hermes and speaks using the browser. The first local voice session downloads the multilingual Whisper base model. When Gemini Live credits are available, `JARVIS_VOICE_MODE=auto` uses the configured native audio model. ElevenLabs can also provide speech transcription and output:
 
 ```bash
 ELEVENLABS_API_KEY=your_private_key

@@ -959,6 +959,26 @@ let liveWs=null, liveInputCtx=null, liveOutputCtx=null, liveProcessor=null;
 let liveSource=null, liveReady=false, liveSpeaking=false, livePlayAt=0;
 let liveSources=new Set(), bargeFrames=0, wakeLock=null, voiceWanted=false, liveLastMessageAt=0;
 let liveBridge=null, liveAnswerStarted=false;
+let liveConnecting=false, liveConnectTimer=null, liveFailedUntil=0, ttsFailed=false;
+
+function useVoiceFallback(reason){
+  const detail = /prepayment credits are depleted|quota|billing/i.test(reason)
+    ? 'Gemini Live credits are depleted'
+    : `Gemini Live failed: ${reason || 'connection closed'}`;
+  stopConvo(false);
+  voiceWanted=false;
+  sessionStorage.removeItem('jarvis-voice-resume');
+  liveFailedUntil=Date.now()+5*60*1000;
+  ttsFailed=true;
+  RT.live=false;
+  RT.tts=false;
+  log('error','VOICE',`${detail}. Switching to voice through Hermes.`);
+  if (RT.stt || SpeechRecognition) {
+    micToggle();
+  } else {
+    setState('error','VOICE UNAVAILABLE',`${detail}. Text chat still uses Hermes.`);
+  }
+}
 
 function floatToPcm16Base64(float32, inputRate){
   const ratio = inputRate / 16000;
@@ -1043,6 +1063,8 @@ async function executeLiveAction(request, signal){
 
 async function startGeminiLive(){
   try{
+    if (liveConnecting || liveReady) return;
+    liveConnecting=true;
     if (player) player.pause();
     speechSynth?.cancel();
     voiceWanted = true;
@@ -1067,6 +1089,9 @@ async function startGeminiLive(){
       systemInstruction:{parts:[{text:auth.system || 'You are Zuzu. Speak warmly, naturally, briefly, and helpfully.'}]}
     }}));
     const connectedSocket = liveWs;
+    liveConnectTimer=setTimeout(() => {
+      if (connectedSocket === liveWs && !liveReady) useVoiceFallback('connection timed out');
+    }, 12000);
     liveBridge = new HermesVoiceBridge(executeLiveAction, message => {
       if (connectedSocket === liveWs && connectedSocket.readyState === WebSocket.OPEN) connectedSocket.send(JSON.stringify(message));
     });
@@ -1077,6 +1102,7 @@ async function startGeminiLive(){
       else if (payload instanceof ArrayBuffer) payload = new TextDecoder().decode(payload);
       const msg = JSON.parse(payload);
       if (msg.setupComplete && !liveReady){
+        clearTimeout(liveConnectTimer); liveConnectTimer=null; liveConnecting=false;
         liveReady = true; convo = true; suppress = false;
         sessionStorage.setItem('jarvis-voice-resume','1');
         $('#mic').classList.add('on'); $('#mic').textContent = 'Listening';
@@ -1136,10 +1162,13 @@ async function startGeminiLive(){
       }
     };
     liveWs.onerror = () => log('error','VOICE','Gemini Live connection error');
-    liveWs.onclose = () => { if(convo) { log('error','VOICE','Gemini Live paused'); stopConvo(false); } };
+    liveWs.onclose = event => {
+      if (connectedSocket !== liveWs) return;
+      if (voiceWanted) useVoiceFallback(event.reason || `connection closed (${event.code})`);
+      else stopConvo(false);
+    };
   }catch(e){
-    log('error','VOICE',`Gemini Live unavailable: ${String(e.message||e).slice(0,120)}`);
-    stopConvo();
+    useVoiceFallback(String(e.message||e).slice(0,160));
   }
 }
 
@@ -1155,6 +1184,7 @@ function speak(text){
       try{
         speechSynth.cancel();
         const u = new SpeechSynthesisUtterance(spoken);
+        u.lang = /[\u0600-\u06ff]/.test(spoken) ? 'ar-EG' : 'en-US';
         u.rate = 0.95; u.pitch = 0.82; u.volume = 1;
         document.body.classList.add('speaking');
         u.onend = u.onerror = () => { document.body.classList.remove('speaking'); resolve(); };
@@ -1176,17 +1206,25 @@ function speak(text){
         player.onended = done; player.onerror = done;
         return player.play();
       })
-      .catch(() => resolve());
+      .catch(() => {
+        ttsFailed=true; RT.tts=false;
+        if (!speechSynth) return resolve();
+        const u = new SpeechSynthesisUtterance(spoken);
+        u.lang = /[\u0600-\u06ff]/.test(spoken) ? 'ar-EG' : 'en-US';
+        u.onend = u.onerror = () => { document.body.classList.remove('speaking'); resolve(); };
+        document.body.classList.add('speaking');
+        speechSynth.speak(u);
+      });
   });
 }
 
 // ── start / stop the whole conversation ──
 async function micToggle(){
+  if (liveConnecting){ stopConvo(); return; }
   if (convo){ stopConvo(); return; }
   if (RT.live){ await startGeminiLive(); return; }
-  // Prefer ElevenLabs server-side STT when configured. Browser STT is unreliable
-  // across Chrome profiles and often fails silently; ElevenLabs receives the
-  // actual microphone recording from MediaRecorder and is much more consistent.
+  // Record and transcribe on the server (ElevenLabs or local Whisper).
+  // Browser speech recognition depends on the device's speech service.
   if (RT.stt){
     try {
       micStream = await navigator.mediaDevices.getUserMedia(
@@ -1199,7 +1237,7 @@ async function micToggle(){
     vdata = new Uint8Array(analyser.fftSize);
     convo = true; suppress = false;
     $('#mic').classList.add('on'); $('#mic').textContent = 'Listening';
-    log('voice','VOICE','ElevenLabs voice conversation open · listening');
+    log('voice','VOICE','server voice transcription open · listening');
     beginTurn();
     return;
   }
@@ -1218,6 +1256,8 @@ function stopConvo(manual=true){
   if (manual){ voiceWanted = false; sessionStorage.removeItem('jarvis-voice-resume'); }
   convo = false; suppress = false;
   liveReady = false; liveSpeaking = false;
+  liveConnecting=false;
+  if (liveConnectTimer){ clearTimeout(liveConnectTimer); liveConnectTimer=null; }
   liveBridge?.close(); liveBridge=null; liveAnswerStarted=false;
   stopLivePlayback();
   if (liveProcessor){ try{liveProcessor.disconnect();}catch(_){} liveProcessor=null; }
@@ -1360,7 +1400,7 @@ async function ship(){
       if (convo) beginTurn(); else setState('','STANDBY','nothing heard');
       return;
     }
-    log('voice','VOICE',`transcribed by ElevenLabs in ${ms}ms: "${text}"`);
+    log('voice','VOICE',`transcribed on server in ${ms}ms: "${text}"`);
     const armed = $('#input').dataset.cmd || '';
     const full = (armed ? armed + ' ' : '') + text;
     $('#input').value = ''; disarm();
@@ -1567,8 +1607,8 @@ if ('serviceWorker' in navigator){
 // ══════════ boot and non-blocking status refresh ══════════
 let bootLogged = false;
 function renderStatus(s){
-  RT.tts = s.tts !== 'browser'; RT.stt = s.stt === 'elevenlabs';
-  RT.live = !!s.live_voice; RT.liveModel = s.live_model || '';
+  RT.tts = s.tts !== 'browser' && !ttsFailed; RT.stt = s.stt === 'elevenlabs' || s.stt === 'local';
+  RT.live = !!s.live_voice && Date.now() >= liveFailedUntil; RT.liveModel = s.live_model || '';
   RT.browserStt = !!SpeechRecognition; RT.browserTts = !!speechSynth;
   const hermesReady = !!s.hermes_connected;
   const hermesChecking = !!s.hermes_pending;
@@ -1576,7 +1616,7 @@ function renderStatus(s){
   const providerName = s.provider === 'gemini' ? 'Gemini' : (s.provider || 'profile model');
   const brain = s.runtime === 'hermes' ? `Hermes · ${providerName}` : 'Core offline';
   const ttsLabel = s.tts === 'gemini' ? 'Gemini TTS' : (RT.tts ? 'ElevenLabs TTS' : 'Browser TTS');
-  const sttLabel = RT.live ? 'Gemini Live' : (RT.stt ? 'ElevenLabs STT' : (RT.browserStt ? 'Browser STT' : 'Text only'));
+  const sttLabel = RT.live ? 'Gemini Live' : (s.stt === 'local' ? 'Local STT' : (RT.stt ? 'ElevenLabs STT' : (RT.browserStt ? 'Browser STT' : 'Text only')));
   sys('gw', 'Online', 'ok');
   sys('hermes', hermesLabel, hermesReady ? 'ok' : (hermesChecking ? '' : 'warn'));
   const hasActiveOperation = renderActiveOperation(s.active_operation, 'status');

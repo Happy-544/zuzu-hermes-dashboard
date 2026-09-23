@@ -5,6 +5,8 @@ param(
 $ErrorActionPreference = 'Continue'
 $project = Split-Path -Parent $MyInvocation.MyCommand.Path
 $python = Join-Path $env:LOCALAPPDATA 'hermes\hermes-agent\venv\Scripts\python.exe'
+$localPython = Join-Path $project '.venv\Scripts\python.exe'
+if (Test-Path -LiteralPath $localPython) { $python = $localPython }
 $server = Join-Path $project 'server.py'
 $log = Join-Path $project 'zuzu-service.log'
 

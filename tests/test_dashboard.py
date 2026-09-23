@@ -8,6 +8,7 @@ from unittest import mock
 import commands
 import runtime
 import server
+import voice
 import workspace
 
 
@@ -95,6 +96,16 @@ class RuntimeTests(unittest.TestCase):
     def test_gemini_fallback_does_not_switch_to_36(self):
         self.assertEqual(runtime.GEMINI_MODEL, "gemini-2.5-flash")
         self.assertEqual(runtime.GEMINI_FALLBACK_MODEL, "gemini-2.5-flash")
+
+    def test_local_voice_uses_hermes_chat_and_local_transcription(self):
+        with mock.patch.dict(os.environ, {"JARVIS_VOICE_MODE": "local", "ELEVENLABS_API_KEY": ""}), \
+             mock.patch.object(voice, "local_stt_available", return_value=True), \
+             mock.patch.object(voice, "_transcribe_local", return_value="افتح الملف") as local:
+            self.assertFalse(voice.live_available())
+            self.assertEqual(voice.stt_provider(), "local")
+            self.assertEqual(voice.tts_provider(), "browser")
+            self.assertEqual(voice.transcribe(b"recorded audio", "audio/webm"), "افتح الملف")
+        local.assert_called_once_with(b"recorded audio", "audio/webm")
 
     def test_public_tunnel_hosts_are_allowed(self):
         self.assertTrue(server._host_allowed("locate-weekends-think-rec.trycloudflare.com"))
@@ -209,8 +220,8 @@ class InterfaceTests(unittest.TestCase):
         self.assertIn("is waiting for task details", js)
         self.assertIn('id="top-hermes"', html)
         self.assertIn('id="sy-hermes"', html)
-        self.assertIn("app.js?v=32", html)
-        self.assertIn("zuzu-shell-v32", worker)
+        self.assertIn("app.js?v=34", html)
+        self.assertIn("zuzu-shell-v34", worker)
         self.assertIn("fetch(event.request).then", worker)
 
     def test_job_polling_is_visibility_aware_and_quota_friendly(self):

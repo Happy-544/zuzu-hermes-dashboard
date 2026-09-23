@@ -14,6 +14,9 @@ import urllib.request
 import base64
 import wave
 import datetime
+import importlib.util
+import tempfile
+import threading
 from io import BytesIO
 
 from runtime import gemini_api_key
@@ -26,6 +29,9 @@ GEMINI_TTS_VOICE = os.environ.get("GEMINI_TTS_VOICE", "Kore")
 GEMINI_LIVE_MODEL = os.environ.get(
     "GEMINI_LIVE_MODEL", "gemini-2.5-flash-native-audio-preview-12-2025"
 ).strip()
+LOCAL_STT_MODEL = os.environ.get("JARVIS_STT_MODEL", "base").strip() or "base"
+_local_stt_model = None
+_local_stt_lock = threading.Lock()
 
 
 def available():
@@ -33,6 +39,8 @@ def available():
 
 
 def tts_provider():
+    if os.environ.get("JARVIS_VOICE_MODE", "auto").lower() == "local":
+        return "elevenlabs" if os.environ.get("ELEVENLABS_API_KEY") else "browser"
     if gemini_api_key():
         return "gemini"
     if os.environ.get("ELEVENLABS_API_KEY"):
@@ -48,8 +56,18 @@ def stt_available():
     return bool(os.environ.get("ELEVENLABS_API_KEY"))
 
 
+def local_stt_available():
+    return importlib.util.find_spec("faster_whisper") is not None
+
+
+def stt_provider():
+    if stt_available():
+        return "elevenlabs"
+    return "local" if local_stt_available() else "browser"
+
+
 def live_available():
-    return bool(gemini_api_key() and GEMINI_LIVE_MODEL)
+    return os.environ.get("JARVIS_VOICE_MODE", "auto").lower() != "local" and bool(gemini_api_key() and GEMINI_LIVE_MODEL)
 
 
 def create_live_token():
@@ -160,16 +178,13 @@ def speak(text):
 
 
 def transcribe(audio, mime="audio/webm"):
-    """Speech to text via ElevenLabs Scribe. Returns the transcript, or raises.
-
-    Used instead of the browser's Web Speech API because that one only exists in
-    Chrome and is a silently-failing stub in Brave — and because it ships your
-    audio to Google. This keeps listening on the same provider as speaking.
-    """
-    if not stt_available():
-        raise RuntimeError("no ELEVENLABS_API_KEY")
+    """Transcribe with ElevenLabs when configured, otherwise local Whisper."""
     if not audio:
         raise ValueError("empty audio")
+    if not stt_available():
+        if not local_stt_available():
+            raise RuntimeError("no speech transcription provider configured")
+        return _transcribe_local(audio, mime)
 
     ext = {"audio/webm": "webm", "audio/ogg": "ogg", "audio/mp4": "mp4",
            "audio/mpeg": "mp3", "audio/wav": "wav"}.get(mime.split(";")[0], "webm")
@@ -196,6 +211,26 @@ def transcribe(audio, mime="audio/webm"):
     )
     with urllib.request.urlopen(req, timeout=45) as r:
         return (json.loads(r.read()).get("text") or "").strip()
+
+
+def _transcribe_local(audio, mime):
+    """Use a local multilingual Whisper model when the paid voice provider is unavailable."""
+    global _local_stt_model
+    from faster_whisper import WhisperModel
+
+    ext = {"audio/webm": ".webm", "audio/ogg": ".ogg", "audio/mp4": ".mp4",
+           "audio/mpeg": ".mp3", "audio/wav": ".wav"}.get(mime.split(";")[0], ".webm")
+    with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as recorded:
+        recorded.write(audio)
+        path = recorded.name
+    try:
+        with _local_stt_lock:
+            if _local_stt_model is None:
+                _local_stt_model = WhisperModel(LOCAL_STT_MODEL, device="cpu", compute_type="int8")
+            segments, _ = _local_stt_model.transcribe(path, beam_size=1, vad_filter=True)
+            return " ".join(segment.text.strip() for segment in segments).strip()
+    finally:
+        os.unlink(path)
 
 
 def voices():

@@ -36,6 +36,11 @@ fi
 
 chmod +x start.sh install.sh
 
+if [ ! -x .venv/bin/python ]; then
+  python3 -m venv .venv
+fi
+.venv/bin/python -m pip install --disable-pip-version-check -q faster-whisper
+
 printf '\nZuzu is ready. Launching with the configured Hermes profile.\n'
 printf "Dashboard: http://127.0.0.1:${JARVIS_PORT:-8730}\n\n"
 exec ./start.sh

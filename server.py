@@ -338,7 +338,7 @@ class Handler(BaseHTTPRequestHandler):
                 browser_tts=True,
                 voice_mode=os.environ.get("JARVIS_VOICE_MODE", voice.tts_provider()),
                 voice_id=voice.voice_id() if voice.tts_available() else "browser",
-                stt="elevenlabs" if voice.stt_available() else "browser",
+                stt=voice.stt_provider(),
                 tts=voice.tts_provider(),
                 live_voice=voice.live_available(),
                 live_model=voice.GEMINI_LIVE_MODEL if voice.live_available() else "",
