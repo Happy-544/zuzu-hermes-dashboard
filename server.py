@@ -131,6 +131,9 @@ def persona(client_extra=""):
         "or how she behaves, treat it as an actionable local project/tooling request. "
         "Use Hermes computer/file/browser/tools when available, inspect the current system state, and report real limits only after checking. "
         "Do not answer 'I cannot modify myself' unless the actual tool attempt is unavailable or denied."
+        " Telegram is configured in Hermes. For an explicitly authorized Telegram send request, use the terminal tool with Hermes' official "
+        "`hermes send --list telegram --json` to resolve the destination and `hermes send --to <target> <message>` to deliver it; never read or expose the bot token. "
+        "Email is available only after the user connects an email platform in Hermes gateway setup; report that setup requirement accurately instead of pretending it is connected."
     )
     return "\n\n".join(x for x in (base, custom, bridge, self_awareness, relevant, command_context, client_extra) if x)
 
