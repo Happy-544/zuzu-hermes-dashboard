@@ -1,6 +1,7 @@
 """Zuzu's local, authenticated Hermes gateway transport."""
 import json
 import os
+import secrets
 import time
 import urllib.error
 import urllib.parse
@@ -66,7 +67,12 @@ def messages(session_id):
 
 
 def create_session(title, system):
-    with _request("/api/sessions", {"title": title[:100], "source": "api_server",
+    # Hermes requires globally unique titles, while UI chat names such as
+    # "General" are intentionally reusable. A disconnected first turn can
+    # also leave a valid Hermes session before Zuzu has persisted its ID.
+    base = (str(title or "Zuzu chat").strip() or "Zuzu chat")[:80]
+    internal_title = f"{base} · {int(time.time())}-{secrets.token_hex(3)}"
+    with _request("/api/sessions", {"title": internal_title, "source": "api_server",
                                     "system_prompt": system}, timeout=10) as response:
         item = json.load(response)
     session = item.get("session") or item
@@ -133,6 +139,12 @@ def run_hermes(message, session_id=None, system=None, *, title="Zuzu chat", prov
         else:
             yield {"t": "error", "message": failure if terminal in {"run.failed", "run.cancelled"} else "Hermes ended without completing the turn"}
     except urllib.error.HTTPError as exc:
-        yield {"t": "error", "message": f"Hermes API HTTP {exc.code}"}
+        detail = ""
+        try:
+            payload = json.loads(exc.read())
+            detail = str((payload.get("error") or {}).get("message") or "")[:180]
+        except (ValueError, OSError, AttributeError):
+            pass
+        yield {"t": "error", "message": detail or f"Hermes API HTTP {exc.code}"}
     except (OSError, ValueError, RuntimeError) as exc:
         yield {"t": "error", "message": f"Hermes API disconnected: {type(exc).__name__}"}

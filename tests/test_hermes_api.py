@@ -7,7 +7,35 @@ from unittest import mock
 import hermes_api
 
 
+class _Response:
+    def __init__(self, body):
+        self.body = body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        return False
+
+    def read(self):
+        return json.dumps(self.body).encode()
+
+
 class HermesApiTests(unittest.TestCase):
+    def test_reused_ui_title_gets_unique_internal_hermes_titles(self):
+        seen = []
+
+        def request(_path, body=None, **_kwargs):
+            seen.append(body["title"])
+            return _Response({"session": {"id": f"api_{len(seen):08d}"}})
+
+        with mock.patch.object(hermes_api, "_request", side_effect=request), \
+             mock.patch.object(hermes_api.time, "time", return_value=1234), \
+             mock.patch.object(hermes_api.secrets, "token_hex", side_effect=["abc123", "def456"]):
+            hermes_api.create_session("General", "persona")
+            hermes_api.create_session("General", "persona")
+        self.assertEqual(seen, ["General · 1234-abc123", "General · 1234-def456"])
+
     def test_sse_maps_deltas_tools_and_completion(self):
         frames = [
             ("assistant.delta", {"delta": "Hello"}),
