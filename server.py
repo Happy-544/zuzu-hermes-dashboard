@@ -138,6 +138,20 @@ def persona(client_extra=""):
     return "\n\n".join(x for x in (base, custom, bridge, self_awareness, relevant, command_context, client_extra) if x)
 
 
+def live_voice_persona(client_extra=""):
+    """A compact native-audio prompt: preserve character and route only real work."""
+    settings = workspace.load().get("settings", {})
+    custom = str(settings.get("persona") or "Warm, concise, capable and naturally conversational.").strip()[:1600]
+    memory = workspace.agent_context(limit=900)
+    routing = (
+        "You are Zuzu in a realtime voice conversation. The user's saved persona above is authoritative: keep its tone, warmth, language and relationship style in every direct reply. "
+        "For greetings, casual conversation, opinions, emotional support, jokes, and questions you can answer reliably without current or private data, answer immediately yourself in one or two natural spoken sentences. "
+        "Call hermes_action exactly once when the user asks you to DO something or needs current/private/system information: Telegram or email, accounts, computer or iPhone actions, browser/search, files, apps, tools, memory changes, reminders, projects, connected services, or Zuzu configuration. "
+        "If you are unsure whether a real action or connected data is required, call Hermes. Never claim you cannot do an action before Hermes returns. Never invent success. Speak the returned result naturally in your persona."
+    )
+    return "\n\n".join(x for x in (custom, routing, memory, client_extra) if x)
+
+
 def _fetch_text(url, timeout=10):
     req = urllib.request.Request(url, headers={
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
@@ -517,21 +531,10 @@ class Handler(BaseHTTPRequestHandler):
                 payload = json.loads(raw or b"{}")
                 client_extra = "\n\n".join(x for x in ((payload.get("system") or "").strip(), _client_context_prompt(payload.get("client_context"))) if x)
                 live_auth = voice.create_live_token()
-                # Live voice is a separate model session, so give it the same
-                # saved persona, memory, skills and profile context as text chat.
-                live_auth["system"] = persona(client_extra)
-                live_auth["system"] += (
-                    "\nVoice role: You are Zuzu, the single spoken interface for the user. "
-                    "Speak naturally in the user's language, defaulting to Egyptian Arabic. "
-                    "For EVERY complete user turn, including casual questions, call hermes_action exactly once with the user's exact words and relevant conversational context. "
-                    "Hermes is the only brain and owns the conversation, memory, Telegram, email/connections, Windows computer, browser, files, tools, skills, reminders, and all actions. "
-                    "You are only its realtime voice transport: never answer from your own knowledge, never refuse before Hermes answers, and never claim a capability is missing yourself. "
-                    "Wait for the tool result before reporting completion; never invent success. "
-                    "Speak the Hermes result naturally and faithfully. Report any real configuration failure exactly."
-                )
+                live_auth["system"] = live_voice_persona(client_extra)
                 live_auth["tools"] = [{"functionDeclarations": [{
                     "name": "hermes_action",
-                    "description": "MANDATORY for every user turn. Send the exact user request to the one local Hermes agent, which owns conversation, Telegram, email/connections, computer control, browser, files, memory and all configured tools. Return the actual result for Zuzu to speak.",
+                    "description": "Use for every request requiring an action, tool, current/private data or connected service. Send the exact request to local Hermes, which owns Telegram, email/connections, computer control, browser, files, memory and tools. Do not use for ordinary casual conversation.",
                     "parameters": {"type": "OBJECT", "properties": {
                         "request": {"type": "STRING", "description": "The full user request, preserving language and constraints."}
                     }, "required": ["request"]}
