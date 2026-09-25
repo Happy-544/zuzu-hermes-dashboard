@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Zuzu · Sign in</title>
+<style>
+body{margin:0;min-height:100vh;display:grid;place-items:center;background:#071018;color:#f4e2be;font:16px system-ui,sans-serif}
+main{width:min(92vw,420px);padding:2rem;border:1px solid #885522;border-radius:22px;background:#101b23;box-sizing:border-box}
+h1{margin-top:0;color:#ffad40}p{line-height:1.5;color:#c8c6c0}label{display:block;margin:1rem 0}
+input,button{box-sizing:border-box;width:100%;font:inherit;padding:.85rem;border-radius:10px}
+input{background:#061016;color:white;border:1px solid #61717b}button{background:#ffad40;color:#211406;border:0;font-weight:700;cursor:pointer}
+#error{color:#ff8b84;min-height:1.5em}
+</style>
+<main><h1>Zuzu</h1><p id="intro">Checking access…</p><form id="form"><label>Owner password<input id="password" type="password" required minlength="12" autocomplete="current-password"></label><button id="submit">Sign in</button></form><p id="error" role="alert"></p></main>
+<script>
+const form=document.querySelector('#form'), intro=document.querySelector('#intro'), error=document.querySelector('#error');
+let enroll=false;
+fetch('/api/auth-status',{cache:'no-store'}).then(r=>r.json()).then(s=>{
+  if(s.authenticated){location.replace('/');return;}
+  enroll=!s.configured;
+  if(enroll && !['127.0.0.1','localhost'].includes(location.hostname)){
+    intro.textContent='The owner must set a password on the laptop at its local Zuzu address before this public link can be used.';
+    form.hidden=true;
+  }else{
+    intro.textContent=enroll?'First-time setup: choose an owner password on this laptop. Use at least 12 characters.':'Sign in to your Zuzu dashboard.';
+    document.querySelector('#submit').textContent=enroll?'Create owner login':'Sign in';
+  }
+}).catch(()=>{intro.textContent='Zuzu server is unavailable.';form.hidden=true;});
+form.onsubmit=async e=>{
+  e.preventDefault();error.textContent='';
+  const r=await fetch(enroll?'/api/enroll':'/api/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({password:document.querySelector('#password').value})});
+  const data=await r.json().catch(()=>({}));
+  if(r.ok) location.replace('/'); else error.textContent=data.error||'Sign in failed';
+};
+</script></html>

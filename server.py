@@ -36,6 +36,11 @@ if _env.exists():
             os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
 
 import commands         # noqa: E402
+import auth             # noqa: E402
+import hermes_api       # noqa: E402
+import phone_calls      # noqa: E402
+import catalog          # noqa: E402
+import vapi_proxy       # noqa: E402
 import runtime          # noqa: E402
 import voice            # noqa: E402
 import workspace        # noqa: E402
@@ -47,7 +52,6 @@ if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 PORT = int(os.environ.get("JARVIS_PORT", "8730"))
-API_TOKEN = secrets.token_urlsafe(32)
 RUN_LOCK = threading.Lock()
 MAX_JSON_BODY = 1024 * 1024
 MAX_AUDIO_BODY = 12 * 1024 * 1024
@@ -67,8 +71,7 @@ def _host_allowed(host):
         parsed = urlparse(public_origin)
         if parsed.netloc and host == parsed.netloc.lower():
             return True
-    bare = host.split(":", 1)[0]
-    return bare.endswith(".trycloudflare.com") or bare.endswith(".ngrok-free.dev")
+    return False
 
 
 def _origin_allowed(origin):
@@ -80,9 +83,7 @@ def _origin_allowed(origin):
     public_origin = _configured_public_origin()
     if public_origin and origin == public_origin:
         return True
-    parsed = urlparse(origin)
-    host = parsed.netloc.lower()
-    return parsed.scheme in {"https", "http"} and (host.endswith(".trycloudflare.com") or host.endswith(".ngrok-free.dev"))
+    return False
 
 # The Zuzu persona, appended to every run. Without it, the model answers as a
 # coding agent and narrates its own tooling — which is not what you want spoken
@@ -209,10 +210,6 @@ def capture_laptop_screen_jpeg():
         return output.getvalue()
     except Exception as exc:  # noqa: BLE001
         raise RuntimeError(f"Laptop screen capture failed: {exc}") from exc
-# One continuing Hermes conversation until the user hits /new.
-SESSION = {"id": None}
-
-
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
@@ -221,13 +218,15 @@ class Handler(BaseHTTPRequestHandler):
             sys.stderr.write("  " + (fmt % args) + "\n")
 
     # ── helpers ──────────────────────────────────────────────
-    def _json(self, body, code=200):
+    def _json(self, body, code=200, headers=None):
         data = json.dumps(body).encode()
         try:
             self.send_response(code)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(data)))
             self.send_header("Cache-Control", "no-store")
+            for name, value in (headers or {}).items():
+                self.send_header(name, value)
             self.end_headers()
             self.wfile.write(data)
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
@@ -261,14 +260,41 @@ class Handler(BaseHTTPRequestHandler):
         return _origin_allowed(origin)
 
     def _token_ok(self):
-        supplied = self.headers.get("X-Jarvis-Token", "")
-        return bool(supplied) and secrets.compare_digest(supplied, API_TOKEN)
+        return auth.session(self.headers.get("Cookie")) is not None
+
+    def _csrf_ok(self):
+        active = auth.session(self.headers.get("Cookie"))
+        supplied = self.headers.get("X-Zuzu-CSRF", "")
+        return bool(active and supplied) and secrets.compare_digest(supplied, active["csrf"])
+
+    def _local_request(self):
+        # A public tunnel also connects to the server from 127.0.0.1. Reject
+        # forwarded requests even if a remote client spoofs a localhost Host.
+        forwarded = any(self.headers.get(name) for name in
+                        ("Forwarded", "X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto", "X-Original-Host"))
+        return (not forwarded and self.client_address[0] in {"127.0.0.1", "::1"}
+                and self.headers.get("Host", "").split(":")[0] in {"127.0.0.1", "localhost"})
+
+    def _login_cookie(self, sid):
+        secure = "" if self._local_request() else "; Secure"
+        return f"zuzu_session={sid}; HttpOnly; SameSite=Strict; Path=/; Max-Age={auth.SESSION_SECONDS}{secure}"
 
     # ── GET ──────────────────────────────────────────────────
     def do_GET(self):
         if not self._host_ok():
             return self._json({"error": "invalid host"}, 403)
         p = urlparse(self.path).path
+        if p == "/login.html":
+            return self._bytes((UI / "login.html").read_bytes(), "text/html; charset=utf-8", headers={
+                "Content-Security-Policy": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; form-action 'none'; frame-ancestors 'none'",
+                "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer"})
+        if p == "/api/auth-status":
+            return self._json({"configured": auth.configured(), "authenticated": self._token_ok(),
+                               "setup_local_only": True})
+        if not self._token_ok():
+            if p.startswith("/api/"):
+                return self._json({"error": "login required"}, 401)
+            return self._bytes(b"", "text/plain", 302, {"Location": "/login.html"})
         if p == "/connect-ngrok.html":
             if not ngrok_setup.STORE.active():
                 return self._bytes(b"Setup is expired or already completed. Return to your chat.", "text/plain", 410)
@@ -319,7 +345,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"error": str(e)[:240]}, 503)
 
         if p == "/api/status":
-            hermes_health = runtime.hermes_health_snapshot()
+            hermes_health = hermes_api.health() if hermes_api.configured() else runtime.hermes_health_snapshot()
             runtime_name = "hermes" if hermes_health["connected"] else "mock"
             return self._json(dict(
                 runtime=runtime_name,
@@ -332,8 +358,9 @@ class Handler(BaseHTTPRequestHandler):
                 source=runtime.SOURCE,
                 workdir=runtime.WORKDIR,
                 model=runtime.active_model(),
-                tools=runtime.hermes_tools_snapshot(),
-                tools_pending=runtime.hermes_tools_pending(),
+                transport="api" if hermes_api.configured() else "cli",
+                tools=hermes_api.toolsets() if hermes_api.configured() and hermes_health["connected"] else runtime.hermes_tools_snapshot(),
+                tools_pending=False if hermes_api.configured() else runtime.hermes_tools_pending(),
                 browser_stt=True,
                 browser_tts=True,
                 voice_mode=os.environ.get("JARVIS_VOICE_MODE", voice.tts_provider()),
@@ -343,7 +370,7 @@ class Handler(BaseHTTPRequestHandler):
                 live_voice=voice.live_available(),
                 live_model=voice.GEMINI_LIVE_MODEL if voice.live_available() else "",
                 active_operation=runtime.active_operation_snapshot(),
-                session=SESSION["id"]))
+                session=workspace.selected_hermes_session()[2]))
         if p == "/api/jobs":
             if not self._token_ok():
                 return self._json({"error": "unauthorized"}, 401)
@@ -356,6 +383,29 @@ class Handler(BaseHTTPRequestHandler):
             if not self._token_ok():
                 return self._json({"error": "unauthorized"}, 401)
             return self._json(workspace.public_state())
+        if p == "/api/history":
+            _, _, session_id = workspace.selected_hermes_session()
+            if not hermes_api.configured() or not session_id:
+                return self._json({"messages": []})
+            try:
+                return self._json({"messages": hermes_api.messages(session_id)})
+            except (OSError, ValueError, RuntimeError) as exc:
+                return self._json({"error": f"Hermes history unavailable: {type(exc).__name__}"}, 503)
+        if p == "/api/calls/status":
+            return self._json(phone_calls.readiness())
+        if p == "/api/calls/history":
+            try:
+                return self._json({"calls": phone_calls.history()})
+            except RuntimeError as exc:
+                return self._json({"error": str(exc)}, 503)
+        if p == "/api/catalog/search":
+            params = urllib.parse.parse_qs(urlparse(self.path).query)
+            try:
+                return self._json({"results": catalog.search(params.get("q", [""])[0], params.get("source", ["all"])[0])})
+            except ValueError as exc:
+                return self._json({"error": str(exc)}, 400)
+            except (RuntimeError, OSError) as exc:
+                return self._json({"error": str(exc)[:200]}, 503)
 
         rel = "index.html" if p == "/" else p.lstrip("/")
         f = (UI / rel).resolve()
@@ -364,20 +414,64 @@ class Handler(BaseHTTPRequestHandler):
         ctype = mimetypes.guess_type(f.name)[0] or "application/octet-stream"
         data = f.read_bytes()
         if rel == "index.html":
-            data = data.replace(b"__JARVIS_TOKEN__", API_TOKEN.encode())
+            data = data.replace(b"__ZUZU_CSRF__", auth.session(self.headers.get("Cookie"))["csrf"].encode())
         return self._bytes(data, ctype)
 
     # ── POST ─────────────────────────────────────────────────
     def do_POST(self):
         p = urlparse(self.path).path
+        if p == "/v1/chat/completions":
+            if not self._host_ok() or not vapi_proxy.authorized(self.headers.get("Authorization")):
+                return self._json({"error": "unauthorized"}, 401)
+            if self.headers.get("Content-Type", "").split(";", 1)[0].lower() != "application/json":
+                return self._json({"error": "JSON required"}, 415)
+            try:
+                payload = json.loads(self._read(MAX_JSON_BODY))
+                with vapi_proxy.upstream(payload) as upstream:
+                    self.send_response(upstream.status)
+                    self.send_header("Content-Type", upstream.headers.get("Content-Type", "application/json"))
+                    self.send_header("Cache-Control", "no-store")
+                    self.send_header("Connection", "close")
+                    self.end_headers()
+                    self.close_connection = True
+                    while chunk := upstream.read(8192):
+                        self.wfile.write(chunk)
+                        self.wfile.flush()
+                return
+            except ValueError as exc:
+                return self._json({"error": str(exc)[:160]}, 400)
+            except (RuntimeError, OSError, urllib.error.HTTPError) as exc:
+                return self._json({"error": f"Hermes phone profile unavailable: {type(exc).__name__}"}, 503)
         if not self._host_ok() or not self._origin_ok():
             return self._json({"error": "request origin rejected"}, 403)
+        if p in {"/api/login", "/api/enroll"}:
+            if p == "/api/enroll" and not self._local_request():
+                return self._json({"error": "owner setup is local only"}, 403)
+            if self.headers.get("Content-Type", "").split(";", 1)[0].lower() != "application/json":
+                return self._json({"error": "JSON required"}, 415)
+            try:
+                payload = json.loads(self._read(2048))
+                password = payload.get("password", "")
+                if p == "/api/enroll":
+                    auth.enroll(password)
+                result = auth.login(password)
+                if not result:
+                    return self._json({"error": "invalid password or temporarily rate limited"}, 401)
+                sid, csrf = result
+                return self._json({"ok": True, "csrf": csrf}, headers={"Set-Cookie": self._login_cookie(sid)})
+            except (ValueError, TypeError) as exc:
+                return self._json({"error": str(exc)[:120]}, 400)
         if p == "/api/setup/ngrok":
             return ngrok_setup.handle_post(self)
         if not self._token_ok():
             return self._json({"error": "unauthorized"}, 401)
+        if not self._csrf_ok():
+            return self._json({"error": "invalid CSRF token"}, 403)
+        if p == "/api/logout":
+            auth.logout(self.headers.get("Cookie"))
+            return self._json({"ok": True}, headers={"Set-Cookie": "zuzu_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0"})
         ctype = self.headers.get("Content-Type", "").split(";", 1)[0].lower()
-        if p in {"/api/run", "/api/speak", "/api/live-token", "/api/workspace", "/api/new", "/api/cancel"} and ctype != "application/json":
+        if p in {"/api/run", "/api/speak", "/api/live-token", "/api/workspace", "/api/new", "/api/cancel", "/api/calls/outbound", "/api/catalog/install"} and ctype != "application/json":
             return self._json({"error": "application/json required"}, 415)
         if p == "/api/listen" and not ctype.startswith("audio/"):
             return self._json({"error": "audio content type required"}, 415)
@@ -394,15 +488,36 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:                        # noqa: BLE001
                 return self._json({"error": str(e)[:200]}, 503)
 
+        if p == "/api/calls/outbound":
+            try:
+                payload = json.loads(raw or b"{}")
+                result = phone_calls.outbound(payload.get("number"), payload.get("confirmed"), payload.get("requestId"))
+                return self._json(result)
+            except ValueError as exc:
+                return self._json({"error": str(exc)}, 400)
+            except RuntimeError as exc:
+                return self._json({"error": str(exc)}, 503)
+
+        if p == "/api/catalog/install":
+            try:
+                payload = json.loads(raw or b"{}")
+                if payload.get("confirmed") is not True:
+                    return self._json({"error": "Confirm the skill installation"}, 400)
+                return self._json(catalog.install(payload.get("identifier"), payload.get("kind", "skill")))
+            except ValueError as exc:
+                return self._json({"error": str(exc)}, 400)
+            except (RuntimeError, OSError) as exc:
+                return self._json({"error": str(exc)[:400]}, 503)
+
         if p == "/api/live-token":
             try:
                 payload = json.loads(raw or b"{}")
                 client_extra = "\n\n".join(x for x in ((payload.get("system") or "").strip(), _client_context_prompt(payload.get("client_context"))) if x)
-                auth = voice.create_live_token()
+                live_auth = voice.create_live_token()
                 # Live voice is a separate model session, so give it the same
                 # saved persona, memory, skills and profile context as text chat.
-                auth["system"] = persona(client_extra)
-                auth["system"] += (
+                live_auth["system"] = persona(client_extra)
+                live_auth["system"] += (
                     "\nVoice role: You are Zuzu, the single spoken interface for the user. "
                     "Speak naturally in the user's language, defaulting to Egyptian Arabic. "
                     "For actions on the user's Windows computer, browser, files, tools, "
@@ -413,15 +528,15 @@ class Handler(BaseHTTPRequestHandler):
                     "Wait for the tool result before reporting completion; never invent success. "
                     "Report failures honestly. Casual conversation needs no tool call."
                 )
-                auth["tools"] = [{"functionDeclarations": [{
+                live_auth["tools"] = [{"functionDeclarations": [{
                     "name": "hermes_action",
                     "description": "Execute the user's request through local Hermes: Windows computer control, browser, files, memory and configured tools. Return the actual result.",
                     "parameters": {"type": "OBJECT", "properties": {
                         "request": {"type": "STRING", "description": "The full user request, preserving language and constraints."}
                     }, "required": ["request"]}
                 }]}]
-                auth["voice"] = workspace.load()["settings"].get("voice", voice.GEMINI_TTS_VOICE)
-                return self._json(auth)
+                live_auth["voice"] = workspace.load()["settings"].get("voice", voice.GEMINI_TTS_VOICE)
+                return self._json(live_auth)
             except Exception as e:                        # noqa: BLE001
                 return self._json({"error": str(e)[:200]}, 503)
 
@@ -455,12 +570,14 @@ class Handler(BaseHTTPRequestHandler):
 
         if p == "/api/new":
             runtime.cancel_active()
-            SESSION["id"] = None
+            project_id, ui_id, _ = workspace.selected_hermes_session()
+            workspace.bind_hermes_session(project_id, ui_id, None)
             return self._json({"ok": True})
 
         if p == "/api/cancel":
             stopped = runtime.cancel_active()
-            SESSION["id"] = None
+            project_id, ui_id, _ = workspace.selected_hermes_session()
+            workspace.bind_hermes_session(project_id, ui_id, None)
             return self._json({"ok": True, "stopped": stopped})
 
         if p == "/api/run":
@@ -489,8 +606,10 @@ class Handler(BaseHTTPRequestHandler):
         fresh = bool(payload.get("fresh"))
         if not message:
             return self._json({"error": "empty message"}, 400)
+        project_id, ui_id, hermes_id = workspace.ensure_selected_chat()
         if fresh:
-            SESSION["id"] = None
+            hermes_id = None
+            workspace.bind_hermes_session(project_id, ui_id, None)
 
         self.send_response(200)
         self.send_header("Content-Type", "application/x-ndjson")
@@ -505,12 +624,14 @@ class Handler(BaseHTTPRequestHandler):
         # ── the command matrix: /new /profile /goal /personality /kanban /mission /background /tools /status /browser
         cmd = commands.handle(
             message,
-            runner=lambda m: runtime.run_hermes(m, None, persona()))
+            runner=lambda m: (hermes_api.run_hermes(m, None, persona()) if hermes_api.configured()
+                              else runtime.run_hermes(m, None, persona())))
         if cmd:
             if cmd.get("note"):
                 emit(dict(t="note", message=cmd["note"]))
             if cmd.get("fresh"):
-                SESSION["id"] = None
+                hermes_id = None
+                workspace.bind_hermes_session(project_id, ui_id, None)
             if cmd.get("busy"):
                 emit(dict(t="delta", text=runtime.describe_active_operation()))
                 emit(dict(t="complete", ms=0))
@@ -527,17 +648,25 @@ class Handler(BaseHTTPRequestHandler):
             # One agent owns both conversation and actions. Hermes decides when
             # tools are needed, so natural PC commands cannot land in a second
             # model that has no computer access.
-            runner = runtime.run_hermes
-            for ev in runner(message, SESSION["id"], system):
+            selected = next((s for p in workspace.load().get("projects", []) if p.get("id") == project_id
+                             for s in p.get("sessions", []) if s.get("id") == ui_id), {})
+            if hermes_api.configured():
+                provider, model = runtime.hermes_backend_override()
+                runner = hermes_api.run_hermes(message, hermes_id, system,
+                                               title=selected.get("name", "Zuzu chat"),
+                                               provider=provider, model=model if provider else None)
+            else:
+                runner = runtime.run_hermes(message, hermes_id, system)
+            for ev in runner:
                 # Only remember a real Hermes session, never demo/mock identifiers.
                 sid = ev.get("session_id")
                 # Only remember a session that actually COMPLETED. Storing it from
                 # `status` (which fires at init) means one broken run poisons every
                 # run after it with --resume <half-born session>.
                 if ev.get("t") == "complete" and runtime.valid_session(sid):
-                    SESSION["id"] = sid
+                    workspace.bind_hermes_session(project_id, ui_id, sid)
                 if ev.get("t") == "error":
-                    SESSION["id"] = None       # drop a bad/stale session so the next run is fresh
+                    workspace.bind_hermes_session(project_id, ui_id, None)
                 emit(ev)
         except (BrokenPipeError, ConnectionResetError):
             pass                                          # client navigated away

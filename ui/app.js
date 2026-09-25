@@ -6,8 +6,8 @@ const $ = s => document.querySelector(s);
 const RT = {tts:false, stt:false, live:false, liveModel:'', browserStt:false, browserTts:false};
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 const speechSynth = window.speechSynthesis;
-const API_TOKEN = document.querySelector('meta[name="jarvis-token"]')?.content || '';
-const apiHeaders = extra => ({'x-jarvis-token': API_TOKEN, ...(extra || {})});
+const CSRF_TOKEN = document.querySelector('meta[name="zuzu-csrf"]')?.content || '';
+const apiHeaders = extra => ({'x-zuzu-csrf': CSRF_TOKEN, ...(extra || {})});
 
 // ── reactor ticks ──
 (() => {
@@ -27,10 +27,10 @@ const apiHeaders = extra => ({'x-jarvis-token': API_TOKEN, ...(extra || {})});
 const now = () => new Date().toLocaleTimeString('en-GB', {hour12:false});
 const rid = () => 'run_' + (crypto.randomUUID ? crypto.randomUUID().replace(/-/g,'').slice(0,24)
                                               : Math.random().toString(16).slice(2,14));
-const esc = s => String(s ?? '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 // ── workspace navigation ──
-const VIEW_NAMES = new Set(['chat','projects','models','tools','memory','studio','missions','activity','settings']);
+const VIEW_NAMES = new Set(['chat','projects','models','tools','memory','studio','missions','activity','calls','settings']);
 function showView(name, remember = true){
   if (!VIEW_NAMES.has(name)) name = 'chat';
   document.querySelectorAll('[data-view-panel]').forEach(panel => {
@@ -108,7 +108,8 @@ function renderWorkspace(){
   $('#shortcutName').value=settings.shortcutName||'Zuzu Control';
   $('#liveModel').value=settings.liveModel||''; $('#voiceSelect').value=settings.voice||'Kore';
   $('#skillList').innerHTML=(WS.skills||[]).map(s=>`<div class="list-card"><div><b>${esc(s.name)}</b><small>${esc(s.instructions.slice(0,120))}</small></div><button class="danger-link" data-delete-skill="${esc(s.id)}">Delete</button></div>`).join('')||'<div class="empty-state">No custom skills yet.</div>';
-  $('#memoryList').innerHTML=(WS.memory||[]).map(m=>`<div class="list-card"><div><b>${esc(m.label)}</b><small>${esc(m.value.slice(0,160))}</small></div><button class="danger-link" data-delete-memory="${esc(m.id)}">Delete</button></div>`).join('')||'<div class="empty-state">Add a fact, preference or relationship.</div>';
+  $('#memoryList').innerHTML=(WS.memory||[]).map(m=>`<div class="list-card"><div><b>${esc(m.label)}</b><small>${esc(m.value.slice(0,160))}</small></div><button class="secondary-btn" data-edit-memory="${esc(m.id)}">Edit</button><button class="danger-link" data-delete-memory="${esc(m.id)}">Delete</button></div>`).join('')||'<div class="empty-state">Add a fact, preference or relationship.</div>';
+  $('#hermesMemoryList').innerHTML=(WS.hermesMemory||[]).map(m=>`<details class="list-card"><summary>${esc(m.source)}</summary><pre>${esc(m.content)}</pre></details>`).join('')||'<div class="empty-state">Hermes has no curated memory files yet.</div>';
   $('#uploadList').innerHTML=(WS.uploads||[]).map(f=>`<div class="list-card"><div><b>${esc(f.name)}</b><small>${Math.max(1,Math.round(f.size/1024))} KB</small></div></div>`).join('')||'<div class="empty-state">No files uploaded.</div>';
   renderCapabilityCatalogue();
   drawMemoryBrain();
@@ -129,9 +130,9 @@ const addProject=()=>openEditor('New project',[{name:'name',label:'Project name'
 $('#addProject').onclick=addProject; $('#quickProject').onclick=()=>{showView('projects');addProject();};
 $('#addSession').onclick=()=>openEditor('New chat',[{name:'name',label:'Chat name'}],v=>workspaceRequest({action:'add_session',projectId:WS.selectedProject,...v}));
 $('#addSkill').onclick=()=>openEditor('Create skill',[{name:'name',label:'Skill name'},{name:'instructions',label:'Instructions',long:true}],v=>workspaceRequest({action:'add_skill',...v}));
-$('#searchAllCapabilities')?.addEventListener('click',()=>askSkillSearch('all catalogues'));
-$('#searchGithubSkills')?.addEventListener('click',()=>askSkillSearch('GitHub'));
-$('#searchHuggingFaceSkills')?.addEventListener('click',()=>askSkillSearch('Hugging Face'));
+$('#searchAllCapabilities')?.addEventListener('click',()=>searchHermesCatalogue('all'));
+$('#searchGithubSkills')?.addEventListener('click',()=>searchHermesCatalogue('github'));
+$('#searchHuggingFaceSkills')?.addEventListener('click',()=>searchHermesCatalogue('huggingface'));
 $('#skillSearch')?.addEventListener('input',()=>renderCapabilityCatalogue());
 $('#catalogueTabs')?.addEventListener('click',e=>{
   const b=e.target.closest('[data-catalogue-filter]'); if(!b) return;
@@ -160,6 +161,16 @@ function askSkillSearch(source){
   showView('chat');
   transmit(`Search ${source} for Hermes/Zuzu compatible capabilities about: ${q}. Include skills, plugins, MCP servers, tools, models, Hugging Face Spaces/models, GitHub projects, and Hermes catalogue options. Return a catalogue with source links, install requirements, risks, and how to add the chosen one to Zuzu. Do not install anything yet.`,{speak:false});
 }
+async function searchHermesCatalogue(source){
+  const q=($('#skillSearch')?.value||'').trim();
+  if(q.length<2){ log('error','SKILLS','enter at least 2 characters'); $('#skillSearch')?.focus(); return; }
+  const grid=$('#catalogueGrid'); grid.innerHTML='<div class="empty-state">Searching Hermes skill registries…</div>';
+  try{
+    const r=await fetch(`/api/catalog/search?q=${encodeURIComponent(q)}&source=${encodeURIComponent(source)}`,{headers:apiHeaders()});
+    const data=await r.json(); if(!r.ok) throw new Error(data.error||`HTTP ${r.status}`);
+    grid.innerHTML=(data.results||[]).map(item=>`<article class="catalogue-card"><div><span>${esc(item.kind||'skill')} · ${esc(item.source||'Hermes')}</span><b>${esc(item.name)}</b><small>${esc(item.identifier)} · ${esc(item.trust_level)}</small><p>${esc(item.description)}</p></div><div class="catalogue-actions"><button type="button" data-hermes-install="${esc(item.identifier)}" data-hermes-kind="${esc(item.kind||'skill')}">Install in Hermes</button></div></article>`).join('')||'<div class="empty-state">Hermes found no matching skills or plugins.</div>';
+  }catch(error){grid.innerHTML=`<div class="empty-state">${esc(error.message||error)}</div>`;}
+}
 function currentCatalogueFilter(){
   return document.querySelector('[data-catalogue-filter].active')?.dataset.catalogueFilter || 'all';
 }
@@ -179,6 +190,19 @@ async function addCatalogueSkill(item){
 }
 
 document.addEventListener('click',async e=>{
+  const install=e.target.closest('[data-hermes-install]');
+  if(install){
+    const identifier=install.dataset.hermesInstall, kind=install.dataset.hermesKind||'skill';
+    if(!confirm(`Install ${kind} ${identifier} into your Hermes profile? Plugins are installed disabled until you review and enable them in Hermes.`)) return;
+    install.disabled=true;
+    try{
+      const r=await fetch('/api/catalog/install',{method:'POST',headers:apiHeaders({'content-type':'application/json'}),body:JSON.stringify({identifier,kind,confirmed:true})});
+      const result=await r.json(); if(!r.ok) throw new Error(result.error||`HTTP ${r.status}`);
+      log('complete','HERMES SKILL',`${result.identifier} installed`);
+      install.textContent='Installed';
+    }catch(error){log('error','HERMES SKILL',String(error.message||error));install.disabled=false;}
+    return;
+  }
   const add=e.target.closest('[data-catalog-add]');
   if(add){
     try{ await addCatalogueSkill(CAPABILITY_CATALOG[Number(add.dataset.catalogAdd)]); }
@@ -192,10 +216,19 @@ document.addEventListener('click',async e=>{
     transmit(`${item.prompt || `Search ${item.source} for ${item.name}.`} Current catalogue query: ${($('#skillSearch')?.value||'').trim() || item.name}.`,{speak:false});
     return;
   }
-  const b=e.target.closest('[data-project],[data-session],[data-delete-project],[data-delete-session],[data-delete-skill],[data-delete-memory]'); if(!b||!WS)return;
+  const b=e.target.closest('[data-project],[data-session],[data-delete-project],[data-delete-session],[data-delete-skill],[data-delete-memory],[data-edit-memory]'); if(!b||!WS)return;
   try{
-    if(b.dataset.project) await workspaceRequest({action:'select_session',projectId:b.dataset.project,sessionId:''});
-    if(b.dataset.session) await workspaceRequest({action:'select_session',projectId:WS.selectedProject,sessionId:b.dataset.session});
+    if(b.dataset.editMemory){
+      const memory=(WS.memory||[]).find(m=>m.id===b.dataset.editMemory);
+      if(memory){
+        openEditor('Edit memory',[{name:'label',label:'Memory label'},{name:'value',label:'What Zuzu should remember',long:true}],v=>workspaceRequest({action:'edit_memory',id:memory.id,...v}));
+        editorFields.querySelector('[name="label"]').value=memory.label;
+        editorFields.querySelector('[name="value"]').value=memory.value;
+      }
+      return;
+    }
+    if(b.dataset.project){ await workspaceRequest({action:'select_session',projectId:b.dataset.project,sessionId:''}); await loadHistory(); }
+    if(b.dataset.session){ await workspaceRequest({action:'select_session',projectId:WS.selectedProject,sessionId:b.dataset.session}); await loadHistory(); }
     if(b.dataset.deleteProject) await workspaceRequest({action:'delete_project',id:b.dataset.deleteProject});
     if(b.dataset.deleteSession) await workspaceRequest({action:'delete_session',id:b.dataset.deleteSession});
     if(b.dataset.deleteSkill) await workspaceRequest({action:'delete_skill',id:b.dataset.deleteSkill});
@@ -203,6 +236,7 @@ document.addEventListener('click',async e=>{
   }catch(err){log('error','WORKSPACE',String(err.message||err));}
 });
 $('#saveSettings').onclick=async()=>{const s=WS.settings; await workspaceRequest({action:'save_settings',settings:{...s,profile:$('#profileName').value,workdir:$('#workdir').value,persona:$('#personaText').value,computerControl:$('#computerControl').checked,mobileControl:$('#mobileControl').checked,liveModel:$('#liveModel').value,voice:$('#voiceSelect').value,shortcutName:$('#shortcutName').value}}); log('complete','SETTINGS','agent settings saved'); refreshStatus();};
+$('#signOut').onclick=async()=>{await fetch('/api/logout',{method:'POST',headers:apiHeaders({'content-type':'application/json'}),body:'{}'}).catch(()=>{});location.replace('/login.html');};
 $('#useFolder').onclick=()=>{$('#workdir').focus(); $('#workdir').select();};
 $('#runShortcut').onclick=()=>{
   if (!WS?.settings?.mobileControl){ log('error','MOBILE','enable Mobile control and save settings first'); return; }
@@ -642,6 +676,7 @@ function memoryItems(){
     {type:'Profile',label:settings.profile||'Profile',value:`Workdir: ${settings.workdir||'default'}\nVoice: ${settings.voice||'default'}`,color:'#ffb02e'},
     ...(WS.projects||[]).map(x=>({type:'Projects',label:x.name,value:x.folder||'Project workspace',color:'#5ee7ff'})),
     ...(WS.memory||[]).map(x=>({type:'Memories',label:x.label,value:x.value,color:'#aa7cff'})),
+    ...(WS.hermesMemory||[]).flatMap(file=>file.content.split(/\r?\n/).filter(line=>/^#{1,3}\s+/.test(line)).slice(0,6).map(line=>({type:'Hermes memory',label:line.replace(/^#+\s*/,''),value:`${file.source}: ${line}`,color:'#ffb86b'}))),
     ...(WS.skills||[]).map(x=>({type:'Skills',label:x.name,value:x.instructions,color:'#55e6a5'}))
   ].slice(0,28);
 }
@@ -692,7 +727,16 @@ function brainNodeFromEvent(ev){
 $('#memoryCanvas')?.addEventListener('click',ev=>{ const idx=brainNodeFromEvent(ev); if(idx>=0) selectBrainNode(idx); });
 $('#brainPrev')?.addEventListener('click',()=>selectBrainNode(brainSelectedIndex-1));
 $('#brainNext')?.addEventListener('click',()=>selectBrainNode(brainSelectedIndex+1));
-async function loadWorkspace(){try{const r=await fetch('/api/workspace',{headers:apiHeaders()});WS=await r.json();renderWorkspace();}catch(e){log('error','WORKSPACE','could not load workspace');}}
+async function loadWorkspace(){try{const r=await fetch('/api/workspace',{headers:apiHeaders()});WS=await r.json();renderWorkspace();await loadHistory();}catch(e){log('error','WORKSPACE','could not load workspace');}}
+async function loadHistory(){
+  const box=$('#chatHistory'); if(!box)return;
+  try{
+    const r=await fetch('/api/history',{headers:apiHeaders(),cache:'no-store'});
+    const data=await r.json(); if(!r.ok) throw new Error(data.error||`HTTP ${r.status}`);
+    box.innerHTML=(data.messages||[]).map(m=>`<div class="history-message ${m.role==='user'?'user':'assistant'}"><b>${m.role==='user'?'You':'Zuzu'}</b>${esc(typeof m.content==='string'?m.content:'[media or tool content]')}</div>`).join('')||'<div class="empty-state">This chat has no Hermes messages yet.</div>';
+    box.scrollTop=box.scrollHeight;
+  }catch(error){box.innerHTML=`<div class="empty-state">${esc(error.message||error)}</div>`;}
+}
 window.addEventListener('resize',()=>{if(WS)drawMemoryBrain();});
 
 // ── reactor state ──
@@ -755,30 +799,41 @@ function maybeOpenRequestedBrowserPreview(message){
   return `Zuzu is opening a ${intent.mode === 'youtube' ? 'YouTube video/search' : 'browser search'} for the user inside the visual panel using this query: ${intent.query}. Use it as visible context and do not claim nothing opened unless the resolver reports an error.`;
 }
 
+let dispatchReserved = false;
 async function transmit(message, options = {}){
   if (!message.trim()) return;
-  await autoRemember(message);
-  pendingLiveAttachmentParts = [];
-  const previewNote = maybeOpenRequestedBrowserPreview(message);
-  message = await attachVisualContext(message);
-  message = attachUploadedContext(message);
-  if (previewNote) message = `${message}\n\n${previewNote}`;
+  // Claim the user action before memory, attachments or preview can await.
+  // Enter+click, voice+click, and re-entrant UI events then share one request.
+  if (dispatchReserved || running){
+    log('note','BUSY','Zuzu is already processing this submission.');
+    return;
+  }
+  dispatchReserved = true;
+  try {
+    await autoRemember(message);
+    pendingLiveAttachmentParts = [];
+    const previewNote = maybeOpenRequestedBrowserPreview(message);
+    message = await attachVisualContext(message);
+    message = attachUploadedContext(message);
+    if (previewNote) message = `${message}\n\n${previewNote}`;
+  } catch(error) {
+    dispatchReserved = false;
+    log('error','SEND',String(error.message||error));
+    return;
+  }
   // With Live connected, typed and spoken turns share the same voice session.
   // Tool requests return through hermes_action; no second TTS voice overlaps it.
   if (liveReady && liveWs?.readyState === WebSocket.OPEN && !message.trim().startsWith('/')) {
     setUserText(message.trim().slice(0,90));
     const parts = [{text:message}, ...pendingLiveAttachmentParts];
     pendingLiveAttachmentParts = [];
+    dispatchReserved = false;
     liveWs.send(JSON.stringify({clientContent:{turns:[{role:'user',parts}],turnComplete:true}}));
-    return;
-  }
-  if (running){
-    // don't silently swallow it — say so, so it never looks like nothing happened
-    log('note','BUSY',`still working — "${message.slice(0,40)}" not sent. Wait, or press Esc to cancel.`);
     return;
   }
   showView('chat');
   running = true; answer = ''; firstDelta = false; speakThisRun = options.speak !== false;
+  dispatchReserved = false;
   setUserText(message.trim().slice(0,90));
 
   const fresh = /^\/new\b/.test(message.trim());
@@ -836,6 +891,7 @@ async function transmit(message, options = {}){
   running = false;
   clearInterval(tick);
   scheduleJobPoll(1500);
+  loadHistory();
   await speakDone;                 // don't return until Zuzu has finished talking
 }
 
@@ -1176,6 +1232,7 @@ async function startGeminiLive(){
 let muted = false, player = null;
 function speak(text){
   return new Promise(resolve => {
+    const voiceStarted=performance.now();
     text = cleanForSpeech(text);
     if (muted || !text) return resolve();
     suppress = true;
@@ -1187,6 +1244,7 @@ function speak(text){
         u.lang = /[\u0600-\u06ff]/.test(spoken) ? 'ar-EG' : 'en-US';
         u.rate = 0.95; u.pitch = 0.82; u.volume = 1;
         document.body.classList.add('speaking');
+        u.onstart = () => log('latency','VOICE',`browser speech started after ${Math.round(performance.now()-voiceStarted)}ms`);
         u.onend = u.onerror = () => { document.body.classList.remove('speaking'); resolve(); };
         speechSynth.speak(u);
         return;
@@ -1197,6 +1255,7 @@ function speak(text){
                          body: JSON.stringify({text:spoken})})
       .then(r => r.ok ? r.blob() : Promise.reject())
       .then(blob => {
+        log('latency','VOICE',`speech audio ready after ${Math.round(performance.now()-voiceStarted)}ms`);
         const url = URL.createObjectURL(blob);
         if (player) player.pause();
         player = new Audio(url);
@@ -1654,21 +1713,67 @@ function renderStatus(s){
 }
 async function refreshStatus(attempt = 0){
   try{
+    const started=performance.now();
     const response = await fetch('/api/status', {cache:'no-store'});
+    if(response.status===401){location.replace('/login.html');return;}
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const status = await response.json();
     renderStatus(status);
+    $('#healthDetail').textContent=`Dashboard online · Hermes ${status.hermes_connected?'connected':'offline'} via ${status.transport||'CLI'} (${status.hermes_detail||'no detail'}) · voice ${status.stt||'unavailable'} / ${status.tts||'unavailable'} · check ${Math.round(performance.now()-started)}ms`;
     if (status.tools_pending && !(status.tools || []).length && attempt < 20){
       setTimeout(() => refreshStatus(attempt + 1), 900);
     }
-  }catch(_){
+  }catch(error){
     sys('gw','Offline','warn');
+    $('#healthDetail').textContent=`Dashboard connection failed: ${error.message||error}`;
     $('#top-gw').textContent = 'Zuzu offline';
     $('#top-hermes').textContent = 'Hermes unknown';
     if (!bootLogged) log('error','STATUS','server unreachable');
   }
 }
 defaultTip = $('#tip').textContent;
+const callNumber = () => $('#callNumber').value.trim();
+const validCallNumber = number => /^\+[1-9]\d{7,14}$/.test(number);
+$('#openDialer').onclick = () => {
+  const number = callNumber();
+  if (!validCallNumber(number)) { $('#callResult').textContent='Enter a phone number with country code, such as +15551234567.'; return; }
+  location.href = `tel:${number}`;
+};
+$('#startAiCall').onclick = async () => {
+  const number = callNumber();
+  if (!validCallNumber(number)) { $('#callResult').textContent='Enter a phone number with country code.'; return; }
+  if (!confirm(`Ask Zuzu to place a paid AI call to ${number}?`)) return;
+  const button=$('#startAiCall'); button.disabled=true;
+  $('#callResult').textContent='Starting the call…';
+  try {
+    const response=await fetch('/api/calls/outbound',{method:'POST',headers:apiHeaders({'content-type':'application/json'}),
+      body:JSON.stringify({number,confirmed:true,requestId:crypto.randomUUID().replace(/-/g,'')})});
+    const result=await response.json();
+    if(!response.ok) throw new Error(result.error||`HTTP ${response.status}`);
+    $('#callResult').textContent=`Call ${result.status||'queued'} · ${result.id}`;
+    refreshCalls();
+  } catch(error) { $('#callResult').textContent=String(error.message||error); }
+  finally { button.disabled=false; }
+};
+async function refreshCalls(){
+  try {
+    const statusResponse=await fetch('/api/calls/status',{headers:apiHeaders()});
+    if(!statusResponse.ok) throw new Error(`HTTP ${statusResponse.status}`);
+    const status=await statusResponse.json();
+    $('#callReady').textContent=status.configured?'Vapi credentials are present. Verify the assistant and number before your first call.':
+      `AI calls are not connected yet. Configure ${status.missing.join(', ')} privately on the laptop.`;
+    $('#startAiCall').disabled=!status.configured;
+    if(!status.configured) { $('#callHistory').innerHTML='<p class="empty-state">Connect Vapi to load calls.</p>'; return; }
+    const historyResponse=await fetch('/api/calls/history',{headers:apiHeaders()});
+    const history=await historyResponse.json();
+    if(!historyResponse.ok) throw new Error(history.error||`HTTP ${historyResponse.status}`);
+    $('#callHistory').innerHTML=(history.calls||[]).map(call=>`<div class="call-row"><div><b>${esc(call.type||'Call')}</b> · ${esc(call.status||'unknown')}<br><small>${esc(call.summary||'No summary')}</small></div><small>${esc(call.startedAt||'')}</small></div>`).join('')||'<p class="empty-state">No AI calls yet.</p>';
+  }catch(error){$('#callReady').textContent=`Phone status unavailable: ${error.message||error}`;}
+}
+$('#reconnectBtn').onclick=()=>{log('status','RECONNECT','checking Zuzu and Hermes again');refreshStatus();};
+setInterval(()=>refreshStatus(),15000);
+$('#refreshCalls').onclick=refreshCalls;
 loadWorkspace();
 refreshStatus();
+refreshCalls();
 

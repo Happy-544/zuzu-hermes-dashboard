@@ -63,7 +63,70 @@ def public_state():
     key_name = f"{provider.upper()}_API_KEY"
     settings["apiConfigured"] = bool(os.environ.get(key_name)) or (provider == "gemini" and bool(os.environ.get("GEMINI_CONFIG_PATH")))
     settings["apiBase"] = os.environ.get("JARVIS_API_BASE", "")
-    return {**data, "settings": settings, "models": MODELS, "uploads": uploads()}
+    return {**data, "settings": settings, "models": MODELS, "uploads": uploads(),
+            "hermesMemory": hermes_memory_snapshot()}
+
+
+def hermes_memory_snapshot():
+    """Read Hermes' own curated memory without editing its internal storage."""
+    home = pathlib.Path(os.environ.get("HERMES_HOME", pathlib.Path.home() / ".hermes"))
+    result = []
+    for filename in ("USER.md", "MEMORY.md"):
+        path = home / filename
+        try:
+            content = path.read_text(encoding="utf-8")[:12000]
+        except OSError:
+            continue
+        if content.strip():
+            result.append({"source": filename, "content": content})
+    return result
+
+
+def selected_hermes_session():
+    """Return the selected UI chat and its own Hermes transcript ID."""
+    data = load()
+    pid, sid = data.get("selectedProject"), data.get("selectedSession")
+    for project in data.get("projects", []):
+        if project.get("id") == pid:
+            for session in project.get("sessions", []):
+                if session.get("id") == sid:
+                    return pid, sid, session.get("hermesSessionId")
+    return pid, sid, None
+
+
+def ensure_selected_chat():
+    """Choose the first chat, or create one, for the selected project."""
+    with LOCK:
+        data = _load()
+        project = next((p for p in data.get("projects", []) if p.get("id") == data.get("selectedProject")), None)
+        if project is None:
+            raise ValueError("No selected project")
+        sessions = project.setdefault("sessions", [])
+        session = next((s for s in sessions if s.get("id") == data.get("selectedSession")), None)
+        if session is None:
+            if not sessions:
+                sessions.append({"id": uuid.uuid4().hex[:10], "name": "General", "created": time.time()})
+            session = sessions[0]
+            data["selectedSession"] = session["id"]
+            save(data)
+        return project["id"], session["id"], session.get("hermesSessionId")
+
+
+def bind_hermes_session(project_id, ui_session_id, hermes_id):
+    """Bind a completed run to its original UI chat even if selection changed."""
+    with LOCK:
+        data = _load()
+        for project in data.get("projects", []):
+            if project.get("id") == project_id:
+                for session in project.get("sessions", []):
+                    if session.get("id") == ui_session_id:
+                        if hermes_id:
+                            session["hermesSessionId"] = hermes_id
+                        else:
+                            session.pop("hermesSessionId", None)
+                        save(data)
+                        return True
+    return False
 
 
 def agent_context(limit=2400):
@@ -191,6 +254,15 @@ def action(payload):
                                "value": str(payload.get("value", ""))[:4000], "created": time.time()}); save(data)
     elif kind == "delete_memory":
         data["memory"] = [m for m in data["memory"] if m["id"] != str(payload.get("id", ""))]; save(data)
+    elif kind == "edit_memory":
+        found = next((m for m in data["memory"] if m["id"] == str(payload.get("id", ""))), None)
+        if found is None:
+            raise ValueError("memory not found")
+        found["label"] = str(payload.get("label", found["label"])).strip()[:100]
+        found["value"] = str(payload.get("value", found["value"])).strip()[:4000]
+        if not found["label"] or not found["value"]:
+            raise ValueError("memory label and value are required")
+        save(data)
     else:
         raise ValueError("unknown workspace action")
     return public_state()

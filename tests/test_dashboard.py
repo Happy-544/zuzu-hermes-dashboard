@@ -107,12 +107,12 @@ class RuntimeTests(unittest.TestCase):
             self.assertEqual(voice.transcribe(b"recorded audio", "audio/webm"), "افتح الملف")
         local.assert_called_once_with(b"recorded audio", "audio/webm")
 
-    def test_public_tunnel_hosts_are_allowed(self):
-        self.assertTrue(server._host_allowed("locate-weekends-think-rec.trycloudflare.com"))
-        self.assertTrue(server._host_allowed("polyester-garden-twiddle.ngrok-free.dev"))
-        self.assertTrue(server._origin_allowed("https://locate-weekends-think-rec.trycloudflare.com"))
-        self.assertTrue(server._origin_allowed("https://polyester-garden-twiddle.ngrok-free.dev"))
-        self.assertFalse(server._host_allowed("evil.example.com"))
+    def test_only_configured_public_origin_is_allowed(self):
+        with mock.patch.object(server, "_configured_public_origin", return_value="https://polyester-garden-twiddle.ngrok-free.dev"):
+            self.assertTrue(server._host_allowed("polyester-garden-twiddle.ngrok-free.dev"))
+            self.assertTrue(server._origin_allowed("https://polyester-garden-twiddle.ngrok-free.dev"))
+            self.assertFalse(server._host_allowed("other.ngrok-free.dev"))
+            self.assertFalse(server._origin_allowed("https://other.ngrok-free.dev"))
 
     def test_laptop_screen_and_upload_display_endpoints_exist(self):
         server_source = (ROOT / "server.py").read_text(encoding="utf-8")
@@ -132,6 +132,21 @@ class RuntimeTests(unittest.TestCase):
 
 
 class InterfaceTests(unittest.TestCase):
+    def test_hermes_session_is_bound_to_each_chat(self):
+        with tempfile.TemporaryDirectory() as folder:
+            old_file = workspace.FILE
+            try:
+                workspace.FILE = pathlib.Path(folder) / "workspace.json"
+                first_project, first_chat, _ = workspace.ensure_selected_chat()
+                self.assertTrue(workspace.bind_hermes_session(first_project, first_chat, "hermes_first_123"))
+                workspace.action({"action": "add_project", "name": "Other", "folder": folder})
+                second_project, second_chat, _ = workspace.ensure_selected_chat()
+                self.assertTrue(workspace.bind_hermes_session(second_project, second_chat, "hermes_second_456"))
+                self.assertEqual(workspace.selected_hermes_session()[2], "hermes_second_456")
+                workspace.action({"action": "select_session", "projectId": first_project, "sessionId": first_chat})
+                self.assertEqual(workspace.selected_hermes_session()[2], "hermes_first_123")
+            finally:
+                workspace.FILE = old_file
     def test_primary_views_and_mobile_navigation_exist(self):
         html = (ROOT / "ui" / "index.html").read_text(encoding="utf-8")
         for name in ("chat", "projects", "models", "tools", "memory", "studio", "missions", "activity", "settings"):
@@ -220,9 +235,9 @@ class InterfaceTests(unittest.TestCase):
         self.assertIn("is waiting for task details", js)
         self.assertIn('id="top-hermes"', html)
         self.assertIn('id="sy-hermes"', html)
-        self.assertIn("app.js?v=35", html)
-        self.assertIn("zuzu-shell-v35", worker)
-        self.assertIn("fetch(event.request).then", worker)
+        self.assertIn("app.js?v=36", html)
+        self.assertIn("caches.delete(key)", worker)
+        self.assertNotIn("caches.match(event.request)", worker)
 
     def test_job_polling_is_visibility_aware_and_quota_friendly(self):
         js = (ROOT / "ui" / "app.js").read_text(encoding="utf-8")

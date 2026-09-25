@@ -7,11 +7,11 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Zuzu">
-<meta name="jarvis-token" content="__JARVIS_TOKEN__">
+<meta name="zuzu-csrf" content="__ZUZU_CSRF__">
 <title>Zuzu · Hermes</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-192.png">
-<link rel="stylesheet" href="styles.css?v=32">
+<link rel="stylesheet" href="styles.css?v=36">
 </head>
 <body>
 <div class="grid-bg"></div>
@@ -33,6 +33,7 @@
       <button class="nav-item" role="tab" data-view="studio" aria-selected="false"><span>Studio</span><small>Files, images and video</small></button>
       <button class="nav-item" role="tab" data-view="missions" aria-selected="false"><span>Missions</span><small>Goals and background work</small></button>
       <button class="nav-item" role="tab" data-view="activity" aria-selected="false"><span>Activity</span><small>Status and event log</small></button>
+      <button class="nav-item" role="tab" data-view="calls" aria-selected="false"><span>Calls</span><small>iPhone and Zuzu AI calls</small></button>
       <button class="nav-item" role="tab" data-view="settings" aria-selected="false"><span>Settings</span><small>Profile and controls</small></button>
     </nav>
     <div class="project-peek"><div class="mini-head"><b>Projects</b><button id="quickProject" aria-label="Add project">+</button></div><div id="sidebarProjects"></div></div>
@@ -58,6 +59,7 @@
           <div class="core-details"><span><i class="online"></i> Online</span><span id="core-model">Gemini</span></div><div class="core-visual-actions"><button id="dockCamera" type="button">Livestream</button><button id="dockScreen" type="button">Screen share</button><button id="dockLaptop" type="button">Laptop live</button><button id="dockImage" type="button">Screenshot</button><button id="dockVideo" type="button">Video / YouTube</button><button id="dockBrowser" type="button">Browser view</button></div>
         </aside>
       </div>
+      <div id="chatHistory" class="chat-history glass" aria-label="Selected Hermes chat history"></div>
       <div class="composer glass">
         <textarea id="input" rows="2" spellcheck="false" aria-label="Message Zuzu" placeholder="Message Zuzu…"></textarea>
         <div id="chatAttachments" class="chat-attachments" hidden></div>
@@ -93,7 +95,7 @@
 
     <section class="view" role="tabpanel" data-view-panel="memory" hidden>
       <div class="view-head"><div><span class="kicker">Knowledge graph</span><h1>Memory brain</h1></div><button id="addMemory" class="primary-btn">Add memory</button></div>
-      <div class="memory-layout"><article class="brain-panel glass"><canvas id="memoryCanvas" aria-label="Interactive memory connection graph"></canvas><div class="brain-controls"><button id="brainPrev" type="button">‹</button><button id="brainNext" type="button">›</button></div><div id="brainDetail" class="brain-detail"><b>MEMORY</b><span>Click a node to inspect it.</span></div><div class="brain-legend"><span>Profile</span><span>Projects</span><span>Memories</span><span>Skills</span></div></article><article class="panel glass"><div class="panel-head"><div><h2>Stored knowledge</h2><p>Facts Zuzu can use across conversations</p></div></div><div id="memoryList" class="memory-list"></div></article></div>
+      <div class="memory-layout"><article class="brain-panel glass"><canvas id="memoryCanvas" aria-label="Interactive memory connection graph"></canvas><div class="brain-controls"><button id="brainPrev" type="button">‹</button><button id="brainNext" type="button">›</button></div><div id="brainDetail" class="brain-detail"><b>MEMORY</b><span>Click a node to inspect it.</span></div><div class="brain-legend"><span>Profile</span><span>Projects</span><span>Memories</span><span>Skills</span></div></article><article class="panel glass"><div class="panel-head"><div><h2>Stored knowledge</h2><p>Facts Zuzu can use across conversations</p></div></div><div id="memoryList" class="memory-list"></div><div class="panel-head compact"><div><h2>Hermes memory</h2><p>Read from the active Hermes profile</p></div></div><div id="hermesMemoryList" class="memory-list"></div></article></div>
     </section>
 
     <section class="view" role="tabpanel" data-view-panel="studio" hidden>
@@ -101,23 +103,30 @@
       <div class="studio-grid"><article class="panel glass"><h2>Files & images</h2><p>Attach local material to the active project.</p><div id="uploadList" class="upload-list"></div></article><article class="panel glass"><h2>Image generation</h2><textarea id="imagePrompt" rows="4" placeholder="Describe the image you want…"></textarea><button class="primary-btn generate-btn" data-media="image">Generate image</button></article><article class="panel glass"><h2>Video generation</h2><textarea id="videoPrompt" rows="4" placeholder="Describe the video, movement and duration…"></textarea><button class="primary-btn generate-btn" data-media="video">Generate video</button></article></div>
     </section>
 
+    <section class="view" role="tabpanel" data-view-panel="calls" hidden>
+      <div class="view-head"><div><span class="kicker">Phone</span><h1>Calls</h1></div><button id="refreshCalls" class="secondary-btn" type="button">Refresh</button></div>
+      <div class="workspace-grid"><article class="panel glass"><div class="panel-head"><div><h2>Call from your iPhone</h2><p>Opens your phone dialer; you confirm the call on your device.</p></div></div><div class="call-body"><label>Phone number in international format<input id="callNumber" type="tel" inputmode="tel" placeholder="+15551234567" autocomplete="tel"></label><div class="call-actions"><button id="openDialer" class="secondary-btn" type="button">Open iPhone dialer</button><button id="startAiCall" class="primary-btn" type="button">Zuzu AI call</button></div><p id="callResult" role="status"></p></div></article><article class="panel glass"><div class="panel-head"><div><h2>Zuzu phone line</h2><p>Incoming calls are answered by Zuzu when your Vapi number and Hermes model are connected.</p></div></div><div class="call-body"><p id="callReady">Checking phone connection…</p><p class="form-note">AI calls may incur Vapi and carrier charges. Outgoing calls require your confirmation. A maximum call duration must be configured on the Vapi assistant.</p></div></article></div>
+      <article class="panel glass"><div class="panel-head"><div><h2>Recent AI calls</h2><p>Call status and summaries</p></div></div><div id="callHistory" class="call-history"><p class="empty-state">No calls loaded.</p></div></article>
+    </section>
+
     <section class="view" role="tabpanel" data-view-panel="settings" hidden>
-      <div class="view-head"><div><span class="kicker">Personalize</span><h1>Agent settings</h1></div><button id="saveSettings" class="primary-btn">Save settings</button></div>
+      <div class="view-head"><div><span class="kicker">Personalize</span><h1>Agent settings</h1></div><div class="call-actions"><button id="signOut" class="secondary-btn" type="button">Sign out</button><button id="saveSettings" class="primary-btn">Save settings</button></div></div>
       <div class="settings-grid"><article class="panel glass settings-form"><h2>Profile</h2><label>Name / profile<input id="profileName" placeholder="default"></label><label>Working folder<div class="inline-field"><input id="workdir" placeholder="C:\\Projects\\My project"><button id="useFolder" type="button" class="secondary-btn">Use folder</button></div></label><label>Zuzu persona<textarea id="personaText" rows="9" placeholder="How should Zuzu speak and behave?"></textarea></label></article><article class="panel glass"><h2>Device control</h2><div class="toggle-row"><div><b>Computer control</b><small>Allow Hermes browser and computer tools</small></div><input id="computerControl" type="checkbox"></div><div class="toggle-row"><div><b>Mobile control</b><small>Allow approved controls from the mobile dashboard</small></div><input id="mobileControl" type="checkbox"></div><h2 class="section-gap">Voice</h2><label>Live model<input id="liveModel" value="gemini-2.5-flash-native-audio-preview-12-2025"></label><label>Voice<select id="voiceSelect"><option>Kore</option><option>Aoede</option><option>Charon</option><option>Fenrir</option><option>Puck</option></select></label></article><article class="panel glass mobile-control-card"><h2>iPhone control</h2><p class="form-note">Maximum iPhone control from a web/PWA is Apple Shortcuts. Create one Shortcut named below, let it receive text input, then branch actions from that text: open apps, send messages you approve, set focus, start navigation, capture media, or run home automations.</p><label>Shortcut name<input id="shortcutName" value="Zuzu Control" placeholder="Zuzu Control"></label><label>Command for the Shortcut<textarea id="shortcutCommand" rows="3" placeholder="Open Maps and navigate home"></textarea></label><div class="mobile-presets"><button type="button" data-shortcut-command="Open WhatsApp">Open WhatsApp</button><button type="button" data-shortcut-command="Open Camera and take a photo">Camera action</button><button type="button" data-shortcut-command="Start navigation home">Navigate home</button><button type="button" data-shortcut-command="Run my smart home scene">Smart home</button></div><div class="mobile-control-actions"><button id="runShortcut" type="button" class="primary-btn">Run on iPhone</button><button id="installApp" type="button" class="secondary-btn">Installation help</button></div><small id="mobileCapability" class="form-note">Checking this device…</small></article><article class="panel glass skills-card"><div class="panel-head"><div><h2>Capability catalogue</h2><p>Browse skills, plugins, tools, models and installable helpers from Hermes, GitHub and Hugging Face.</p></div><button id="addSkill" class="secondary-btn">Create skill</button></div><div class="skill-search catalogue-search"><input id="skillSearch" placeholder="Search catalogue: browser automation, vision, finance, voice..."><button id="searchAllCapabilities" type="button" class="secondary-btn">Search all</button><button id="searchGithubSkills" type="button" class="secondary-btn">GitHub</button><button id="searchHuggingFaceSkills" type="button" class="secondary-btn">Hugging Face</button></div><div class="catalogue-tabs" id="catalogueTabs"><button data-catalogue-filter="all" class="active">All</button><button data-catalogue-filter="hermes">Hermes</button><button data-catalogue-filter="skill">Skills</button><button data-catalogue-filter="plugin">Plugins</button><button data-catalogue-filter="tool">Tools</button><button data-catalogue-filter="model">Models</button></div><div id="catalogueGrid" class="catalogue-grid"></div><div class="panel-head compact"><div><h2>Installed Zuzu skills</h2><p>Reusable instructions already saved in this workspace.</p></div></div><div id="skillList"></div></article></div>
     </section>
 
     <section class="view" role="tabpanel" data-view-panel="activity" hidden>
-      <div class="view-head"><div><span class="kicker">System health</span><h1>Activity</h1></div><button id="clearBtn" class="secondary-btn">Clear response</button></div>
+      <div class="view-head"><div><span class="kicker">System health</span><h1>Activity</h1></div><div class="call-actions"><button id="reconnectBtn" class="primary-btn" type="button">Reconnect</button><button id="clearBtn" class="secondary-btn">Clear response</button></div></div>
+      <p id="healthDetail" class="form-note" role="status">Checking dashboard, Hermes and voice…</p>
       <div class="sysgrid"><div class="sysrow glass"><span>Dashboard</span><b id="sy-gw" class="ok">Connecting</b></div><div class="sysrow glass"><span>Hermes core</span><b id="sy-hermes">Checking</b></div><div class="sysrow glass"><span>Brain</span><b id="sy-brain">—</b></div><div class="sysrow glass"><span>Voice</span><b id="sy-voice">—</b></div><div class="sysrow glass"><span>Profile</span><b id="sy-profile">default</b></div><div class="sysrow glass"><span>Uplink</span><b id="sy-clock">—</b></div></div>
       <article class="panel glass activity-panel"><div class="panel-head"><div><h2>Event stream</h2><p>Current-session activity and errors</p></div></div><div class="log" id="log"></div></article>
     </section>
   </main>
 </div>
 
-<nav class="mobile-nav" role="tablist" aria-label="Mobile navigation"><button class="active" role="tab" data-view="chat" aria-selected="true">Chat</button><button role="tab" data-view="projects" aria-selected="false">Projects</button><button role="tab" data-view="models" aria-selected="false">Models</button><button role="tab" data-view="memory" aria-selected="false">Brain</button><button role="tab" data-view="settings" aria-selected="false">Settings</button></nav>
+<nav class="mobile-nav" role="tablist" aria-label="Mobile navigation"><button class="active" role="tab" data-view="chat" aria-selected="true">Chat</button><button role="tab" data-view="projects" aria-selected="false">Projects</button><button role="tab" data-view="models" aria-selected="false">Models</button><button role="tab" data-view="memory" aria-selected="false">Brain</button><button role="tab" data-view="calls" aria-selected="false">Calls</button><button role="tab" data-view="settings" aria-selected="false">Settings</button></nav>
 <dialog id="editorDialog"><form method="dialog" id="editorForm"><div class="dialog-head"><h2 id="dialogTitle">Add</h2><button value="cancel" aria-label="Close">×</button></div><div id="dialogFields"></div><div class="dialog-actions"><button value="cancel" class="secondary-btn">Cancel</button><button id="dialogSave" value="default" class="primary-btn">Save</button></div></form></dialog>
 <script src="live-bridge.js?v=11"></script>
-<script src="app.js?v=35"></script>
+<script src="app.js?v=36"></script>
 </body>
 </html>
 
