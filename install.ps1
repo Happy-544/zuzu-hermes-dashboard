@@ -27,6 +27,8 @@ if (-not (Test-Path -LiteralPath $voicePython)) {
     else { & $python -m venv .venv }
     if ($LASTEXITCODE -ne 0) { throw 'Could not create the Zuzu Python environment.' }
 }
+& $voicePython migrate_voice_mode.py
+if ($LASTEXITCODE -ne 0) { throw 'Could not migrate the Zuzu voice setting.' }
 & $voicePython -m pip install --disable-pip-version-check -q faster-whisper
 if ($LASTEXITCODE -ne 0) { throw 'Could not install local voice transcription.' }
 

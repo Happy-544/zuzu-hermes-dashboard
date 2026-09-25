@@ -39,6 +39,7 @@ chmod +x start.sh install.sh
 if [ ! -x .venv/bin/python ]; then
   python3 -m venv .venv
 fi
+.venv/bin/python migrate_voice_mode.py
 .venv/bin/python -m pip install --disable-pip-version-check -q faster-whisper
 
 printf '\nZuzu is ready. Launching with the configured Hermes profile.\n'
