@@ -22,6 +22,17 @@ class _Response:
 
 
 class HermesApiTests(unittest.TestCase):
+    def test_failed_run_surfaces_provider_message(self):
+        frames = [
+            ("assistant.completed", {"content": "Provider credits exhausted"}),
+            ("run.failed", {}),
+        ]
+        stream = io.BytesIO("".join(f"event: {name}\ndata: {json.dumps(body)}\n\n" for name, body in frames).encode())
+        with mock.patch.dict(os.environ, {"HERMES_API_KEY": "test"}), \
+             mock.patch.object(hermes_api, "_request", return_value=stream):
+            events = list(hermes_api.run_hermes("Hi", "session_12345678", "Be brief"))
+        self.assertEqual(events[-1], {"t": "error", "message": "Provider credits exhausted"})
+
     def test_reused_ui_title_gets_unique_internal_hermes_titles(self):
         seen = []
 

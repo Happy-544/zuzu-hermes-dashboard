@@ -520,17 +520,15 @@ class Handler(BaseHTTPRequestHandler):
                 live_auth["system"] += (
                     "\nVoice role: You are Zuzu, the single spoken interface for the user. "
                     "Speak naturally in the user's language, defaulting to Egyptian Arabic. "
-                    "For actions on the user's Windows computer, browser, files, tools, "
-                    "or saved information, call hermes_action with the user's exact request. "
-                    "For requests to modify Zuzu herself, the dashboard UI, tools, skills, providers, account connectors, music, playlists, reminders, or memory, call hermes_action instead of refusing. "
-                    "It connects to the local Hermes agent with real tools. "
-                    "Do not claim you lack those capabilities without calling it. "
+                    "For EVERY complete user turn, including casual questions, call hermes_action exactly once with the user's exact words and relevant conversational context. "
+                    "Hermes is the only brain and owns the conversation, memory, Telegram, email/connections, Windows computer, browser, files, tools, skills, reminders, and all actions. "
+                    "You are only its realtime voice transport: never answer from your own knowledge, never refuse before Hermes answers, and never claim a capability is missing yourself. "
                     "Wait for the tool result before reporting completion; never invent success. "
-                    "Report failures honestly. Casual conversation needs no tool call."
+                    "Speak the Hermes result naturally and faithfully. Report any real configuration failure exactly."
                 )
                 live_auth["tools"] = [{"functionDeclarations": [{
                     "name": "hermes_action",
-                    "description": "Execute the user's request through local Hermes: Windows computer control, browser, files, memory and configured tools. Return the actual result.",
+                    "description": "MANDATORY for every user turn. Send the exact user request to the one local Hermes agent, which owns conversation, Telegram, email/connections, computer control, browser, files, memory and all configured tools. Return the actual result for Zuzu to speak.",
                     "parameters": {"type": "OBJECT", "properties": {
                         "request": {"type": "STRING", "description": "The full user request, preserving language and constraints."}
                     }, "required": ["request"]}

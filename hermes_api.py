@@ -124,7 +124,7 @@ def run_hermes(message, session_id=None, system=None, *, title="Zuzu chat", prov
                     elif kind in {"run.completed", "run.failed", "run.cancelled"}:
                         terminal = kind
                         if kind != "run.completed":
-                            failure = str(event.get("error") or event.get("reason") or kind)[:300]
+                            failure = str(event.get("error") or event.get("reason") or final_text or kind)[:300]
                         if event.get("usage"):
                             yield {"t": "usage", **event["usage"]}
                     elif kind == "error":

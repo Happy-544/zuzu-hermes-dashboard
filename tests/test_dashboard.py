@@ -214,6 +214,9 @@ class InterfaceTests(unittest.TestCase):
         self.assertIn("auth.system ||", js)
         self.assertIn('auth["system"] = persona(client_extra)', server)
         self.assertIn("Zuzu-Hermes memory contract", server)
+        self.assertIn("For EVERY complete user turn", server)
+        self.assertIn("Hermes is the only brain", server)
+        self.assertNotIn("Casual conversation needs no tool call", server)
         self.assertIn("Zuzu durable memory brain", (ROOT / "workspace.py").read_text(encoding="utf-8"))
 
     def test_installable_mobile_app_and_shortcuts_control_exist(self):
