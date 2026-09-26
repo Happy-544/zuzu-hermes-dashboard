@@ -367,6 +367,7 @@ function resetVisualSurfaces(){
 }
 function stopVisualStream(){
   if (visualStream){ visualStream.getTracks().forEach(t=>t.stop()); visualStream=null; }
+  if ($('#drawScreen')){ $('#drawScreen').hidden = true; $('#clearDrawing').hidden = true; setDrawMode(false); }
   resetVisualSurfaces();
   visualKind=''; setVisualStatus('Vision idle'); setVisionBox(false);
   document.body.classList.remove('vision-on');
@@ -448,7 +449,14 @@ async function showLaptopSnapshot(){
 async function refreshLaptopLive(){
   try{
     const blob=await fetchLaptopScreen('Laptop live');
-    showImageBlob(blob,'Laptop live');
+    if(visualKind!=='laptop-live') return;
+    // Swap the frame in place: going through showImageBlob would stop this live timer.
+    const img=$('#visualImage'), previous=visualObjectUrl;
+    visualObjectUrl=URL.createObjectURL(blob);
+    if(img){ img.src=visualObjectUrl; img.hidden=false; }
+    ['#visualPreview','#visualFrame','#visualEmpty'].forEach(sel=>{ const el=$(sel); if(el) el.hidden=true; });
+    if(previous) setTimeout(()=>URL.revokeObjectURL(previous), 2000);
+    setVisualStatus('Laptop live'); setVisionBox(true); document.body.classList.add('vision-on');
   }catch(err){
     stopLaptopScreen();
     setVisualStatus('Laptop screen unavailable');
@@ -458,6 +466,7 @@ async function refreshLaptopLive(){
 async function startLaptopLive(){
   stopVisualStream();
   visualKind='laptop-live';
+  $('#drawScreen').hidden = false; $('#clearDrawing').hidden = false;
   setVisualStatus('Laptop live');
   setVisionBox(true); document.body.classList.add('vision-on');
   await refreshLaptopLive();
@@ -863,6 +872,7 @@ async function transmit(message, options = {}){
     return;
   }
   showView('chat');
+  resetSteps(message); watchPc(message);
   running = true; answer = ''; firstDelta = false; speakThisRun = options.speak !== false;
   dispatchReserved = false;
   setUserText(message.trim().slice(0,90));
@@ -921,6 +931,7 @@ async function transmit(message, options = {}){
   activeController = null;
   running = false;
   clearInterval(tick);
+  finishSteps();
   scheduleJobPoll(1500);
   loadHistory();
   await speakDone;                 // don't return until Zuzu has finished talking
@@ -970,6 +981,7 @@ function handle(ev){
       log('latency', 'LATENCY', `first token after ${ev.ms}ms`);
       break;
     case 'tool':
+      pushStep(ev);
       if (ev.phase === 'use')
         log('tool', 'TOOL', `→ ${ev.name}(${ev.input || ''})`);
       else
@@ -1118,6 +1130,7 @@ async function holdScreenAwake(){
 
 async function executeLiveAction(request, signal){
   log('tool', 'HERMES', 'Executing voice action');
+  resetSteps(request); watchPc(request);
   const response = await fetch('/api/run', {
     method:'POST', headers:apiHeaders({'content-type':'application/json'}),
     body:JSON.stringify({message:request, client_context: clientDeviceContext(), system: clientContextSystemText()}), signal
@@ -1134,7 +1147,7 @@ async function executeLiveAction(request, signal){
     if(ev.t==='delta') result+=ev.text || '';
     if(ev.t==='error') failure=ev.message || 'Hermes action failed';
     if(ev.t==='complete') completed=true;
-    if(ev.t==='tool') log('tool','HERMES',ev.name || 'Tool activity');
+    if(ev.t==='tool'){ log('tool','HERMES',ev.name || 'Tool activity'); pushStep(ev); }
   };
   while(true){
     const {value,done}=await reader.read();
@@ -2207,6 +2220,17 @@ const LOCAL_TOOLS = {
   create_image: async a => { const r = await createImage(a.prompt); return {created:true, file:r.name}; },
   create_video: async a => { await createVideo(a.prompt); return {started:true, note:'It takes 1 to 5 minutes; I will announce it when ready.'}; },
   find_books: async a => { showView('library'); const list = await searchBooks(a.query); return {found:list.slice(0, 5).map(b => `${b.title} by ${b.authors}`)}; },
+  point_at: async a => pointAt(a.description),
+  clear_screen_drawing: async () => { await overlayCommand({type:'clear'}); return {cleared:true}; },
+  find_new_skills: async a => { const d = await skillsRequest({action:'scout', topic:a.topic || ''}); return {found:d.found.map(p => `${p.name}: ${p.description.slice(0, 80)}`), note:'Ask the user which one to install; install only after a clear yes.'}; },
+  install_skill: async a => {
+    if (!/^(yes|true|نعم|اه|أيوه|ايوه)$/i.test(String(a.confirmed || '').trim())) return {installed:false, note:'Ask the user to confirm first.'};
+    const list = PROPOSALS.filter(p => p.status === 'new');
+    const pick = list.find(p => p.name.toLowerCase() === String(a.name || '').toLowerCase()) || list.find(p => p.name.toLowerCase().includes(String(a.name || '').toLowerCase()));
+    if (!pick) return {installed:false, note:'No matching proposal. Use find_new_skills first.'};
+    const d = await skillsRequest({action:'approve', id:pick.id, confirmed:true});
+    return {installed:true, name:d.item.name};
+  },
 };
 
 // Slash commands handled instantly in the page.
@@ -2428,7 +2452,7 @@ function showVideoFile(url){
   stopVisualStream();
   if (frame){ frame.hidden = true; frame.removeAttribute('src'); }
   if (img) img.hidden = true; if (empty) empty.hidden = true;
-  if (video){ video.srcObject = null; video.src = url; video.controls = true; video.muted = false; video.hidden = false; video.play().catch(() => {}); }
+  if (video){ video.srcObject = null; video.src = url; video.controls = true; video.muted = false; video.hidden = false; video.setAttribute('data-active', 'file'); video.play().catch(() => {}); }
   setVisualStatus('Zuzu video'); setVisionBox(true); document.body.classList.add('vision-on');
 }
 async function createImage(prompt){
@@ -2456,3 +2480,124 @@ async function refreshMediaJobs(){
   }catch(_){}
 }
 refreshMediaJobs();
+
+// ══════════ live PC control: see the screen and every step while Hermes works ══════════
+const PC_INTENT_RE = /^\/(?:pc|computer)\b|\b(?:open|close|launch|run|click|tap|type|press|download|install|uninstall|move|rename|delete|control|navigate|switch to|minimi[sz]e|maximi[sz]e)\b.*\b(?:pc|computer|laptop|desktop|windows|chrome|edge|browser|file|folder|app|application|notepad|calculator|excel|word|powerpoint|outlook|teams|whatsapp|settings|explorer|spotify)\b|(?:افتح|اقفل|شغل|اضغط|اكتب|نزل|حمل|احذف|انقل|غير).*(?:الكمبيوتر|اللابتوب|الويندوز|كروم|إيدج|المتصفح|ملف|مجلد|برنامج)/i;
+let STEPS = [], pcAutoLive = false;
+function resetSteps(){ STEPS = []; renderSteps(); }
+function pushStep(ev){
+  if (ev.phase === 'use' || !STEPS.length || STEPS[STEPS.length - 1].done){
+    STEPS.push({name: ev.name || 'step', input: ev.input || '', done: ev.phase !== 'use', ok: ev.ok !== false});
+  } else {
+    Object.assign(STEPS[STEPS.length - 1], {done: true, ok: ev.ok !== false});
+  }
+  STEPS = STEPS.slice(-8); renderSteps();
+}
+function renderSteps(){
+  const box = $('#ccSteps'); if (!box) return;
+  box.hidden = !STEPS.length;
+  box.innerHTML = STEPS.map(s => `<li class="${s.done ? (s.ok ? 'ok' : 'fail') : 'live'}"><b>${esc(s.name)}</b>${s.input ? `<span>${esc(s.input.slice(0, 90))}</span>` : ''}</li>`).join('');
+}
+function watchPc(message){
+  if (!PC_INTENT_RE.test(String(message || ''))) return;
+  if (visualKind !== 'laptop-live'){ pcAutoLive = true; startLaptopLive().catch(() => {}); log('status','PC','showing your laptop screen live while Hermes works'); }
+}
+function finishSteps(){
+  STEPS.forEach(s => { s.done = true; }); renderSteps();
+  if (pcAutoLive){ pcAutoLive = false; setTimeout(() => { if (!running) stopLaptopScreen(); }, 6000); }
+}
+
+// ══════════ drawing on the laptop screen (from the laptop or the phone) ══════════
+let drawMode = false, drawPoints = [];
+async function overlayCommand(cmd){
+  const r = await fetch('/api/overlay', {method:'POST', headers:apiHeaders({'content-type':'application/json'}), body:JSON.stringify(cmd)});
+  const data = await r.json(); if (!r.ok) throw new Error(data.error || 'Drawing failed');
+  return data;
+}
+async function pointAt(description){
+  showToast(`Looking for: ${description}`);
+  const r = await fetch('/api/overlay/point', {method:'POST', headers:apiHeaders({'content-type':'application/json'}), body:JSON.stringify({description})});
+  const data = await r.json(); if (!r.ok) throw new Error(data.error || 'Could not point');
+  if (!data.found) showToast(`I couldn't see "${description}" on the screen`, 'error');
+  else log('complete','POINT', `pointed at ${data.label}`);
+  return data.found ? {pointed:true, at:data.label} : {pointed:false, note:'Not visible on the screen right now.'};
+}
+function imageContentRect(img){
+  const box = img.getBoundingClientRect();
+  const nw = img.naturalWidth || box.width, nh = img.naturalHeight || box.height;
+  const scale = Math.min(box.width / nw, box.height / nh);
+  const w = nw * scale, h = nh * scale;
+  return {left: box.left + (box.width - w) / 2, top: box.top + (box.height - h) / 2, width: w, height: h};
+}
+function setDrawMode(on){
+  drawMode = !!on;
+  const canvas = $('#drawCanvas'), img = $('#visualImage'), btn = $('#drawScreen');
+  if (btn){ btn.classList.toggle('on', drawMode); btn.textContent = drawMode ? 'Drawing…' : 'Draw'; }
+  if (!canvas) return;
+  canvas.hidden = !drawMode;
+  if (drawMode && img){
+    const parent = canvas.parentElement.getBoundingClientRect();
+    canvas.width = parent.width; canvas.height = parent.height;
+  }
+}
+function canvasPoint(e){
+  const img = $('#visualImage'), rect = imageContentRect(img);
+  return {nx: (e.clientX - rect.left) / rect.width, ny: (e.clientY - rect.top) / rect.height};
+}
+$('#drawScreen')?.addEventListener('click', () => setDrawMode(!drawMode));
+$('#clearDrawing')?.addEventListener('click', () => overlayCommand({type:'clear'}).catch(err => showToast(String(err.message||err),'error')));
+(() => {
+  const canvas = $('#drawCanvas'); if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  canvas.addEventListener('pointerdown', e => { drawPoints = []; canvas.setPointerCapture(e.pointerId); const p = canvasPoint(e); drawPoints.push([p.nx, p.ny]);
+    const b = canvas.getBoundingClientRect(); ctx.strokeStyle = '#ffad35'; ctx.lineWidth = 4; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(e.clientX - b.left, e.clientY - b.top); });
+  canvas.addEventListener('pointermove', e => { if (!drawPoints.length || !(e.buttons & 1)) return; const p = canvasPoint(e); drawPoints.push([p.nx, p.ny]);
+    const b = canvas.getBoundingClientRect(); ctx.lineTo(e.clientX - b.left, e.clientY - b.top); ctx.stroke(); });
+  canvas.addEventListener('pointerup', async () => {
+    const pts = drawPoints.filter(([x, y]) => x >= 0 && x <= 1 && y >= 0 && y <= 1); drawPoints = [];
+    setTimeout(() => ctx.clearRect(0, 0, canvas.width, canvas.height), 1200);
+    if (pts.length > 1){ try{ await overlayCommand({type:'path', points:pts, ttl:20}); }catch(err){ showToast(String(err.message||err),'error'); } }
+  });
+})();
+
+// ══════════ skill suggestions ══════════
+let PROPOSALS = [];
+async function skillsRequest(payload){
+  const r = await fetch('/api/skills', {method:'POST', headers:apiHeaders({'content-type':'application/json'}), body:JSON.stringify(payload)});
+  const data = await r.json(); if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+  PROPOSALS = data.proposals || PROPOSALS; renderProposals(); return data;
+}
+async function loadProposals(){
+  try{ const data = await (await fetch('/api/skills/proposals', {headers:apiHeaders()})).json(); PROPOSALS = data.proposals || []; renderProposals(); }catch(_){}
+}
+function renderProposals(){
+  const box = $('#skProposals'); if (!box) return;
+  const open = PROPOSALS.filter(p => p.status === 'new').reverse(), done = PROPOSALS.filter(p => p.status !== 'new').slice(-4).reverse();
+  box.innerHTML = open.map(p => `<div class="sk-item"><div><b>${esc(p.name)}</b> <small>${esc(p.kind)} · ${esc(p.source || 'Hermes')}${p.trust ? ' · ' + esc(p.trust) : ''}</small><p>${esc(p.description || 'No description')}</p><small>Found while looking for: ${esc(p.reason)}</small></div>
+      <div class="sk-actions"><button type="button" class="primary-btn" data-sk-approve="${esc(p.id)}">Install</button><button type="button" class="secondary-btn" data-sk-dismiss="${esc(p.id)}">Dismiss</button></div></div>`).join('')
+    + done.map(p => `<div class="mk-row"><b>${esc(p.name)}</b><span>${esc(p.kind)}</span><em>${esc(p.status)}</em></div>`).join('')
+    || '<div class="empty-state">No suggestions yet. Ask Zuzu to look for skills.</div>';
+  const st = PERSONAL?.settings;
+  if (st && !$('#skScoutForm').contains(document.activeElement)){ $('#skAuto').checked = !!st.skillScout; $('#skDays').value = String(st.skillScoutDays || 7); }
+}
+$('#skScoutForm')?.addEventListener('submit', async e => {
+  e.preventDefault(); const btn = e.submitter; if (btn){ btn.disabled = true; btn.textContent = 'Searching…'; }
+  try{ const d = await skillsRequest({action:'scout', topic:$('#skTopic').value}); showToast(d.found.length ? `Found ${d.found.length} new skills` : 'No new skills found this time'); }
+  catch(err){ showToast(String(err.message||err),'error'); }
+  finally{ if (btn){ btn.disabled = false; btn.textContent = 'Look for skills'; } }
+});
+['#skAuto', '#skDays'].forEach(sel => $(sel)?.addEventListener('change', () => personalRequest({action:'save_settings', settings:{skillScout:$('#skAuto').checked, skillScoutDays:$('#skDays').value}}).catch(() => {})));
+document.addEventListener('click', async e => {
+  const ok = e.target.closest('[data-sk-approve]'), no = e.target.closest('[data-sk-dismiss]');
+  if (!ok && !no) return;
+  try{
+    if (ok){
+      const item = PROPOSALS.find(p => p.id === ok.dataset.skApprove);
+      if (!confirm(`Install "${item?.name}" into Hermes?`)) return;
+      ok.disabled = true; ok.textContent = 'Installing…';
+      const d = await skillsRequest({action:'approve', id:ok.dataset.skApprove, confirmed:true}); showToast(`Installed ${d.item.name}`);
+    }
+    if (no) await skillsRequest({action:'dismiss', id:no.dataset.skDismiss});
+  }catch(err){ showToast(String(err.message||err),'error'); renderProposals(); }
+});
+loadProposals();

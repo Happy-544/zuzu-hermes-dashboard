@@ -171,6 +171,25 @@ start.sh        local launcher
 - Connected apps remain owned and authenticated by the user's Hermes profile.
 - Review third-party skills and MCP servers before installing them.
 
+## Personal assistant features
+
+| Feature | Where | Voice example |
+|---|---|---|
+| Reminders (English + Egyptian Arabic times, daily/weekly repeats) | My day → Reminders & brief, `/remind` | "Remind me to call mom tomorrow at 6" |
+| Daily brief: date, weather, calendar (iCal link), reminders, headlines, optional email | Home → Today, `/brief` | "What's my day like?" |
+| Morning/evening briefs and important-email alerts, spoken and on Telegram | My day → Reminders & brief settings | automatic |
+| Music (YouTube queue + Open in YouTube Music) and videos | `/music`, `/video`, Smart tools | "Play some Amr Diab", "Show me a video about resin tables" |
+| Markets: top 5 most active, watchlist, price alerts (information only) | My day → Markets, Home card | "Tell me when gold goes above 2700" |
+| Library: 70,000+ free Project Gutenberg books, read-aloud, spoken briefs | My day → Library | "Find me a book by Dostoevsky" |
+| Create images and videos (Gemini API; video is billed by Google) | Work → Files & create | "Make an image of a walnut resin table" |
+| Switch the Hermes model | Settings → AI model, `/model claude` | "Switch to Gemini Pro" |
+| "Hey Zuzu" wake word / "Zuzu sleep mode" (Chrome/Edge on the laptop) | Reminders & brief settings | "Hey Zuzu" |
+| Live PC control: laptop screen opens and each Hermes step is listed while it works | Home → Now | "Open Notepad on my computer" |
+| Draw on the laptop screen: Zuzu points at things, or you draw from your phone | Laptop live → Draw | "Point at the Save button" |
+| Skill suggestions: Zuzu finds new Hermes skills; installs only after you approve | Brain → Skills | "Find skills for WhatsApp messages" |
+
+Email is read through the account connected in Hermes (`hermes gateway setup` / email skill); Zuzu never stores email credentials.
+
 ## Public link and calls
 
 Use a reserved ngrok hostname and set its exact HTTPS URL in `JARVIS_PUBLIC_ORIGIN`. Point the tunnel only to the local Zuzu port. Random Cloudflare/ngrok hosts are rejected. The login is required on both localhost and the public link.

@@ -11,7 +11,7 @@
 <title>Zuzu · Hermes</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-192.png">
-<link rel="stylesheet" href="styles.css?v=41">
+<link rel="stylesheet" href="styles.css?v=42">
 </head>
 <body>
 <div class="grid-bg"></div>
@@ -69,6 +69,7 @@
           <div class="cc-now-state" id="ccNowState">Ready for your next request.</div>
           <div class="cc-now-detail" id="ccNowDetail"></div>
           <div class="cc-now-meta"><span id="ccNowElapsed"></span><span id="ccNowMissions"></span></div>
+          <ol class="cc-steps" id="ccSteps" hidden></ol>
         </section>
         <section class="cc-card">
           <header><h3>Workspace</h3><button type="button" class="cc-link" data-view="projects">Manage</button></header>
@@ -93,7 +94,7 @@
               <g class="spark-field"><circle cx="124" cy="160" r="3"/><circle cx="172" cy="115" r="2"/><circle cx="385" cy="130" r="3"/><circle cx="424" cy="229" r="2"/><circle cx="390" cy="384" r="3"/><circle cx="193" cy="411" r="2"/><circle cx="104" cy="301" r="2"/><circle cx="323" cy="92" r="2"/><circle cx="452" cy="326" r="2"/><circle cx="271" cy="432" r="3"/></g>
               <g class="signal-ellipses"><ellipse cx="228" cy="260" rx="14" ry="5"/><ellipse cx="260" cy="260" rx="18" ry="6"/><ellipse cx="292" cy="260" rx="14" ry="5"/></g>
             </svg>
-            <div class="core-state"><div class="core-status"><strong id="stword">READY</strong><small id="strun"></small></div><div class="core-user" id="userText"></div><button id="mic" class="core-voice-btn" title="Voice input" aria-label="Start voice input">Zuzu Voice</button><div class="core-output" id="responseWrap"><span class="rtag core-hidden-tag" id="rtag" aria-hidden="true">IDLE</span><div class="rbody" id="response"><span class="rplaceholder"></span></div></div></div><div class="core-vision-box" id="coreVisionBox" hidden><div class="core-vision-head"><span id="visualMode">Vision idle</span><button id="flipCamera" type="button">Flip</button><button id="stopVisual" type="button">×</button></div><video id="visualPreview" playsinline autoplay muted></video><img id="visualImage" alt="Zuzu shared image preview" hidden><iframe id="visualFrame" title="Zuzu browser preview" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox" hidden></iframe><div id="visualEmpty" class="vision-empty">Show laptop live screen, screenshot, picture, video, YouTube, browser, camera, or screen share.</div></div>
+            <div class="core-state"><div class="core-status"><strong id="stword">READY</strong><small id="strun"></small></div><div class="core-user" id="userText"></div><button id="mic" class="core-voice-btn" title="Voice input" aria-label="Start voice input">Zuzu Voice</button><div class="core-output" id="responseWrap"><span class="rtag core-hidden-tag" id="rtag" aria-hidden="true">IDLE</span><div class="rbody" id="response"><span class="rplaceholder"></span></div></div></div><div class="core-vision-box" id="coreVisionBox" hidden><div class="core-vision-head"><span id="visualMode">Vision idle</span><button id="flipCamera" type="button">Flip</button><button id="drawScreen" type="button" title="Draw on the laptop screen" hidden>Draw</button><button id="clearDrawing" type="button" title="Clear drawings on the laptop screen" hidden>Clear</button><button id="stopVisual" type="button">×</button></div><video id="visualPreview" playsinline autoplay muted></video><img id="visualImage" alt="Zuzu shared image preview" hidden><canvas id="drawCanvas" hidden></canvas><iframe id="visualFrame" title="Zuzu browser preview" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox" hidden></iframe><div id="visualEmpty" class="vision-empty">Show laptop live screen, screenshot, picture, video, YouTube, browser, camera, or screen share.</div></div>
           </div>
           <div class="core-details"><span><i class="online"></i> Online</span><span id="core-model">Gemini</span></div><div class="core-visual-actions"><button id="dockCamera" type="button">Livestream</button><button id="dockScreen" type="button">Screen share</button><button id="dockLaptop" type="button">Laptop live</button><button id="dockImage" type="button">Screenshot</button><button id="dockVideo" type="button">Video / YouTube</button><button id="dockBrowser" type="button">Browser view</button></div>
         </aside>
@@ -238,6 +239,10 @@
 
     <section class="view" role="tabpanel" data-view-panel="skills" hidden>
       <div class="view-head"><div><span class="kicker">Brain</span><h1>Skills</h1><p class="view-sub">Teach Zuzu reusable behaviours, or find new skills and plugins for Hermes.</p></div></div>
+      <article class="panel glass sk-suggest"><div class="panel-head"><div><h2>Zuzu's suggestions</h2><p>New skills Zuzu found for you. Nothing is installed until you approve it.</p></div></div>
+        <form id="skScoutForm" class="pf-form"><div class="pf-row"><input id="skTopic" placeholder="What should Zuzu learn? e.g. WhatsApp messages, resin calculations (empty = decide from your habits)"><button class="primary-btn" type="submit">Look for skills</button></div>
+          <div class="pf-row"><label class="pf-check"><input id="skAuto" type="checkbox"> Look for new skills automatically every</label><select id="skDays" aria-label="How often"><option value="3">3 days</option><option value="7">week</option><option value="14">2 weeks</option></select></div></form>
+        <div id="skProposals" class="mk-list"></div></article>
       <article class="panel glass skills-card"><div class="panel-head"><div><h2>Capability catalogue</h2><p>Browse skills, plugins, tools, models and installable helpers from Hermes, GitHub and Hugging Face.</p></div><button id="addSkill" class="secondary-btn">Create skill</button></div><div class="skill-search catalogue-search"><input id="skillSearch" placeholder="Search catalogue: browser automation, vision, finance, voice..."><button id="searchAllCapabilities" type="button" class="secondary-btn">Search all</button><button id="searchGithubSkills" type="button" class="secondary-btn">GitHub</button><button id="searchHuggingFaceSkills" type="button" class="secondary-btn">Hugging Face</button></div><div class="catalogue-tabs" id="catalogueTabs"><button data-catalogue-filter="all" class="active">All</button><button data-catalogue-filter="hermes">Hermes</button><button data-catalogue-filter="skill">Skills</button><button data-catalogue-filter="plugin">Plugins</button><button data-catalogue-filter="tool">Tools</button><button data-catalogue-filter="model">Models</button></div><div id="catalogueGrid" class="catalogue-grid"></div><div class="panel-head compact"><div><h2>Installed Zuzu skills</h2><p>Reusable instructions already saved in this workspace.</p></div></div><div id="skillList"></div></article>
     </section>
 
@@ -270,7 +275,7 @@
 <button id="stopBtn" class="stop-btn" type="button" title="Stop everything Zuzu is doing (Esc)" aria-label="Stop" hidden>Stop <small>Esc</small></button>
 <dialog id="editorDialog"><form method="dialog" id="editorForm"><div class="dialog-head"><h2 id="dialogTitle">Add</h2><button value="cancel" aria-label="Close">×</button></div><div id="dialogFields"></div><div class="dialog-actions"><button value="cancel" class="secondary-btn">Cancel</button><button id="dialogSave" value="default" class="primary-btn">Save</button></div></form></dialog>
 <script src="live-bridge.js?v=12"></script>
-<script src="app.js?v=41"></script>
+<script src="app.js?v=42"></script>
 </body>
 </html>
 

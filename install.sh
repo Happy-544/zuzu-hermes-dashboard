@@ -40,7 +40,7 @@ if [ ! -x .venv/bin/python ]; then
   python3 -m venv .venv
 fi
 .venv/bin/python migrate_voice_mode.py
-.venv/bin/python -m pip install --disable-pip-version-check -q faster-whisper psutil
+.venv/bin/python -m pip install --disable-pip-version-check -q faster-whisper psutil pillow
 
 printf '\nZuzu is ready. Launching with the configured Hermes profile.\n'
 printf "Dashboard: http://127.0.0.1:${JARVIS_PORT:-8730}\n\n"

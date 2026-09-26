@@ -31,6 +31,7 @@ DEFAULT_SETTINGS = {
     "telegramTarget": "",
     "wakeWord": False,
     "emailBrief": False, "emailAlerts": False, "emailAlertMinutes": 30,
+    "skillScout": False, "skillScoutDays": 7,
 }
 WEATHER_CODES = {
     0: "clear sky", 1: "mainly clear", 2: "partly cloudy", 3: "overcast", 45: "fog", 48: "fog",
@@ -448,10 +449,12 @@ def save_settings(values):
             continue
         if key in {"lat", "lon"}:
             clean[key] = float(value)
-        elif key in {"briefsEnabled", "wakeWord", "emailBrief", "emailAlerts"}:
+        elif key in {"briefsEnabled", "wakeWord", "emailBrief", "emailAlerts", "skillScout"}:
             clean[key] = bool(value)
         elif key == "emailAlertMinutes":
             clean[key] = max(10, min(240, int(value or 30)))
+        elif key == "skillScoutDays":
+            clean[key] = max(1, min(30, int(value or 7)))
         else:
             clean[key] = re.sub(r"[\r\n]", "", str(value)).strip()[:500]
     for key in ("briefMorning", "briefEvening"):

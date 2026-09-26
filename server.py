@@ -50,6 +50,8 @@ import personal         # noqa: E402
 import markets          # noqa: E402
 import books            # noqa: E402
 import media            # noqa: E402
+import screen_pointer   # noqa: E402
+import skills_scout     # noqa: E402
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -158,7 +160,9 @@ def live_voice_persona(client_extra=""):
         "play_video to show a YouTube video about something; switch_model when asked to change the AI model or provider; "
         "sleep_mode when the user says 'Zuzu sleep mode', goodbye or asks you to stop listening (say a short goodbye first). "
         "get_markets and set_price_alert for prices and markets (say it is information, not financial advice); "
-        "create_image and create_video to make pictures or clips; find_books to find something to read. "
+        "create_image and create_video to make pictures or clips; find_books to find something to read; "
+        "point_at to show the user where something is on their laptop screen; find_new_skills to look for new abilities, "
+        "and install_skill only after the user explicitly says yes to a specific skill. "
         f"The current local date and time is {datetime.datetime.now().strftime('%A %Y-%m-%d %H:%M')}."
     )
     return "\n\n".join(x for x in (custom, routing, memory, client_extra) if x)
@@ -194,6 +198,13 @@ LOCAL_VOICE_TOOLS = [
     _tool("create_video", "Start creating a short video from a description; it is announced when ready.",
           {"prompt": "Detailed description of the video."}, ("prompt",)),
     _tool("find_books", "Search the free library for books to read or brief.", {"query": "Title, author or subject."}, ("query",)),
+    _tool("point_at", "Draw an arrow and circle on the user's laptop screen pointing at something visible.",
+          {"description": "What to point at, e.g. 'the Save button' or 'the Wi-Fi icon'."}, ("description",)),
+    _tool("clear_screen_drawing", "Remove Zuzu's drawings from the laptop screen."),
+    _tool("find_new_skills", "Search for new Hermes skills that could help, and list them for approval.",
+          {"topic": "What the skill should help with, or empty to decide from the user's habits."}),
+    _tool("install_skill", "Install a proposed skill. Only after the user clearly said yes to installing that exact skill.",
+          {"name": "Name of the proposed skill.", "confirmed": "'yes' only if the user explicitly approved."}, ("name", "confirmed")),
 ]
 
 
@@ -536,6 +547,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"error": str(exc)[:200]}, 503)
         if p == "/api/markets":
             return self._json(markets.state())
+        if p == "/api/skills/proposals":
+            return self._json({"proposals": skills_scout.proposals(), "overlay": screen_pointer.available()})
         if p == "/api/media/jobs":
             return self._json({"jobs": media.jobs()})
         if p.startswith("/api/books/"):
@@ -647,7 +660,7 @@ class Handler(BaseHTTPRequestHandler):
             auth.logout(self.headers.get("Cookie"))
             return self._json({"ok": True}, headers={"Set-Cookie": "zuzu_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0"})
         ctype = self.headers.get("Content-Type", "").split(";", 1)[0].lower()
-        if p in {"/api/run", "/api/speak", "/api/live-token", "/api/workspace", "/api/new", "/api/cancel", "/api/calls/outbound", "/api/catalog/install", "/api/personal", "/api/markets", "/api/books", "/api/media"} and ctype != "application/json":
+        if p in {"/api/run", "/api/speak", "/api/live-token", "/api/workspace", "/api/new", "/api/cancel", "/api/calls/outbound", "/api/catalog/install", "/api/personal", "/api/markets", "/api/books", "/api/media", "/api/overlay", "/api/overlay/point", "/api/skills"} and ctype != "application/json":
             return self._json({"error": "application/json required"}, 415)
         if p == "/api/listen" and not ctype.startswith("audio/"):
             return self._json({"error": "audio content type required"}, 415)
@@ -752,6 +765,33 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"error": str(exc)[:200]}, 400)
             except (OSError, RuntimeError) as exc:
                 return self._json({"error": f"Could not reach a service: {type(exc).__name__}"}, 503)
+
+        if p in {"/api/overlay", "/api/overlay/point", "/api/skills"}:
+            try:
+                payload = json.loads(raw or b"{}")
+                if not isinstance(payload, dict):
+                    raise ValueError("JSON object required")
+                if p == "/api/overlay":
+                    screen_pointer.send(screen_pointer.clean_command(payload))
+                    return self._json({"ok": True})
+                if p == "/api/overlay/point":
+                    description = str(payload.get("description", "")).strip()[:200]
+                    if not description:
+                        raise ValueError("Say what to point at")
+                    return self._json(screen_pointer.point(capture_laptop_screen_jpeg(), description))
+                kind = payload.get("action")
+                if kind == "scout":
+                    return self._json({"found": skills_scout.scout(payload.get("topic")), "proposals": skills_scout.proposals()})
+                if kind in {"approve", "dismiss"}:
+                    if kind == "approve" and payload.get("confirmed") is not True:
+                        raise ValueError("Confirm the installation first")
+                    item = skills_scout.decide(str(payload.get("id", "")), kind == "approve")
+                    return self._json({"item": item, "proposals": skills_scout.proposals()})
+                raise ValueError("unknown skills action")
+            except (ValueError, KeyError, TypeError) as exc:
+                return self._json({"error": str(exc)[:200]}, 400)
+            except (RuntimeError, OSError) as exc:
+                return self._json({"error": str(exc)[:240]}, 503)
 
         if p in {"/api/markets", "/api/books", "/api/media"}:
             try:
@@ -931,7 +971,7 @@ def main():
         for alert in markets.check_alerts():
             word = "above" if alert["direction"] == "above" else "below"
             personal.announce("market", f"{alert['name']} is now {alert['now']}, {word} your alert at {alert['price']}.", alert)
-    personal.EXTRA_TICKS.extend([market_alert_tick, personal.email_alert_tick])
+    personal.EXTRA_TICKS.extend([market_alert_tick, personal.email_alert_tick, skills_scout.scout_tick])
     personal.start_scheduler()
     srv = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     if os.environ.get("JARVIS_OPEN", "1") != "0":
