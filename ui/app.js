@@ -1229,52 +1229,136 @@ async function startGeminiLive(){
 }
 
 // ── voice out ──
-let muted = false, player = null;
+let muted = false, player = null, speakResolve = null, liveTts = null, liveTtsFailedUntil = 0;
+
+// Read a typed reply with the same Gemini native-audio model and voice as voice chat.
+// Resolves true once the audio has finished playing, false if nothing was spoken.
+async function speakWithLive(text){
+  const auth = await fetch('/api/live-token', {method:'POST', headers:apiHeaders({'content-type':'application/json'}),
+    body:JSON.stringify({purpose:'speak'})}).then(async r => { const d=await r.json(); if(!r.ok) throw new Error(d.error||`HTTP ${r.status}`); return d; });
+  return new Promise(resolve => {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const sources = new Set();
+    let playAt = ctx.currentTime, gotAudio = false, finished = false;
+    const ws = new WebSocket('wss://generativelanguage.googleapis.com/ws/'
+      + 'google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContentConstrained'
+      + `?access_token=${encodeURIComponent(auth.token)}`);
+    const finish = (ok, waitForAudio) => {
+      if (finished) return; finished = true; clearTimeout(timer);
+      try{ ws.close(); }catch(_){}
+      const delay = waitForAudio ? Math.max(0, (playAt - ctx.currentTime) * 1000) + 60 : 0;
+      setTimeout(() => {
+        for (const s of sources){ try{s.stop();}catch(_){} }
+        ctx.close().catch(()=>{});
+        if (liveTts?.ws === ws) liveTts = null;
+        resolve(ok);
+      }, delay);
+    };
+    liveTts = {ws, stop: () => finish(gotAudio, false)};
+    const timer = setTimeout(() => finish(gotAudio, gotAudio), 20000);
+    ws.onopen = () => ws.send(JSON.stringify({setup:{
+      model:`models/${auth.model}`,
+      generationConfig:{responseModalities:['AUDIO'], thinkingConfig:{thinkingBudget:0},
+        speechConfig:{voiceConfig:{prebuiltVoiceConfig:{voiceName:auth.voice||'Kore'}}}},
+      systemInstruction:{parts:[{text:auth.system}]}
+    }}));
+    ws.onmessage = async event => {
+      let payload = event.data;
+      if (payload instanceof Blob) payload = await payload.text();
+      const msg = JSON.parse(payload);
+      if (msg.setupComplete){
+        ws.send(JSON.stringify({clientContent:{turns:[{role:'user', parts:[{text:`Read this aloud exactly, word for word:\n\n${text}`}]}], turnComplete:true}}));
+        return;
+      }
+      for (const part of (msg.serverContent?.modelTurn?.parts || [])){
+        if (!part.inlineData?.data || muted) continue;
+        const raw = atob(part.inlineData.data), bytes = new Uint8Array(raw.length);
+        for (let i=0; i<raw.length; i++) bytes[i] = raw.charCodeAt(i);
+        const pcm = new Int16Array(bytes.buffer), buf = ctx.createBuffer(1, pcm.length, 24000), ch = buf.getChannelData(0);
+        for (let i=0; i<pcm.length; i++) ch[i] = pcm[i] / 32768;
+        const src = ctx.createBufferSource(); src.buffer = buf; src.connect(ctx.destination);
+        sources.add(src); src.onended = () => sources.delete(src);
+        if (!gotAudio){ gotAudio = true; document.body.classList.add('speaking'); }
+        const when = Math.max(ctx.currentTime + 0.015, playAt); src.start(when); playAt = when + buf.duration;
+      }
+      if (msg.serverContent?.turnComplete) finish(gotAudio, true);
+    };
+    ws.onerror = () => finish(gotAudio, gotAudio);
+    ws.onclose = () => finish(gotAudio, gotAudio);
+  });
+}
+
+function stopSpeech(){
+  if (player){ try{player.pause();}catch(_){} }
+  speechSynth?.cancel();
+  liveTts?.stop();
+  document.body.classList.remove('speaking');
+  if (speakResolve){ const r = speakResolve; speakResolve = null; r(); }
+}
+
 function speak(text){
   return new Promise(resolve => {
     const voiceStarted=performance.now();
     text = cleanForSpeech(text);
     if (muted || !text) return resolve();
+    speakResolve = resolve;
     suppress = true;
     const spoken = text.length > 700 ? text.slice(0, 680).replace(/\s+\S*$/,'') + '…' : text;
-    if (!RT.tts && RT.browserTts && speechSynth){
-      try{
-        speechSynth.cancel();
-        const u = new SpeechSynthesisUtterance(spoken);
-        u.lang = /[\u0600-\u06ff]/.test(spoken) ? 'ar-EG' : 'en-US';
-        u.rate = 0.95; u.pitch = 0.82; u.volume = 1;
-        document.body.classList.add('speaking');
-        u.onstart = () => log('latency','VOICE',`browser speech started after ${Math.round(performance.now()-voiceStarted)}ms`);
-        u.onend = u.onerror = () => { document.body.classList.remove('speaking'); resolve(); };
-        speechSynth.speak(u);
-        return;
-      }catch(_){ return resolve(); }
-    }
-    if (!RT.tts) return resolve();
-    fetch('/api/speak', {method:'POST', headers:apiHeaders({'content-type':'application/json'}),
-                         body: JSON.stringify({text:spoken})})
-      .then(r => r.ok ? r.blob() : Promise.reject())
-      .then(blob => {
-        log('latency','VOICE',`speech audio ready after ${Math.round(performance.now()-voiceStarted)}ms`);
-        const url = URL.createObjectURL(blob);
-        if (player) player.pause();
-        player = new Audio(url);
-        document.body.classList.add('speaking');
-        const done = () => { document.body.classList.remove('speaking');
-          URL.revokeObjectURL(url); resolve(); };
-        player.onended = done; player.onerror = done;
-        return player.play();
-      })
-      .catch(() => {
-        ttsFailed=true; RT.tts=false;
-        if (!speechSynth) return resolve();
-        const u = new SpeechSynthesisUtterance(spoken);
-        u.lang = /[\u0600-\u06ff]/.test(spoken) ? 'ar-EG' : 'en-US';
-        u.onend = u.onerror = () => { document.body.classList.remove('speaking'); resolve(); };
-        document.body.classList.add('speaking');
-        speechSynth.speak(u);
+    if (RT.live && Date.now() >= liveTtsFailedUntil){
+      speakWithLive(spoken).then(ok => {
+        document.body.classList.remove('speaking');
+        if (ok || speakResolve !== resolve){ log('latency','VOICE',`native voice finished after ${Math.round(performance.now()-voiceStarted)}ms`); return resolve(); }
+        throw new Error('no audio returned');
+      }).catch(err => {
+        if (speakResolve !== resolve) return resolve();
+        liveTtsFailedUntil = Date.now() + 5*60*1000;
+        log('error','VOICE',`native voice unavailable (${String(err.message||err).slice(0,80)}); using backup voice`);
+        speakFallback(spoken, voiceStarted, resolve);
       });
+      return;
+    }
+    speakFallback(spoken, voiceStarted, resolve);
   });
+}
+
+function speakFallback(spoken, voiceStarted, resolve){
+  if (!RT.tts && RT.browserTts && speechSynth){
+    try{
+      speechSynth.cancel();
+      const u = new SpeechSynthesisUtterance(spoken);
+      u.lang = /[\u0600-\u06ff]/.test(spoken) ? 'ar-EG' : 'en-US';
+      u.rate = 0.95; u.pitch = 0.82; u.volume = 1;
+      document.body.classList.add('speaking');
+      u.onstart = () => log('latency','VOICE',`browser speech started after ${Math.round(performance.now()-voiceStarted)}ms`);
+      u.onend = u.onerror = () => { document.body.classList.remove('speaking'); resolve(); };
+      speechSynth.speak(u);
+      return;
+    }catch(_){ return resolve(); }
+  }
+  if (!RT.tts) return resolve();
+  fetch('/api/speak', {method:'POST', headers:apiHeaders({'content-type':'application/json'}),
+                       body: JSON.stringify({text:spoken})})
+    .then(r => r.ok ? r.blob() : Promise.reject())
+    .then(blob => {
+      log('latency','VOICE',`speech audio ready after ${Math.round(performance.now()-voiceStarted)}ms`);
+      const url = URL.createObjectURL(blob);
+      if (player) player.pause();
+      player = new Audio(url);
+      document.body.classList.add('speaking');
+      const done = () => { document.body.classList.remove('speaking');
+        URL.revokeObjectURL(url); resolve(); };
+      player.onended = done; player.onerror = done;
+      return player.play();
+    })
+    .catch(() => {
+      ttsFailed=true; RT.tts=false;
+      if (!speechSynth) return resolve();
+      const u = new SpeechSynthesisUtterance(spoken);
+      u.lang = /[\u0600-\u06ff]/.test(spoken) ? 'ar-EG' : 'en-US';
+      u.onend = u.onerror = () => { document.body.classList.remove('speaking'); resolve(); };
+      document.body.classList.add('speaking');
+      speechSynth.speak(u);
+    });
 }
 
 // ── start / stop the whole conversation ──
@@ -1558,19 +1642,36 @@ document.querySelectorAll('[data-compose]').forEach(b => b.onclick = () => {
   $('#input').value = b.dataset.compose || '';
   $('#input').focus();
 });
-document.addEventListener('keydown', e => {
-  if (e.key !== 'Escape') return;
-  if (running && activeController){
+let serverBusy = false;
+function isBusy(){
+  return running || serverBusy || convo || liveConnecting || !!liveTts || liveSpeaking
+    || document.body.classList.contains('speaking') || !!(player && !player.paused) || !!speechSynth?.speaking;
+}
+function stopEverything(){
+  if (running || serverBusy){
     fetch('/api/cancel', {method:'POST', headers:apiHeaders({'content-type':'application/json'}), body:JSON.stringify({client_context: clientDeviceContext(), system: clientContextSystemText()})}).catch(()=>{});
-    activeController.abort();
-    return;
   }
-  if (convo) stopConvo();
+  if (activeController) activeController.abort();
+  stopSpeech();
+  if (convo || liveConnecting) stopConvo();
+  serverBusy = false;
+  setState('', 'STOPPED', 'stopped by you');
+  setTag('', 'IDLE');
+  log('note','STOP','stopped the running request, speech and voice');
+  refreshStopButton();
+}
+function refreshStopButton(){ const b=$('#stopBtn'); if (b) b.hidden = !isBusy(); }
+$('#stopBtn').onclick = stopEverything;
+setInterval(refreshStopButton, 250);
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape' || !isBusy()) return;
+  e.preventDefault();
+  stopEverything();
 });
 $('#mute').onclick = () => {
   muted = !muted; const b=$('#mute');
   b.textContent = muted?'🔇':'🔊'; b.classList.toggle('on',!muted); b.classList.toggle('off',muted);
-  if (muted && player) player.pause();
+  if (muted) stopSpeech();
 };
 $('#input').addEventListener('keydown', e => {
   if (e.key==='Enter' && !e.shiftKey && !e.isComposing){ e.preventDefault(); sendFromInput(); }
@@ -1688,6 +1789,7 @@ function renderStatus(s){
   sys('gw', 'Online', 'ok');
   sys('hermes', hermesLabel, hermesReady ? 'ok' : (hermesChecking ? '' : 'warn'));
   const hasActiveOperation = renderActiveOperation(s.active_operation, 'status');
+  serverBusy = !!hasActiveOperation;
   if (!hasActiveOperation) sys('brain', brain, s.runtime === 'mock' ? 'warn' : 'ok');
   sys('voice', `${sttLabel} / ${ttsLabel}`, (RT.browserStt||RT.stt) ? 'ok' : 'warn');
   sys('profile', s.profile || 'default');

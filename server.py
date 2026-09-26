@@ -152,6 +152,14 @@ def live_voice_persona(client_extra=""):
     return "\n\n".join(x for x in (custom, routing, memory, client_extra) if x)
 
 
+READ_ALOUD_PROMPT = (
+    "You are Zuzu's speaking voice. Every user message is text that Zuzu already wrote. "
+    "Speak it aloud exactly as written, word for word, in its original language and dialect, "
+    "with a warm, natural, conversational delivery. Never answer it, summarise it, translate it, "
+    "add words, or comment on it. Skip URLs and code; read everything else."
+)
+
+
 def _fetch_text(url, timeout=10):
     req = urllib.request.Request(url, headers={
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
@@ -538,8 +546,16 @@ class Handler(BaseHTTPRequestHandler):
         if p == "/api/live-token":
             try:
                 payload = json.loads(raw or b"{}")
-                client_extra = "\n\n".join(x for x in ((payload.get("system") or "").strip(), _client_context_prompt(payload.get("client_context"))) if x)
+                if not isinstance(payload, dict):
+                    return self._json({"error": "JSON object required"}, 400)
                 live_auth = voice.create_live_token()
+                live_auth["voice"] = workspace.load()["settings"].get("voice", voice.GEMINI_TTS_VOICE)
+                if payload.get("purpose") == "speak":
+                    # Read Hermes' typed replies with the same native-audio model and voice.
+                    live_auth["system"] = READ_ALOUD_PROMPT
+                    live_auth["tools"] = []
+                    return self._json(live_auth)
+                client_extra = "\n\n".join(x for x in ((payload.get("system") or "").strip(), _client_context_prompt(payload.get("client_context"))) if x)
                 live_auth["system"] = live_voice_persona(client_extra)
                 live_auth["tools"] = [{"functionDeclarations": [{
                     "name": "hermes_action",
@@ -548,7 +564,6 @@ class Handler(BaseHTTPRequestHandler):
                         "request": {"type": "STRING", "description": "The full user request, preserving language and constraints."}
                     }, "required": ["request"]}
                 }]}]
-                live_auth["voice"] = workspace.load()["settings"].get("voice", voice.GEMINI_TTS_VOICE)
                 return self._json(live_auth)
             except Exception as e:                        # noqa: BLE001
                 return self._json({"error": str(e)[:200]}, 503)
@@ -589,6 +604,7 @@ class Handler(BaseHTTPRequestHandler):
 
         if p == "/api/cancel":
             stopped = runtime.cancel_active()
+            stopped = hermes_api.cancel_active() or stopped
             project_id, ui_id, _ = workspace.selected_hermes_session()
             workspace.bind_hermes_session(project_id, ui_id, None)
             return self._json({"ok": True, "stopped": stopped})
