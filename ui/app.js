@@ -30,26 +30,48 @@ const rid = () => 'run_' + (crypto.randomUUID ? crypto.randomUUID().replace(/-/g
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 // ── workspace navigation ──
-const VIEW_NAMES = new Set(['chat','projects','models','tools','memory','studio','missions','activity','calls','settings']);
+// Five simple sections; each holds one or more pages.
+const VIEW_GROUPS = {home:['chat'], work:['projects','missions','studio'], brain:['memory','skills'],
+                     tools:['tools','calls'], settings:['settings','models','activity']};
+const VIEW_NAMES = new Set(Object.values(VIEW_GROUPS).flat());
+const groupOf = name => Object.keys(VIEW_GROUPS).find(group => VIEW_GROUPS[group].includes(name)) || 'home';
 function showView(name, remember = true){
+  if (VIEW_GROUPS[name]){
+    let last = ''; try{ last = localStorage.getItem(`zuzu-page-${name}`) || ''; }catch(_){}
+    name = VIEW_GROUPS[name].includes(last) ? last : VIEW_GROUPS[name][0];
+  }
   if (!VIEW_NAMES.has(name)) name = 'chat';
+  const group = groupOf(name);
   document.querySelectorAll('[data-view-panel]').forEach(panel => {
     const active = panel.dataset.viewPanel === name;
     panel.hidden = !active;
     panel.classList.toggle('active', active);
   });
-  document.querySelectorAll('[data-view]').forEach(button => {
-    const active = button.dataset.view === name;
+  document.querySelectorAll('[data-group]').forEach(button => {
+    const active = button.dataset.group === group;
     button.classList.toggle('active', active);
     button.setAttribute('aria-selected', String(active));
   });
-  if (remember) localStorage.setItem('jarvis-view', name);
+  const subnav = $('#subnav');
+  if (subnav){
+    subnav.hidden = VIEW_GROUPS[group].length < 2;
+    subnav.querySelectorAll('[data-sub]').forEach(button => {
+      button.hidden = button.dataset.sub !== group;
+      const active = button.dataset.view === name;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-selected', String(active));
+    });
+  }
+  if (remember){ try{ localStorage.setItem('jarvis-view', name); localStorage.setItem(`zuzu-page-${group}`, name); }catch(_){} }
   window.scrollTo({top:0, behavior:'auto'});
 }
-document.querySelectorAll('[data-view]').forEach(button => {
-  button.addEventListener('click', () => showView(button.dataset.view));
+document.addEventListener('click', e => {
+  const target = e.target.closest('[data-group],[data-view]');
+  if (!target) return;
+  showView(target.dataset.view || target.dataset.group);
 });
-showView(localStorage.getItem('jarvis-view') || 'chat', false);
+let savedView = 'chat'; try{ savedView = localStorage.getItem('jarvis-view') || 'chat'; }catch(_){}
+showView(savedView, false);
 
 // ── projects, settings, skills, memory and files ──
 let WS = null;

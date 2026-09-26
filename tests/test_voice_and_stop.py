@@ -71,6 +71,18 @@ class CommandCenterTests(unittest.TestCase):
         self.assertIn("/api/system", script)
 
 
+class NavigationTests(unittest.TestCase):
+    def test_five_sections_reach_every_page(self):
+        html = (ROOT / "ui" / "index.html").read_text(encoding="utf-8")
+        script = (ROOT / "ui" / "app.js").read_text(encoding="utf-8")
+        for group in ("home", "work", "brain", "tools", "settings"):
+            self.assertIn(f'data-group="{group}"', html)
+        for page in ("chat", "projects", "missions", "studio", "memory", "skills", "tools", "calls", "settings", "models", "activity"):
+            self.assertIn(f'data-view-panel="{page}"', html)
+            self.assertIn(f"'{page}'", script.split("const VIEW_GROUPS", 1)[1].split("};", 1)[0])
+        self.assertEqual(html.count('class="nav-item'), 5)
+
+
 class ReadAloudTokenTests(unittest.TestCase):
     def test_speak_token_uses_live_model_and_voice_without_tools(self):
         with tempfile.TemporaryDirectory() as folder, \

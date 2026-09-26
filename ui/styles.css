@@ -136,3 +136,36 @@ input:focus-visible,select:focus-visible{outline:2px solid var(--cyan);outline-o
 .cc-main .core-visual-actions button{flex:0 0 auto!important;width:auto!important;min-width:0!important;min-height:0!important;height:auto!important;padding:7px 13px!important;font-size:12px!important;letter-spacing:.02em!important;border-radius:999px!important}
 .stop-btn{bottom:190px}
 @media(max-width:700px){.stop-btn{bottom:200px}}
+/* ── Sections, sub-pages and unified page styling ── */
+.primary-nav .nav-item{min-width:0}
+.subnav{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 18px;padding:5px;width:max-content;max-width:100%;border:1px solid var(--line);border-radius:14px;background:rgba(12,9,6,.72)}
+.subnav[hidden],.subnav button[hidden]{display:none}
+.subnav button{padding:8px 16px;border:0;border-radius:10px;background:transparent;color:var(--muted);font-size:13px;font-weight:650;cursor:pointer;white-space:nowrap}
+.subnav button:hover{color:var(--text);background:rgba(255,173,53,.06)}
+.subnav button.active{background:rgba(255,173,53,.14);color:var(--amber);box-shadow:inset 0 0 0 1px var(--line2)}
+.view:not([data-view-panel="chat"]) .view-head{align-items:flex-end;margin-bottom:16px}
+.view:not([data-view-panel="chat"]) .view-head h1{font-size:26px;letter-spacing:0}
+.view-sub{margin:7px 0 0;max-width:640px;color:var(--muted);font-size:13px;line-height:1.5}
+.view:not([data-view-panel="chat"]) .glass{border:1px solid var(--line);border-radius:16px;background:linear-gradient(180deg,rgba(20,14,9,.9),rgba(9,8,7,.94));box-shadow:0 10px 30px rgba(0,0,0,.25)}
+.view:not([data-view-panel="chat"]) .panel-head{padding:14px 18px}
+.view:not([data-view-panel="chat"]) .panel-head h2,.view:not([data-view-panel="chat"]) .panel>h2,.view:not([data-view-panel="chat"]) article>h2{font:700 12px/1.2 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--amber)}
+.view:not([data-view-panel="chat"]) article.panel>h2{margin:18px 18px 10px}
+.view:not([data-view-panel="chat"]) .empty-state{padding:22px;font-size:13px}
+.view:not([data-view-panel="chat"]) input:not([type=checkbox]),.view:not([data-view-panel="chat"]) select,.view:not([data-view-panel="chat"]) textarea{border:1px solid var(--line);border-radius:10px;background:#0b0907;color:var(--text)}
+.view:not([data-view-panel="chat"]) input:focus,.view:not([data-view-panel="chat"]) select:focus,.view:not([data-view-panel="chat"]) textarea:focus{outline:none;border-color:var(--amber);box-shadow:0 0 0 3px rgba(255,173,53,.12)}
+.view:not([data-view-panel="chat"]) .chip{border-color:var(--line);background:rgba(255,173,53,.04)}
+.view:not([data-view-panel="chat"]) .cmd,.view:not([data-view-panel="chat"]) .action-card{border:1px solid var(--line);border-radius:12px;background:rgba(255,173,53,.035)}
+.view:not([data-view-panel="chat"]) .cmd:hover,.view:not([data-view-panel="chat"]) .action-card:hover{border-color:var(--amber);background:rgba(255,173,53,.09)}
+.view:not([data-view-panel="chat"]) .sysrow{border-radius:14px}
+.view:not([data-view-panel="chat"]) .sysrow b.ok{color:var(--green)}
+.view[data-view-panel="settings"] .settings-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+.view[data-view-panel="skills"] .skills-card{margin:0}
+@media(max-width:700px){.subnav{width:100%;overflow-x:auto;flex-wrap:nowrap}.mobile-nav{grid-template-columns:repeat(5,1fr)}.view[data-view-panel="settings"] .settings-grid{grid-template-columns:minmax(0,1fr)}.view:not([data-view-panel="chat"]) .view-head{flex-wrap:wrap}}
+.nav-item.active{background:rgba(255,173,53,.12)!important;border-color:var(--line2)!important;color:var(--amber)!important}
+.view:not([data-view-panel="chat"]) .view-head .kicker{display:none}
+.view:not([data-view-panel="chat"]) .secondary-btn,.view:not([data-view-panel="chat"]) .icon-btn{border:1px solid var(--line2);border-radius:10px;background:rgba(255,173,53,.06);color:var(--text);font-size:12.5px}
+.view:not([data-view-panel="chat"]) .secondary-btn:hover{border-color:var(--amber);background:rgba(255,173,53,.12)}
+.view:not([data-view-panel="chat"]) .catalogue-card{border:1px solid var(--line)!important;border-radius:12px!important;background:rgba(255,173,53,.03)!important}
+.view:not([data-view-panel="chat"]) .catalogue-card:hover{border-color:var(--line2)!important}
+.view:not([data-view-panel="chat"]) .catalogue-tabs button,.view:not([data-view-panel="chat"]) .mobile-presets button,.view:not([data-view-panel="chat"]) .catalogue-actions button{font-size:12.5px!important;padding:7px 13px!important;font-weight:650!important}
+.view:not([data-view-panel="chat"]) .project-row,.view:not([data-view-panel="chat"]) .session-row button,.view:not([data-view-panel="chat"]) .list-card{background:rgba(255,173,53,.035)}
