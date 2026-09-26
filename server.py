@@ -175,8 +175,13 @@ def _youtube_search(query):
             continue
         seen.add(vid)
         around = html[max(0, match.start() - 900):match.end() + 1600]
-        title_match = re.search(r'"title"\s*:\s*\{\s*"runs"\s*:\s*\[\s*\{\s*"text"\s*:\s*"(.*?)"', around)
-        title = title_match.group(1).encode("utf-8").decode("unicode_escape", "ignore") if title_match else query
+        title_match = re.search(r'"title"\s*:\s*\{\s*"runs"\s*:\s*\[\s*\{\s*"text"\s*:\s*"((?:[^"\\]|\\.)*)"', around)
+        title = query
+        if title_match:
+            try:
+                title = json.loads('"' + title_match.group(1) + '"')
+            except ValueError:
+                title = title_match.group(1)
         videos.append({
             "id": vid,
             "title": title,
@@ -301,6 +306,8 @@ class Handler(BaseHTTPRequestHandler):
         if not self._host_ok():
             return self._json({"error": "invalid host"}, 403)
         p = urlparse(self.path).path
+        if p == "/favicon.ico":
+            return self._bytes((UI / "icon-192.png").read_bytes(), "image/png")
         if p == "/login.html":
             return self._bytes((UI / "login.html").read_bytes(), "text/html; charset=utf-8", headers={
                 "Content-Security-Policy": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; form-action 'none'; frame-ancestors 'none'",
@@ -341,6 +348,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._bytes(b"not found", "text/plain", 404)
             return self._bytes(f.read_bytes(), mimetypes.guess_type(f.name)[0] or "application/octet-stream", headers={
                 "Cache-Control": "private, no-store",
+                "Content-Security-Policy": "sandbox",
+                "X-Content-Type-Options": "nosniff",
             })
 
         if p == "/api/youtube-search":
@@ -476,7 +485,7 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json({"error": "invalid password or temporarily rate limited"}, 401)
                 sid, csrf = result
                 return self._json({"ok": True, "csrf": csrf}, headers={"Set-Cookie": self._login_cookie(sid)})
-            except (ValueError, TypeError) as exc:
+            except (ValueError, TypeError, AttributeError) as exc:
                 return self._json({"error": str(exc)[:120]}, 400)
         if p == "/api/setup/ngrok":
             return ngrok_setup.handle_post(self)
@@ -510,7 +519,7 @@ class Handler(BaseHTTPRequestHandler):
                 payload = json.loads(raw or b"{}")
                 result = phone_calls.outbound(payload.get("number"), payload.get("confirmed"), payload.get("requestId"))
                 return self._json(result)
-            except ValueError as exc:
+            except (ValueError, AttributeError) as exc:
                 return self._json({"error": str(exc)}, 400)
             except RuntimeError as exc:
                 return self._json({"error": str(exc)}, 503)
@@ -521,7 +530,7 @@ class Handler(BaseHTTPRequestHandler):
                 if payload.get("confirmed") is not True:
                     return self._json({"error": "Confirm the skill installation"}, 400)
                 return self._json(catalog.install(payload.get("identifier"), payload.get("kind", "skill")))
-            except ValueError as exc:
+            except (ValueError, AttributeError) as exc:
                 return self._json({"error": str(exc)}, 400)
             except (RuntimeError, OSError) as exc:
                 return self._json({"error": str(exc)[:400]}, 503)
@@ -604,6 +613,8 @@ class Handler(BaseHTTPRequestHandler):
             payload = json.loads(raw or b"{}")
         except json.JSONDecodeError:
             return self._json({"error": "bad json"}, 400)
+        if not isinstance(payload, dict):
+            return self._json({"error": "JSON object required"}, 400)
         message = (payload.get("message") or "").strip()
         extra = "\n\n".join(x for x in ((payload.get("system") or "").strip(), _client_context_prompt(payload.get("client_context"))) if x)
         system = "\n\n".join(x for x in (persona(), extra) if x) or None

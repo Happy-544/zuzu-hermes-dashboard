@@ -95,6 +95,7 @@ def run_hermes(message, session_id=None, system=None, *, title="Zuzu chat", prov
     saw_delta = False
     final_text = ""
     terminal = None
+    failure = ""
     try:
         with _request(path, body, timeout=180) as response:
             event_name = ""
@@ -129,7 +130,7 @@ def run_hermes(message, session_id=None, system=None, *, title="Zuzu chat", prov
                             yield {"t": "usage", **event["usage"]}
                     elif kind == "error":
                         terminal = "run.failed"
-                        yield {"t": "error", "message": str(event.get("message") or "Hermes run failed")[:300]}
+                        failure = str(event.get("message") or "Hermes run failed")[:300]
                 elif not line:
                     event_name = ""
         if terminal == "run.completed":

@@ -169,6 +169,10 @@ def computer_control_request(message):
     return bool(settings.get("computerControl")) and bool(_CONTROL_INTENT.search(message or ""))
 
 
+def _env_value(value):
+    return re.sub(r"[\r\n\x00]", "", str(value))
+
+
 def _env_update(values):
     path = ROOT / ".env"
     lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
@@ -178,13 +182,13 @@ def _env_update(values):
         if "=" in line and not line.lstrip().startswith("#"):
             key = line.split("=", 1)[0].strip()
             if key in pending:
-                output.append(f"{key}={pending.pop(key)}")
+                output.append(f"{key}={_env_value(pending.pop(key))}")
                 continue
         output.append(line)
-    output.extend(f"{key}={value}" for key, value in pending.items())
+    output.extend(f"{key}={_env_value(value)}" for key, value in pending.items())
     path.write_text("\n".join(output) + "\n", encoding="utf-8")
     for key, value in values.items():
-        os.environ[key] = value
+        os.environ[key] = _env_value(value)
 
 
 def action(payload):
@@ -225,7 +229,7 @@ def action(payload):
         save(data)
     elif kind == "delete_project":
         pid = str(payload.get("id", "")); data["projects"] = [p for p in data["projects"] if p["id"] != pid]
-        if not data["projects"]: data["projects"] = list(DEFAULT["projects"])
+        if not data["projects"]: data["projects"] = copy.deepcopy(DEFAULT["projects"])
         data["selectedProject"] = data["projects"][0]["id"]; data["selectedSession"] = ""; save(data)
     elif kind == "add_session":
         pid = str(payload.get("projectId", data["selectedProject"])); name = str(payload.get("name", "New chat")).strip()[:80] or "New chat"
