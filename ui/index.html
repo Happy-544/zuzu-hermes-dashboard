@@ -11,7 +11,7 @@
 <title>Zuzu · Hermes</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-192.png">
-<link rel="stylesheet" href="styles.css?v=39">
+<link rel="stylesheet" href="styles.css?v=40">
 </head>
 <body>
 <div class="grid-bg"></div>
@@ -26,7 +26,7 @@
   <aside class="sidebar" aria-label="Main navigation">
     <nav class="primary-nav" role="tablist" aria-label="Main sections">
       <button class="nav-item active" role="tab" data-group="home" aria-selected="true"><span>Home</span><small>Talk and command center</small></button>
-      <button class="nav-item" role="tab" data-group="work" aria-selected="false"><span>Work</span><small>Chats, goals and files</small></button>
+      <button class="nav-item" role="tab" data-group="work" aria-selected="false"><span>Work</span><small>Reminders, chats, files</small></button>
       <button class="nav-item" role="tab" data-group="brain" aria-selected="false"><span>Brain</span><small>Memory and skills</small></button>
       <button class="nav-item" role="tab" data-group="tools" aria-selected="false"><span>Tools</span><small>Hermes tools and calls</small></button>
       <button class="nav-item" role="tab" data-group="settings" aria-selected="false"><span>Settings</span><small>Assistant, model, health</small></button>
@@ -38,6 +38,7 @@
   <main class="workspace">
     <nav class="subnav" id="subnav" role="tablist" aria-label="Pages in this section" hidden>
       <button type="button" role="tab" data-sub="home" data-view="chat">Home</button>
+      <button type="button" role="tab" data-sub="work" data-view="reminders">Reminders &amp; brief</button>
       <button type="button" role="tab" data-sub="work" data-view="projects">Chats &amp; projects</button>
       <button type="button" role="tab" data-sub="work" data-view="missions">Goals &amp; missions</button>
       <button type="button" role="tab" data-sub="work" data-view="studio">Files &amp; create</button>
@@ -89,7 +90,7 @@
               <g class="spark-field"><circle cx="124" cy="160" r="3"/><circle cx="172" cy="115" r="2"/><circle cx="385" cy="130" r="3"/><circle cx="424" cy="229" r="2"/><circle cx="390" cy="384" r="3"/><circle cx="193" cy="411" r="2"/><circle cx="104" cy="301" r="2"/><circle cx="323" cy="92" r="2"/><circle cx="452" cy="326" r="2"/><circle cx="271" cy="432" r="3"/></g>
               <g class="signal-ellipses"><ellipse cx="228" cy="260" rx="14" ry="5"/><ellipse cx="260" cy="260" rx="18" ry="6"/><ellipse cx="292" cy="260" rx="14" ry="5"/></g>
             </svg>
-            <div class="core-state"><div class="core-status"><strong id="stword">READY</strong><small id="strun"></small></div><div class="core-user" id="userText"></div><button id="mic" class="core-voice-btn" title="Voice input" aria-label="Start voice input">Zuzu Voice</button><div class="core-output" id="responseWrap"><span class="rtag core-hidden-tag" id="rtag" aria-hidden="true">IDLE</span><div class="rbody" id="response"><span class="rplaceholder"></span></div></div></div><div class="core-vision-box" id="coreVisionBox" hidden><div class="core-vision-head"><span id="visualMode">Vision idle</span><button id="flipCamera" type="button">Flip</button><button id="stopVisual" type="button">×</button></div><video id="visualPreview" playsinline autoplay muted></video><img id="visualImage" alt="Zuzu shared image preview" hidden><iframe id="visualFrame" title="Zuzu browser preview" sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox" hidden></iframe><div id="visualEmpty" class="vision-empty">Show laptop live screen, screenshot, picture, video, YouTube, browser, camera, or screen share.</div></div>
+            <div class="core-state"><div class="core-status"><strong id="stword">READY</strong><small id="strun"></small></div><div class="core-user" id="userText"></div><button id="mic" class="core-voice-btn" title="Voice input" aria-label="Start voice input">Zuzu Voice</button><div class="core-output" id="responseWrap"><span class="rtag core-hidden-tag" id="rtag" aria-hidden="true">IDLE</span><div class="rbody" id="response"><span class="rplaceholder"></span></div></div></div><div class="core-vision-box" id="coreVisionBox" hidden><div class="core-vision-head"><span id="visualMode">Vision idle</span><button id="flipCamera" type="button">Flip</button><button id="stopVisual" type="button">×</button></div><video id="visualPreview" playsinline autoplay muted></video><img id="visualImage" alt="Zuzu shared image preview" hidden><iframe id="visualFrame" title="Zuzu browser preview" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox" hidden></iframe><div id="visualEmpty" class="vision-empty">Show laptop live screen, screenshot, picture, video, YouTube, browser, camera, or screen share.</div></div>
           </div>
           <div class="core-details"><span><i class="online"></i> Online</span><span id="core-model">Gemini</span></div><div class="core-visual-actions"><button id="dockCamera" type="button">Livestream</button><button id="dockScreen" type="button">Screen share</button><button id="dockLaptop" type="button">Laptop live</button><button id="dockImage" type="button">Screenshot</button><button id="dockVideo" type="button">Video / YouTube</button><button id="dockBrowser" type="button">Browser view</button></div>
         </aside>
@@ -108,17 +109,22 @@
       </div>
       </div>
       <aside class="cc-rail cc-right" aria-label="Tools and system">
+        <section class="cc-card cc-today">
+          <header><h3>Today</h3><button type="button" class="cc-link" data-cc-brief>Play brief</button></header>
+          <div id="ccToday"><div class="cc-empty">Loading your day…</div></div>
+          <div class="cc-today-actions"><button type="button" class="cc-ghost" id="ccAddReminder">+ Reminder</button><button type="button" class="cc-ghost" data-view="reminders">All reminders</button></div>
+        </section>
         <section class="cc-card">
           <header><h3>Smart tools</h3><span class="cc-hint">One click</span></header>
           <div class="cc-tools">
-            <button type="button" data-cc-run="Give me a quick daily brief: today's date and time, my standing goal, open missions, and anything that needs my attention today. Keep it short."><b>Daily brief</b><small>Goal, missions, today</small></button>
+            <button type="button" data-cc-brief><b>Daily brief</b><small>Weather, news, your day</small></button>
             <button type="button" data-cc-run="Plan my day: use my standing goal, mission queue, reminders and calendar if connected. Give a prioritized list with suggested times."><b>Plan my day</b><small>Prioritized schedule</small></button>
             <button type="button" data-cc-compose="Research this and give me a short brief with sources: "><b>Research</b><small>Web brief + sources</small></button>
             <button type="button" data-cc-summarize><b>Summarize</b><small>File, link or text</small></button>
             <button type="button" data-cc-compose="Draft a message in my tone (show it to me before sending) to "><b>Draft message</b><small>Email / Telegram</small></button>
             <button type="button" data-cc-run="Look at my laptop screen right now using the computer or screenshot tools. Tell me what is open and what I should do next. Do not click or change anything."><b>My screen</b><small>Explain what's open</small></button>
-            <button type="button" data-cc-compose="/browser search for "><b>Web search</b><small>Open results</small></button>
-            <button type="button" data-cc-compose="/remind "><b>Remind me</b><small>Follow-ups</small></button>
+            <button type="button" data-cc-compose="/music "><b>Music</b><small>YouTube Music</small></button>
+            <button type="button" data-cc-compose="/video "><b>Video</b><small>Find on YouTube</small></button>
           </div>
         </section>
         <section class="cc-card">
@@ -134,6 +140,33 @@
           <ol class="cc-feed" id="ccFeed"></ol>
         </section>
       </aside>
+      </div>
+    </section>
+
+    <section class="view" role="tabpanel" data-view-panel="reminders" hidden>
+      <div class="view-head"><div><span class="kicker">Work</span><h1>Reminders &amp; daily brief</h1><p class="view-sub">Tell Zuzu what to remember and when. She announces it on time, here and on Telegram.</p></div></div>
+      <div class="workspace-grid">
+        <article class="panel glass">
+          <div class="panel-head"><div><h2>Reminders</h2><p>Type naturally: "call mom tomorrow 6pm" or "بكرة الساعة 8 اصحى"</p></div></div>
+          <form id="reminderForm" class="pf-form">
+            <input id="reminderText" placeholder="What, and when…" autocomplete="off" required>
+            <div class="pf-row"><input id="reminderDue" type="datetime-local" aria-label="Exact time (optional)"><select id="reminderRepeat" aria-label="Repeat"><option value="">Once</option><option value="daily">Every day</option><option value="weekly">Every week</option></select><button class="primary-btn" type="submit">Add</button></div>
+          </form>
+          <div id="reminderList" class="pf-list"></div>
+        </article>
+        <article class="panel glass">
+          <div class="panel-head"><div><h2>Daily brief</h2><p>Date, weather, calendar, reminders and headlines</p></div><button id="briefNow" class="secondary-btn" type="button">Play now</button></div>
+          <div id="briefPreview" class="pf-brief"><div class="empty-state">Press Play now to hear today's brief.</div></div>
+          <form id="briefForm" class="pf-form">
+            <div class="pf-row"><label>City<input id="pfCity" placeholder="Dubai"></label><label>Morning brief<input id="pfMorning" type="time"></label><label>Evening brief<input id="pfEvening" type="time"></label></div>
+            <div class="pf-row"><label>News region<select id="pfRegion"><option value="AE">UAE</option><option value="EG">Egypt</option><option value="SA">Saudi Arabia</option><option value="GB">UK</option><option value="US">USA</option></select></label><label>News language<select id="pfLang"><option value="en">English</option><option value="ar">Arabic</option></select></label><label>News topic<input id="pfTopic" placeholder="optional, e.g. Dubai property"></label></div>
+            <label>Calendar link (iCal)<input id="pfIcs" placeholder="Google Calendar → Settings → Secret address in iCal format"></label>
+            <label>Telegram target<input id="pfTelegram" placeholder="optional; from: hermes send --list telegram"></label>
+            <label class="pf-check"><input id="pfBriefs" type="checkbox"> Announce morning and evening briefs automatically</label>
+            <label class="pf-check"><input id="pfWake" type="checkbox"> Wake word: say "Hey Zuzu" to start talking, "Zuzu sleep mode" to stop</label>
+            <button class="primary-btn" type="submit">Save</button>
+          </form>
+        </article>
       </div>
     </section>
 
@@ -201,8 +234,8 @@
 <nav class="mobile-nav" role="tablist" aria-label="Mobile navigation"><button class="active" role="tab" data-group="home" aria-selected="true">Home</button><button role="tab" data-group="work" aria-selected="false">Work</button><button role="tab" data-group="brain" aria-selected="false">Brain</button><button role="tab" data-group="tools" aria-selected="false">Tools</button><button role="tab" data-group="settings" aria-selected="false">Settings</button></nav>
 <button id="stopBtn" class="stop-btn" type="button" title="Stop everything Zuzu is doing (Esc)" aria-label="Stop" hidden>Stop <small>Esc</small></button>
 <dialog id="editorDialog"><form method="dialog" id="editorForm"><div class="dialog-head"><h2 id="dialogTitle">Add</h2><button value="cancel" aria-label="Close">×</button></div><div id="dialogFields"></div><div class="dialog-actions"><button value="cancel" class="secondary-btn">Cancel</button><button id="dialogSave" value="default" class="primary-btn">Save</button></div></form></dialog>
-<script src="live-bridge.js?v=11"></script>
-<script src="app.js?v=39"></script>
+<script src="live-bridge.js?v=12"></script>
+<script src="app.js?v=40"></script>
 </body>
 </html>
 

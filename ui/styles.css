@@ -169,3 +169,39 @@ input:focus-visible,select:focus-visible{outline:2px solid var(--cyan);outline-o
 .view:not([data-view-panel="chat"]) .catalogue-card:hover{border-color:var(--line2)!important}
 .view:not([data-view-panel="chat"]) .catalogue-tabs button,.view:not([data-view-panel="chat"]) .mobile-presets button,.view:not([data-view-panel="chat"]) .catalogue-actions button{font-size:12.5px!important;padding:7px 13px!important;font-weight:650!important}
 .view:not([data-view-panel="chat"]) .project-row,.view:not([data-view-panel="chat"]) .session-row button,.view:not([data-view-panel="chat"]) .list-card{background:rgba(255,173,53,.035)}
+/* ── Personal: Today card, reminders, brief, toasts ── */
+.cc-today-date{font-size:15px;font-weight:700;color:var(--text)}
+.cc-today-weather{display:grid;grid-template-columns:auto 1fr;gap:0 10px;align-items:center;margin:8px 0}
+.cc-today-weather b{grid-row:span 2;font-size:30px;line-height:1;color:var(--amber)}
+.cc-today-weather span{font-size:12px;color:var(--muted)}.cc-today-weather small{font-size:11px;color:var(--dim)}
+.cc-today-list{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:6px;font-size:12.5px}
+.cc-today-list li span{display:inline-block;min-width:92px;color:var(--amber);font:11px/1.4 var(--mono)}
+.cc-today-news{margin-top:9px;padding-top:9px;border-top:1px solid rgba(255,255,255,.05);font-size:12px;color:var(--muted);line-height:1.45}
+.cc-today-news b{color:var(--dim);font-weight:600;margin-right:4px}
+.cc-today-actions{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:10px}
+.pf-form{display:flex;flex-direction:column;gap:10px;padding:14px 18px}
+.pf-form label{display:flex;flex-direction:column;gap:5px;font-size:11.5px;color:var(--dim)}
+.pf-form input:not([type=checkbox]),.pf-form select{width:100%;padding:9px 11px;font:inherit;font-size:13px}
+.pf-row{display:flex;gap:8px;flex-wrap:wrap}.pf-row>*{flex:1 1 140px}.pf-row>button{flex:0 0 auto}
+.pf-form .pf-check{flex-direction:row;align-items:center;gap:9px;font-size:12.5px;color:var(--muted)}
+.pf-list{display:flex;flex-direction:column;gap:6px;padding:0 18px 18px}
+.pf-item{display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:10px;padding:9px 11px;border:1px solid var(--line);border-radius:10px;background:rgba(255,173,53,.03)}
+.pf-item label{display:flex;align-items:center;gap:9px;min-width:0;font-size:13.5px;color:var(--text)}
+.pf-item label span{overflow:hidden;text-overflow:ellipsis}
+.pf-item small{color:var(--muted);font:11px/1.2 var(--mono);white-space:nowrap}
+.pf-item.done label span{text-decoration:line-through;color:var(--dim)}
+.pf-item.overdue{border-color:rgba(238,109,120,.45)}.pf-item.overdue small{color:var(--red)}
+.pf-brief{padding:4px 18px 0;font-size:13px;line-height:1.55;color:var(--muted)}
+.pf-brief h3{margin:6px 0;color:var(--text);font-size:15px}.pf-brief b{color:var(--text)}
+.pf-brief ol{margin:6px 0;padding-left:18px}.pf-brief a{color:var(--text);text-decoration:none}.pf-brief a:hover{color:var(--amber)}
+#toasts{position:fixed;top:78px;right:18px;z-index:70;display:flex;flex-direction:column;gap:8px;max-width:min(380px,calc(100vw - 32px))}
+.toast{display:flex;align-items:center;gap:10px;padding:11px 12px;border:1px solid var(--line2);border-radius:12px;background:rgba(18,12,7,.96);color:var(--text);font-size:13px;box-shadow:0 12px 30px rgba(0,0,0,.45);animation:fade .2s ease}
+.toast span{flex:1}.toast a{color:var(--amber);white-space:nowrap;font-size:12px}
+.toast button{border:0;background:none;color:var(--dim);font-size:16px;cursor:pointer}
+.toast-reminder{border-color:var(--amber);box-shadow:0 0 0 1px rgba(255,173,53,.3),0 12px 30px rgba(0,0,0,.45)}
+.toast-error{border-color:rgba(238,109,120,.6)}
+body.wake-on .core-voice-btn{box-shadow:inset 0 0 20px rgba(255,232,142,.14),0 0 0 2px rgba(81,217,154,.45),0 0 22px rgba(81,217,154,.3)}
+.pf-item label,.pf-form .pf-check{flex-direction:row!important;align-items:center!important;justify-content:flex-start!important}
+.pf-item input[type=checkbox],.pf-check input[type=checkbox]{width:16px!important;height:16px;flex:none;margin:0;accent-color:var(--amber)}
+#coreVisionBox [hidden]{display:none!important}
+#toasts .toast:nth-last-child(n+4){display:none}

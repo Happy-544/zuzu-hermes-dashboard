@@ -31,7 +31,7 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt
 
 // ── workspace navigation ──
 // Five simple sections; each holds one or more pages.
-const VIEW_GROUPS = {home:['chat'], work:['projects','missions','studio'], brain:['memory','skills'],
+const VIEW_GROUPS = {home:['chat'], work:['reminders','projects','missions','studio'], brain:['memory','skills'],
                      tools:['tools','calls'], settings:['settings','models','activity']};
 const VIEW_NAMES = new Set(Object.values(VIEW_GROUPS).flat());
 const groupOf = name => Object.keys(VIEW_GROUPS).find(group => VIEW_GROUPS[group].includes(name)) || 'home';
@@ -833,6 +833,14 @@ async function transmit(message, options = {}){
   }
   dispatchReserved = true;
   try {
+    if (await handleLocalCommand(message)){ dispatchReserved = false; return; }
+  } catch(error) {
+    dispatchReserved = false;
+    log('error','ZUZU',String(error.message||error));
+    showToast(String(error.message||error), 'error');
+    return;
+  }
+  try {
     await autoRemember(message);
     pendingLiveAttachmentParts = [];
     const previewNote = maybeOpenRequestedBrowserPreview(message);
@@ -1173,7 +1181,7 @@ async function startGeminiLive(){
     }, 12000);
     liveBridge = new HermesVoiceBridge(executeLiveAction, message => {
       if (connectedSocket === liveWs && connectedSocket.readyState === WebSocket.OPEN) connectedSocket.send(JSON.stringify(message));
-    });
+    }, LOCAL_TOOLS);
     liveWs.onmessage = async event => {
       liveLastMessageAt = Date.now();
       let payload = event.data;
@@ -1215,6 +1223,7 @@ async function startGeminiLive(){
       const content = msg.serverContent;
       if (!content) return;
       if (content.inputTranscription?.text){
+        if (SLEEP_RE.test(content.inputTranscription.text)) setTimeout(() => { if (convo) stopConvo(); }, 1800);
         setUserText(content.inputTranscription.text.slice(0,90));
         sendLiveVisualFrame(content.inputTranscription.text.slice(0,80));
       }
@@ -1442,6 +1451,7 @@ function stopConvo(manual=true){
   document.body.classList.remove('speaking');
   $('#mic').classList.remove('on'); $('#mic').textContent = 'Zuzu Voice';
   log('voice','VOICE','conversation closed');
+  if (wakeWanted) setTimeout(startWakeListener, 900);
   setState('', 'READY', '');
 }
 
@@ -2043,3 +2053,240 @@ async function refreshPcInfo(){
 refreshPcInfo();
 setInterval(refreshPcInfo, 20000);
 syncFeed();
+
+// ══════════ personal: reminders, brief, music, video, model, wake word ══════════
+let PERSONAL = null, lastBrief = null, wakeRec = null, wakeWanted = false, inboxPolls = 0;
+const WAKE_RE = /\b(?:hey|hi|ok|okay|ya)?\s*(?:zu\s?zu|zoo\s?zoo|zouzou|zuzo|zozo|susu)\b|زوزو/i;
+const SLEEP_RE = /sleep mode|go to sleep|stop listening|وضع النوم|نامي|اسكتي يا زوزو/i;
+
+function showToast(text, kind = 'info', link = null){
+  let box = $('#toasts');
+  if (!box){ box = document.createElement('div'); box.id = 'toasts'; box.setAttribute('aria-live','polite'); document.body.appendChild(box); }
+  const el = document.createElement('div');
+  el.className = `toast toast-${kind}`;
+  el.innerHTML = `<span>${esc(text)}</span>` + (link ? `<a href="${escapeAttr(link.url)}" target="_blank" rel="noopener noreferrer">${esc(link.label)}</a>` : '') + '<button type="button" aria-label="Dismiss">×</button>';
+  el.querySelector('button').onclick = () => el.remove();
+  box.appendChild(el);
+  setTimeout(() => el.remove(), kind === 'reminder' ? 60000 : 9000);
+}
+
+async function personalRequest(payload){
+  const r = await fetch('/api/personal', {method:'POST', headers:apiHeaders({'content-type':'application/json'}), body:JSON.stringify(payload)});
+  const data = await r.json();
+  if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+  PERSONAL = data; renderPersonal();
+  return data;
+}
+async function loadPersonal(){
+  try{ const r = await fetch('/api/personal', {headers:apiHeaders()}); if (r.ok){ PERSONAL = await r.json(); renderPersonal(); } }catch(_){}
+}
+function fmtDue(iso){
+  if (!iso) return 'No time set';
+  const d = new Date(iso), today = new Date(), tomorrow = new Date(Date.now() + 864e5);
+  const time = d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+  if (d.toDateString() === today.toDateString()) return `Today ${time}`;
+  if (d.toDateString() === tomorrow.toDateString()) return `Tomorrow ${time}`;
+  return d.toLocaleDateString([], {weekday:'short', day:'numeric', month:'short'}) + ` ${time}`;
+}
+function renderPersonal(){
+  if (!PERSONAL) return;
+  const list = $('#reminderList');
+  const items = PERSONAL.reminders || [];
+  if (list) list.innerHTML = items.map(r => `<div class="pf-item ${r.done ? 'done' : ''} ${!r.done && r.due && new Date(r.due) < new Date() ? 'overdue' : ''}">
+      <label><input type="checkbox" data-rem-done="${esc(r.id)}" ${r.done ? 'checked' : ''}><span>${esc(r.text)}</span></label>
+      <small>${esc(fmtDue(r.due))}${r.repeat ? ` · ${esc(r.repeat)}` : ''}</small>
+      <button type="button" class="danger-link" data-rem-delete="${esc(r.id)}" aria-label="Delete reminder">×</button></div>`).join('')
+    || '<div class="empty-state">No reminders yet. Try "call mom tomorrow 6pm".</div>';
+  const form = $('#briefForm'), st = PERSONAL.settings || {};
+  if (form && !form.contains(document.activeElement)){
+    $('#pfCity').value = st.city || ''; $('#pfMorning').value = st.briefMorning || ''; $('#pfEvening').value = st.briefEvening || '';
+    $('#pfRegion').value = st.newsRegion || 'AE'; $('#pfLang').value = st.newsLang || 'en'; $('#pfTopic').value = st.newsTopic || '';
+    $('#pfIcs').value = st.calendarIcs || ''; $('#pfTelegram').value = st.telegramTarget || '';
+    $('#pfBriefs').checked = st.briefsEnabled !== false; $('#pfWake').checked = !!st.wakeWord;
+  }
+  if (!!st.wakeWord !== wakeWanted) setWakeWord(!!st.wakeWord);
+  renderToday();
+}
+function renderToday(){
+  const box = $('#ccToday'); if (!box) return;
+  const now = new Date();
+  const w = lastBrief?.weather;
+  const upcoming = (PERSONAL?.reminders || []).filter(r => !r.done && r.due && new Date(r.due) >= new Date(now - 36e5)).slice(0, 3);
+  box.innerHTML = `<div class="cc-today-date">${esc(now.toLocaleDateString([], {weekday:'long', day:'numeric', month:'long'}))}</div>`
+    + (w ? `<div class="cc-today-weather"><b>${Math.round(w.temp)}°</b><span>${esc(w.summary)} · H ${Math.round(w.high)}° L ${Math.round(w.low)}°${w.rain != null ? ` · rain ${w.rain}%` : ''}</span><small>${esc(lastBrief.city)}</small></div>` : '')
+    + (upcoming.length ? `<ul class="cc-today-list">${upcoming.map(r => `<li><span>${esc(fmtDue(r.due))}</span>${esc(r.text)}</li>`).join('')}</ul>` : '<div class="cc-empty">No upcoming reminders.</div>')
+    + (lastBrief?.news?.length ? `<div class="cc-today-news"><b>Headline</b> ${esc(lastBrief.news[0].title)}</div>` : '');
+}
+async function fetchBrief(kind = 'morning'){
+  const r = await fetch(`/api/personal/brief?kind=${kind === 'evening' ? 'evening' : 'morning'}`, {headers:apiHeaders(), cache:'no-store'});
+  if (!r.ok) throw new Error(`brief unavailable (HTTP ${r.status})`);
+  lastBrief = await r.json();
+  renderToday(); renderBriefPreview(lastBrief);
+  return lastBrief;
+}
+function renderBriefPreview(b){
+  const box = $('#briefPreview'); if (!box || !b) return;
+  const w = b.weather;
+  box.innerHTML = `<h3>${esc(b.date)}</h3>`
+    + (w ? `<p><b>${esc(b.city)}:</b> ${Math.round(w.temp)}° ${esc(w.summary)}, high ${Math.round(w.high)}°, low ${Math.round(w.low)}°</p>` : '')
+    + (b.events.length ? `<p><b>Schedule:</b> ${b.events.map(e => esc(`${e.time} ${e.title}`)).join(' · ')}</p>` : '')
+    + `<p><b>Reminders:</b> ${b.reminders.length ? b.reminders.map(r => esc(`${r.time} ${r.text}`)).join(' · ') : 'none'}</p>`
+    + (b.news.length ? `<ol>${b.news.map(n => `<li><a href="${escapeAttr(n.url)}" target="_blank" rel="noopener noreferrer">${esc(n.title)}</a> <small>${esc(n.source)}</small></li>`).join('')}</ol>` : '')
+    + (b.errors.length ? `<p class="form-note">${esc(b.errors.join(' · '))}</p>` : '');
+}
+function announce(text){
+  if (liveReady && liveWs?.readyState === WebSocket.OPEN){
+    liveWs.send(JSON.stringify({clientContent:{turns:[{role:'user', parts:[{text:`Announce this to me now, briefly and naturally in my language: ${text}`}]}], turnComplete:true}}));
+    return Promise.resolve();
+  }
+  return speak(text);
+}
+async function playBrief(kind){
+  const hour = new Date().getHours();
+  const b = await fetchBrief(kind || (hour >= 16 ? 'evening' : 'morning'));
+  log('complete','BRIEF', b.speech.slice(0, 200));
+  setUserText('Daily brief'); answer = b.speech; renderAnswer(true);
+  await announce(b.speech);
+  return b;
+}
+
+async function youtubeResults(query){
+  const r = await fetch(`/api/youtube-search?q=${encodeURIComponent(query)}`, {headers:apiHeaders()});
+  const data = await r.json();
+  if (!r.ok || !data.results?.length) throw new Error(data.error || 'Nothing found on YouTube');
+  return data;
+}
+async function playMusic(query){
+  const data = await youtubeResults(query);
+  const ids = data.results.map(v => v.id);
+  const url = `https://www.youtube.com/embed/${ids[0]}?autoplay=1&playsinline=1&rel=0` + (ids.length > 1 ? `&playlist=${ids.slice(1).join(',')}` : '');
+  showView('chat');
+  setFrameUrl(url, `Music · ${data.best.title}`);
+  const ytm = `https://music.youtube.com/watch?v=${ids[0]}`;
+  showToast(`Playing: ${data.best.title}`, 'info', {url: ytm, label: 'Open in YouTube Music'});
+  log('complete','MUSIC', `${data.best.title} (+${ids.length - 1} queued)`);
+  return {playing: data.best.title, queued: ids.length - 1, youtube_music_link: ytm};
+}
+async function playVideo(query){
+  const data = await youtubeResults(query);
+  showView('chat');
+  setFrameUrl(data.best.embed, `Video · ${data.best.title}`);
+  showToast(`Showing: ${data.best.title}`, 'info', {url: data.best.url, label: 'Open on YouTube'});
+  log('complete','VIDEO', data.best.title);
+  return {showing: data.best.title, other_results: data.results.slice(1, 4).map(v => v.title)};
+}
+const PROVIDER_ALIASES = {google:'gemini', gemini:'gemini', claude:'anthropic', anthropic:'anthropic', gpt:'openai', chatgpt:'openai', openai:'openai',
+  openrouter:'openrouter', ollama:'ollama', local:'ollama', hermes:'hermes', default:'hermes'};
+async function switchModel(provider, model){
+  const key = PROVIDER_ALIASES[String(provider || '').toLowerCase().replace(/[^a-z]/g, '')];
+  if (!key || !WS?.models?.[key]) throw new Error(`Unknown provider "${provider}". Use gemini, openai, anthropic, openrouter, ollama or hermes.`);
+  const chosen = String(model || '').trim() || WS.models[key][0];
+  await workspaceRequest({action:'save_settings', settings:{...WS.settings, provider:key, model:chosen, apiBase:WS.settings.apiBase || ''}});
+  refreshStatus();
+  log('complete','MODEL', `Hermes now thinks with ${providerLabel(key)} · ${chosen}`);
+  showToast(`Model: ${providerLabel(key)} · ${chosen}`);
+  return {provider:key, model:chosen};
+}
+async function addReminderFromText(text, due = '', repeat = ''){
+  const data = await personalRequest({action:'add_reminder', text, due, repeat});
+  const it = data.item;
+  showToast(`Reminder saved: ${it.text} — ${fmtDue(it.due)}`);
+  log('complete','REMINDER', `${it.text} · ${fmtDue(it.due)}`);
+  return it;
+}
+
+const LOCAL_TOOLS = {
+  add_reminder: async a => { const it = await addReminderFromText(a.text, a.due || '', a.repeat || ''); return {saved:true, text:it.text, due:it.due || 'no time set'}; },
+  get_daily_brief: async a => { const b = await fetchBrief(a.kind); return {brief:b.speech, date:b.date, weather:b.weather, events:b.events, reminders:b.reminders, headlines:b.news.map(n => n.title)}; },
+  play_music: async a => playMusic(a.query),
+  play_video: async a => playVideo(a.query),
+  switch_model: async a => switchModel(a.provider, a.model),
+  sleep_mode: async () => { setTimeout(() => { if (convo) stopConvo(); }, 2500); return {ok:true, note:'Say a very short goodbye now.'}; },
+};
+
+// Slash commands handled instantly in the page.
+async function handleLocalCommand(message){
+  const m = message.trim().match(/^\/(music|play|video|model|brief|remind|reminder)\b\s*(.*)$/is);
+  if (!m) return false;
+  const [, cmd, arg] = m;
+  if (cmd === 'music' || cmd === 'play'){ if (!arg) throw new Error('Type what to play, e.g. /music Amr Diab'); await playMusic(arg); return true; }
+  if (cmd === 'video'){ if (!arg) throw new Error('Type what to find, e.g. /video resin table pour'); await playVideo(arg); return true; }
+  if (cmd === 'brief'){ await playBrief(/evening|tonight|مساء/i.test(arg) ? 'evening' : undefined); return true; }
+  if (cmd === 'model'){ const [provider, ...rest] = arg.split(/\s+/); await switchModel(provider, rest.join(' ')); return true; }
+  if (!arg) throw new Error('Type the reminder, e.g. /remind call mom tomorrow 6pm');
+  await addReminderFromText(arg); return true;
+}
+
+// "Hey Zuzu" wake word (Chrome / Edge on the laptop).
+function startWakeListener(){
+  if (!wakeWanted || !SpeechRecognition || wakeRec || convo || liveConnecting) return;
+  const rec = new SpeechRecognition();
+  rec.continuous = true; rec.interimResults = true; rec.lang = 'en-US';
+  rec.onresult = e => {
+    const heard = [...e.results].slice(e.resultIndex).map(r => r[0].transcript).join(' ');
+    if (WAKE_RE.test(heard)){ stopWakeListener(); log('voice','WAKE','"Hey Zuzu" heard'); micToggle(); }
+  };
+  rec.onerror = e => { if (e.error === 'not-allowed' || e.error === 'service-not-allowed'){ wakeWanted = false; log('error','WAKE','microphone permission is needed for the wake word'); } };
+  rec.onend = () => { wakeRec = null; if (wakeWanted && !convo && !liveConnecting) setTimeout(startWakeListener, 500); };
+  try{ rec.start(); wakeRec = rec; document.body.classList.add('wake-on'); }catch(_){ wakeRec = null; }
+}
+function stopWakeListener(){
+  const rec = wakeRec; wakeRec = null; document.body.classList.remove('wake-on');
+  if (rec){ rec.onend = null; try{ rec.stop(); }catch(_){} }
+}
+function setWakeWord(on){
+  wakeWanted = !!on && !!SpeechRecognition;
+  if (on && !SpeechRecognition) log('error','WAKE','this browser has no speech recognition; use Chrome or Edge on the laptop');
+  wakeWanted ? startWakeListener() : stopWakeListener();
+}
+
+// Spoken announcements: due reminders and scheduled briefs.
+async function pollPersonalInbox(){
+  if (document.visibilityState === 'hidden') return;
+  try{
+    const r = await fetch('/api/personal/inbox', {headers:apiHeaders(), cache:'no-store'});
+    if (!r.ok) return;
+    for (const item of (await r.json()).items || []){
+      if (item.kind === 'brief'){ lastBrief = item.payload; renderToday(); renderBriefPreview(lastBrief); }
+      showToast(item.text.slice(0, 220), item.kind === 'reminder' ? 'reminder' : 'info');
+      log('note', item.kind.toUpperCase(), item.text.slice(0, 200));
+      if (!running) await announce(item.text);
+    }
+    if (++inboxPolls % 3 === 0) loadPersonal();
+  }catch(_){}
+}
+
+$('#reminderForm')?.addEventListener('submit', async e => {
+  e.preventDefault();
+  const text = $('#reminderText').value.trim(); if (!text) return;
+  const due = $('#reminderDue').value, repeat = $('#reminderRepeat').value;
+  try{ await addReminderFromText(text, due, repeat); $('#reminderText').value = ''; $('#reminderDue').value = ''; $('#reminderRepeat').value = ''; }
+  catch(err){ showToast(String(err.message || err), 'error'); }
+});
+$('#briefForm')?.addEventListener('submit', async e => {
+  e.preventDefault();
+  try{
+    await personalRequest({action:'save_settings', settings:{city:$('#pfCity').value, briefMorning:$('#pfMorning').value, briefEvening:$('#pfEvening').value,
+      newsRegion:$('#pfRegion').value, newsLang:$('#pfLang').value, newsTopic:$('#pfTopic').value, calendarIcs:$('#pfIcs').value,
+      telegramTarget:$('#pfTelegram').value, briefsEnabled:$('#pfBriefs').checked, wakeWord:$('#pfWake').checked}});
+    showToast('Daily brief settings saved'); fetchBrief().catch(() => {});
+  }catch(err){ showToast(String(err.message || err), 'error'); }
+});
+document.addEventListener('click', async e => {
+  const done = e.target.closest('[data-rem-done]');
+  const del = e.target.closest('[data-rem-delete]');
+  const brief = e.target.closest('[data-cc-brief]');
+  try{
+    if (done) await personalRequest({action:'update_reminder', id:done.dataset.remDone, done:done.checked});
+    if (del) await personalRequest({action:'delete_reminder', id:del.dataset.remDelete});
+    if (brief) await playBrief();
+  }catch(err){ showToast(String(err.message || err), 'error'); }
+});
+$('#briefNow')?.addEventListener('click', () => playBrief().catch(err => showToast(String(err.message || err), 'error')));
+$('#ccAddReminder')?.addEventListener('click', () => { const input = $('#input'); input.value = '/remind '; input.focus(); });
+
+loadPersonal();
+fetchBrief().catch(() => {});
+setInterval(pollPersonalInbox, 20000);
+setInterval(() => fetchBrief().catch(() => {}), 30 * 60 * 1000);
+setInterval(renderToday, 60000);

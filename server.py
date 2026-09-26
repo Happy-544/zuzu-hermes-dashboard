@@ -8,6 +8,7 @@ configured tools, browser/Chrome automation, MCP servers, skills, memory, and
 third-party integrations that your normal Hermes sessions have. Voice can use the
 browser Web Speech API, with optional server-side ElevenLabs STT/TTS if present.
 """
+import datetime
 import io
 import json
 import mimetypes
@@ -45,6 +46,7 @@ import runtime          # noqa: E402
 import voice            # noqa: E402
 import workspace        # noqa: E402
 import ngrok_setup      # noqa: E402
+import personal         # noqa: E402
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -147,9 +149,39 @@ def live_voice_persona(client_extra=""):
         "You are Zuzu in a realtime voice conversation. The user's saved persona above is authoritative: keep its tone, warmth, language and relationship style in every direct reply. "
         "For greetings, casual conversation, opinions, emotional support, jokes, and questions you can answer reliably without current or private data, answer immediately yourself in one or two natural spoken sentences. "
         "Call hermes_action exactly once when the user asks you to DO something or needs current/private/system information: Telegram or email, accounts, computer or iPhone actions, browser/search, files, apps, tools, memory changes, reminders, projects, connected services, or Zuzu configuration. "
-        "If you are unsure whether a real action or connected data is required, call Hermes. Never claim you cannot do an action before Hermes returns. Never invent success. Speak the returned result naturally in your persona."
+        "If you are unsure whether a real action or connected data is required, call Hermes. Never claim you cannot do an action before Hermes returns. Never invent success. Speak the returned result naturally in your persona. "
+        "Fast local tools (use these instead of Hermes when they fit): add_reminder for any 'remind me' request (convert the time to an ISO local datetime); "
+        "get_daily_brief when asked about the day, date, weather, news, schedule or reminders; play_music to play songs or playlists; "
+        "play_video to show a YouTube video about something; switch_model when asked to change the AI model or provider; "
+        "sleep_mode when the user says 'Zuzu sleep mode', goodbye or asks you to stop listening (say a short goodbye first). "
+        f"The current local date and time is {datetime.datetime.now().strftime('%A %Y-%m-%d %H:%M')}."
     )
     return "\n\n".join(x for x in (custom, routing, memory, client_extra) if x)
+
+
+def _tool(name, description, props=None, required=()):
+    params = {"type": "OBJECT", "properties": {k: {"type": "STRING", "description": v} for k, v in (props or {}).items()}}
+    if required:
+        params["required"] = list(required)
+    return {"name": name, "description": description, "parameters": params}
+
+
+LOCAL_VOICE_TOOLS = [
+    _tool("add_reminder", "Save a personal reminder.", {
+        "text": "What to remind the user about, in their words.",
+        "due": "Local date-time in ISO format YYYY-MM-DDTHH:MM, or empty if no time was given.",
+        "repeat": "Empty, 'daily' or 'weekly'."}, ("text",)),
+    _tool("get_daily_brief", "Get today's date, weather, calendar, reminders and top news headlines.",
+          {"kind": "'morning' (today) or 'evening' (tonight and tomorrow)."}),
+    _tool("play_music", "Play music from YouTube Music on the dashboard.",
+          {"query": "Artist, song, mood or playlist to play."}, ("query",)),
+    _tool("play_video", "Search YouTube and show a video on the dashboard.",
+          {"query": "What the video should be about."}, ("query",)),
+    _tool("switch_model", "Change the AI model Hermes uses.", {
+        "provider": "One of: gemini, openai, anthropic, openrouter, ollama, hermes.",
+        "model": "Model name, or empty for that provider's default."}, ("provider",)),
+    _tool("sleep_mode", "Stop listening until the wake word is heard again."),
+]
 
 
 READ_ALOUD_PROMPT = (
@@ -480,6 +512,13 @@ class Handler(BaseHTTPRequestHandler):
                                    active_operation=runtime.active_operation_snapshot()))
         if p == "/api/system":
             return self._json(system_snapshot())
+        if p == "/api/personal":
+            return self._json(personal.public_state())
+        if p == "/api/personal/inbox":
+            return self._json({"items": personal.take_outbox()})
+        if p == "/api/personal/brief":
+            kind = urllib.parse.parse_qs(urlparse(self.path).query).get("kind", ["morning"])[0]
+            return self._json(personal.build_brief("evening" if kind == "evening" else "morning"))
         if p == "/api/workspace":
             if not self._token_ok():
                 return self._json({"error": "unauthorized"}, 401)
@@ -572,7 +611,7 @@ class Handler(BaseHTTPRequestHandler):
             auth.logout(self.headers.get("Cookie"))
             return self._json({"ok": True}, headers={"Set-Cookie": "zuzu_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0"})
         ctype = self.headers.get("Content-Type", "").split(";", 1)[0].lower()
-        if p in {"/api/run", "/api/speak", "/api/live-token", "/api/workspace", "/api/new", "/api/cancel", "/api/calls/outbound", "/api/catalog/install"} and ctype != "application/json":
+        if p in {"/api/run", "/api/speak", "/api/live-token", "/api/workspace", "/api/new", "/api/cancel", "/api/calls/outbound", "/api/catalog/install", "/api/personal"} and ctype != "application/json":
             return self._json({"error": "application/json required"}, 415)
         if p == "/api/listen" and not ctype.startswith("audio/"):
             return self._json({"error": "audio content type required"}, 415)
@@ -630,7 +669,7 @@ class Handler(BaseHTTPRequestHandler):
                     "parameters": {"type": "OBJECT", "properties": {
                         "request": {"type": "STRING", "description": "The full user request, preserving language and constraints."}
                     }, "required": ["request"]}
-                }]}]
+                }] + LOCAL_VOICE_TOOLS}]
                 return self._json(live_auth)
             except Exception as e:                        # noqa: BLE001
                 return self._json({"error": str(e)[:200]}, 503)
@@ -649,6 +688,34 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(result)
             except Exception as e:                        # noqa: BLE001
                 return self._json({"error": str(e)[:240]}, 400)
+
+        if p == "/api/personal":
+            try:
+                payload = json.loads(raw or b"{}")
+                if not isinstance(payload, dict):
+                    raise ValueError("JSON object required")
+                kind = payload.get("action")
+                if kind == "add_reminder":
+                    item = personal.add_reminder(payload.get("text"), payload.get("due"), payload.get("repeat"))
+                    return self._json({"item": item, **personal.public_state()})
+                if kind == "update_reminder":
+                    changes = {k: payload[k] for k in ("done", "text", "due") if k in payload}
+                    personal.update_reminder(str(payload.get("id", "")), **changes)
+                elif kind == "delete_reminder":
+                    personal.delete_reminder(str(payload.get("id", "")))
+                elif kind == "save_settings":
+                    values = dict(payload.get("settings") or {})
+                    city = str(values.get("city", "")).strip()
+                    if city and city != personal.load()["settings"]["city"]:
+                        values.update(personal.geocode(city))
+                    return self._json(personal.save_settings(values))
+                else:
+                    raise ValueError("unknown personal action")
+                return self._json(personal.public_state())
+            except ValueError as exc:
+                return self._json({"error": str(exc)[:200]}, 400)
+            except (OSError, RuntimeError) as exc:
+                return self._json({"error": f"Could not reach a service: {type(exc).__name__}"}, 503)
 
         if p == "/api/upload":
             try:
@@ -805,6 +872,7 @@ def main():
   open         http://localhost:{PORT}
 """, flush=True)
 
+    personal.start_scheduler()
     srv = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     if os.environ.get("JARVIS_OPEN", "1") != "0":
         webbrowser.open(f"http://localhost:{PORT}")
