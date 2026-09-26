@@ -31,7 +31,7 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt
 
 // ── workspace navigation ──
 // Five simple sections; each holds one or more pages.
-const VIEW_GROUPS = {home:['chat'], work:['reminders','projects','missions','studio'], brain:['memory','skills'],
+const VIEW_GROUPS = {home:['chat'], day:['reminders','markets','library'], work:['projects','missions','studio'], brain:['memory','skills'],
                      tools:['tools','calls'], settings:['settings','models','activity']};
 const VIEW_NAMES = new Set(Object.values(VIEW_GROUPS).flat());
 const groupOf = name => Object.keys(VIEW_GROUPS).find(group => VIEW_GROUPS[group].includes(name)) || 'home';
@@ -691,7 +691,7 @@ $('#dockVideo')?.addEventListener('click',requestLaptopVideo);
 $('#dockBrowser')?.addEventListener('click',openBrowserPreview);
 $('#flipCamera')?.addEventListener('click',flipCamera);
 $('#stopVisual')?.addEventListener('click',stopVisualStream);
-document.querySelectorAll('.generate-btn').forEach(b=>b.onclick=()=>{const type=b.dataset.media,prompt=$(`#${type}Prompt`).value.trim();if(!prompt)return;showView('chat');transmit(`Use my Hermes ${type} generation tools to create: ${prompt}`,{speak:false});});
+document.querySelectorAll('.generate-btn').forEach(b=>b.onclick=async()=>{const type=b.dataset.media,prompt=$(`#${type}Prompt`).value.trim();if(!prompt)return;b.disabled=true;const label=b.textContent;b.textContent='Creating…';try{ type==='video'?await createVideo(prompt):await createImage(prompt); }catch(err){showToast(String(err.message||err),'error');}finally{b.disabled=false;b.textContent=label;}});
 function memoryItems(){
   if(!WS) return [];
   const settings=WS.settings||{};
@@ -2202,6 +2202,11 @@ const LOCAL_TOOLS = {
   play_video: async a => playVideo(a.query),
   switch_model: async a => switchModel(a.provider, a.model),
   sleep_mode: async () => { setTimeout(() => { if (convo) stopConvo(); }, 2500); return {ok:true, note:'Say a very short goodbye now.'}; },
+  get_markets: async () => { const m = await loadMarkets(); return {note:m.note, top5:m.top5.map(q => ({name:q.name, price:q.price, change_pct:q.change})), watchlist:m.watchlist.map(q => ({name:q.name, price:q.price, change_pct:q.change}))}; },
+  set_price_alert: async a => { await marketsRequest({action:'add_alert', symbol:a.symbol, direction:a.direction, price:a.price}); return {saved:true}; },
+  create_image: async a => { const r = await createImage(a.prompt); return {created:true, file:r.name}; },
+  create_video: async a => { await createVideo(a.prompt); return {started:true, note:'It takes 1 to 5 minutes; I will announce it when ready.'}; },
+  find_books: async a => { showView('library'); const list = await searchBooks(a.query); return {found:list.slice(0, 5).map(b => `${b.title} by ${b.authors}`)}; },
 };
 
 // Slash commands handled instantly in the page.
@@ -2248,6 +2253,7 @@ async function pollPersonalInbox(){
     if (!r.ok) return;
     for (const item of (await r.json()).items || []){
       if (item.kind === 'brief'){ lastBrief = item.payload; renderToday(); renderBriefPreview(lastBrief); }
+      if (item.kind === 'media' && item.payload?.url){ showView('chat'); showVideoFile(item.payload.url); refreshMediaJobs(); loadWorkspace(); }
       showToast(item.text.slice(0, 220), item.kind === 'reminder' ? 'reminder' : 'info');
       log('note', item.kind.toUpperCase(), item.text.slice(0, 200));
       if (!running) await announce(item.text);
@@ -2290,3 +2296,163 @@ fetchBrief().catch(() => {});
 setInterval(pollPersonalInbox, 20000);
 setInterval(() => fetchBrief().catch(() => {}), 30 * 60 * 1000);
 setInterval(renderToday, 60000);
+
+// ══════════ markets ══════════
+let MARKETS = null;
+async function marketsRequest(payload){
+  const r = await fetch('/api/markets', {method:'POST', headers:apiHeaders({'content-type':'application/json'}), body:JSON.stringify(payload)});
+  const data = await r.json(); if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+  MARKETS = data; renderMarkets(); return data;
+}
+async function loadMarkets(){
+  const r = await fetch('/api/markets', {headers:apiHeaders(), cache:'no-store'});
+  const data = await r.json(); if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+  MARKETS = data; renderMarkets(); return data;
+}
+function sparkline(values){
+  if (!values || values.length < 2) return '';
+  const min = Math.min(...values), max = Math.max(...values), span = max - min || 1;
+  const pts = values.map((v, i) => `${(i / (values.length - 1) * 100).toFixed(1)},${(28 - (v - min) / span * 26).toFixed(1)}`).join(' ');
+  const up = values[values.length - 1] >= values[0];
+  return `<svg class="mk-spark ${up ? 'up' : 'down'}" viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden="true"><polyline points="${pts}"/></svg>`;
+}
+const fmtPrice = q => q.price == null ? '—' : Number(q.price).toLocaleString([], {maximumFractionDigits: q.price < 5 ? 4 : 2});
+const fmtChange = c => `${c > 0 ? '+' : ''}${Number(c).toFixed(2)}%`;
+function renderMarkets(){
+  if (!MARKETS) return;
+  const top = MARKETS.top5 || [];
+  const card = q => `<div class="mk-card ${q.change >= 0 ? 'up' : 'down'}"><div><b>${esc(q.name)}</b><small>${esc(q.symbol)}</small></div>
+      <div class="mk-price">${esc(fmtPrice(q))}<span>${esc(fmtChange(q.change))}</span></div>${sparkline(q.spark)}
+      <small class="mk-meta">5-day ${esc(fmtChange(q.trend5d))} · ${q.bias === 'flat' ? 'quiet' : q.bias === 'up' ? 'buyers in control' : 'sellers in control'}</small></div>`;
+  if ($('#mkTop')) $('#mkTop').innerHTML = top.map(card).join('') || '<div class="empty-state">Market data is unavailable right now.</div>';
+  const row = (q, extra) => `<div class="mk-row"><b>${esc(q.name)}</b><span>${esc(fmtPrice(q))}</span><em class="${(q.change || 0) >= 0 ? 'up' : 'down'}">${q.error ? esc(q.error) : esc(fmtChange(q.change))}</em>${extra}</div>`;
+  if ($('#mkWatch')) $('#mkWatch').innerHTML = (MARKETS.watchlist || []).map(q => row(q, `<button type="button" class="danger-link" data-mk-unwatch="${esc(q.symbol)}">×</button>`)).join('') || '<div class="empty-state">Nothing on your watchlist yet.</div>';
+  if ($('#mkAlerts')) $('#mkAlerts').innerHTML = (MARKETS.alerts || []).map(a => `<div class="mk-row ${a.fired ? 'fired' : ''}"><b>${esc(a.name)}</b><span>${esc(a.direction)} ${esc(a.price)}</span><em>${a.fired ? 'triggered' : 'waiting'}</em><button type="button" class="danger-link" data-mk-alert-del="${esc(a.id)}">×</button></div>`).join('') || '<div class="empty-state">No alerts yet.</div>';
+  if ($('#mkUpdated')) $('#mkUpdated').textContent = `Updated ${MARKETS.updated}`;
+  const home = $('#ccMarkets');
+  if (home) home.innerHTML = top.slice(0, 5).map(q => `<div class="cc-mk"><span>${esc(q.name)}</span><b>${esc(fmtPrice(q))}</b><em class="${q.change >= 0 ? 'up' : 'down'}">${esc(fmtChange(q.change))}</em></div>`).join('') || '<div class="cc-empty">Markets unavailable.</div>';
+}
+$('#mkWatchForm')?.addEventListener('submit', async e => { e.preventDefault(); try{ await marketsRequest({action:'watch', symbol:$('#mkSymbol').value}); $('#mkSymbol').value=''; }catch(err){ showToast(String(err.message||err),'error'); } });
+$('#mkAlertForm')?.addEventListener('submit', async e => { e.preventDefault(); try{ await marketsRequest({action:'add_alert', symbol:$('#mkAlertSymbol').value, direction:$('#mkAlertDir').value, price:$('#mkAlertPrice').value}); $('#mkAlertPrice').value=''; showToast('Price alert saved'); }catch(err){ showToast(String(err.message||err),'error'); } });
+document.addEventListener('click', async e => {
+  const un = e.target.closest('[data-mk-unwatch]'), del = e.target.closest('[data-mk-alert-del]');
+  try{
+    if (un) await marketsRequest({action:'unwatch', symbol:un.dataset.mkUnwatch});
+    if (del) await marketsRequest({action:'delete_alert', id:del.dataset.mkAlertDel});
+  }catch(err){ showToast(String(err.message||err),'error'); }
+});
+function marketsVisible(){ const home = !$('[data-view-panel="chat"]')?.hidden, page = !$('[data-view-panel="markets"]')?.hidden; return document.visibilityState === 'visible' && (home || page); }
+loadMarkets().catch(() => { if ($('#ccMarkets')) $('#ccMarkets').innerHTML = '<div class="cc-empty">Markets unavailable.</div>'; });
+setInterval(() => { if (marketsVisible()) loadMarkets().catch(() => {}); }, 60000);
+
+// ══════════ library ══════════
+let BOOK = null, bookListening = false;
+async function searchBooks(query = '', topic = ''){
+  const lang = $('#bkLang')?.value || '';
+  $('#bkResults').innerHTML = '<div class="empty-state">Searching the library…</div>';
+  const r = await fetch(`/api/books/search?q=${encodeURIComponent(query)}&topic=${encodeURIComponent(topic)}&lang=${encodeURIComponent(lang)}`, {headers:apiHeaders()});
+  const data = await r.json();
+  if (!r.ok){ $('#bkResults').innerHTML = `<div class="empty-state">${esc(data.error || 'Library unavailable')}</div>`; throw new Error(data.error || 'Library unavailable'); }
+  const list = data.results || [];
+  $('#bkResults').innerHTML = list.filter(b => b.readable).map(b => `<button type="button" class="bk-card" data-bk-open="${esc(b.id)}">
+      ${b.cover ? `<img src="${escapeAttr(b.cover)}" alt="" loading="lazy">` : '<div class="bk-nocover">📖</div>'}
+      <b>${esc(b.title)}</b><small>${esc(b.authors || 'Unknown author')}</small></button>`).join('') || '<div class="empty-state">No readable books found.</div>';
+  return list;
+}
+async function loadShelf(){
+  try{
+    const r = await fetch('/api/books/shelf', {headers:apiHeaders()}); const data = await r.json();
+    const shelf = data.shelf || [];
+    const box = $('#bkShelf'); if (!box) return;
+    box.hidden = !shelf.length;
+    box.innerHTML = '<h3>Continue reading</h3>' + shelf.map(b => `<button type="button" class="bk-cont" data-bk-open="${esc(b.id)}">${esc(b.title)} <small>page ${b.page + 1} of ${b.pages}</small></button>`).join('');
+  }catch(_){}
+}
+async function openBook(id, pageNo){
+  const r = await fetch(`/api/books/page?id=${encodeURIComponent(id)}${pageNo != null ? `&page=${pageNo}` : ''}`, {headers:apiHeaders()});
+  const data = await r.json(); if (!r.ok) throw new Error(data.error || 'Could not open the book');
+  BOOK = data;
+  $('#bkReader').hidden = false;
+  $('#bkTitle').textContent = data.title; $('#bkAuthor').textContent = data.authors;
+  $('#bkText').textContent = data.text;
+  $('#bkPage').textContent = `Page ${data.page + 1} of ${data.pages}`;
+  $('#bkPrev').disabled = data.page === 0; $('#bkNext').disabled = data.page >= data.pages - 1;
+  $('#bkBriefText').hidden = !data.brief; $('#bkBriefText').textContent = data.brief || '';
+  $('#bkReader').scrollIntoView({block:'start', behavior:'smooth'});
+  loadShelf();
+  return data;
+}
+async function listenLoop(){
+  while (bookListening && BOOK){
+    const chunks = BOOK.text.match(/[^.!?؟\n]{1,600}(?:[.!?؟]+|\n|$)/g) || [BOOK.text];
+    let part = '';
+    for (const piece of chunks){
+      if ((part + piece).length > 620 && part){ if (!bookListening) break; await speak(part); part = ''; }
+      part += piece;
+    }
+    if (bookListening && part.trim()) await speak(part);
+    if (!bookListening || BOOK.page >= BOOK.pages - 1) break;
+    await openBook(BOOK.id, BOOK.page + 1);
+  }
+  bookListening = false; $('#bkListen').textContent = 'Listen';
+}
+$('#bkSearchForm')?.addEventListener('submit', e => { e.preventDefault(); searchBooks($('#bkQuery').value.trim()).catch(() => {}); });
+document.addEventListener('click', e => {
+  const topic = e.target.closest('[data-bk-topic]'), open = e.target.closest('[data-bk-open]');
+  if (topic) searchBooks('', topic.dataset.bkTopic).catch(() => {});
+  if (open) openBook(open.dataset.bkOpen).catch(err => showToast(String(err.message||err),'error'));
+});
+$('#bkPrev')?.addEventListener('click', () => BOOK && openBook(BOOK.id, BOOK.page - 1));
+$('#bkNext')?.addEventListener('click', () => BOOK && openBook(BOOK.id, BOOK.page + 1));
+$('#bkClose')?.addEventListener('click', () => { bookListening = false; stopSpeech(); $('#bkReader').hidden = true; });
+$('#bkListen')?.addEventListener('click', () => {
+  if (bookListening){ bookListening = false; stopSpeech(); $('#bkListen').textContent = 'Listen'; return; }
+  bookListening = true; $('#bkListen').textContent = 'Stop listening'; listenLoop();
+});
+$('#bkBrief')?.addEventListener('click', async () => {
+  if (!BOOK) return;
+  const btn = $('#bkBrief'); btn.disabled = true; btn.textContent = 'Reading the book…';
+  try{
+    const r = await fetch('/api/books', {method:'POST', headers:apiHeaders({'content-type':'application/json'}), body:JSON.stringify({action:'brief', id:BOOK.id, language:/[؀-ۿ]/.test(WS?.settings?.persona || '') ? 'Egyptian Arabic' : 'English'})});
+    const data = await r.json(); if (!r.ok) throw new Error(data.error || 'Brief failed');
+    $('#bkBriefText').hidden = false; $('#bkBriefText').textContent = data.brief;
+    announce(data.brief);
+  }catch(err){ showToast(String(err.message||err),'error'); }
+  finally{ btn.disabled = false; btn.textContent = 'Brief this book'; }
+});
+loadShelf();
+
+// ══════════ image & video creation ══════════
+function showVideoFile(url){
+  const video = $('#visualPreview'), img = $('#visualImage'), frame = $('#visualFrame'), empty = $('#visualEmpty');
+  stopVisualStream();
+  if (frame){ frame.hidden = true; frame.removeAttribute('src'); }
+  if (img) img.hidden = true; if (empty) empty.hidden = true;
+  if (video){ video.srcObject = null; video.src = url; video.controls = true; video.muted = false; video.hidden = false; video.play().catch(() => {}); }
+  setVisualStatus('Zuzu video'); setVisionBox(true); document.body.classList.add('vision-on');
+}
+async function createImage(prompt){
+  showToast('Creating your image…');
+  const r = await fetch('/api/media', {method:'POST', headers:apiHeaders({'content-type':'application/json'}), body:JSON.stringify({kind:'image', prompt})});
+  const data = await r.json(); if (!r.ok) throw new Error(data.error || 'Image failed');
+  const blob = await (await fetch(data.url, {headers:apiHeaders()})).blob();
+  showView('chat'); showImageBlob(blob, 'Zuzu image');
+  showToast('Image ready', 'info', {url:data.url, label:'Open full size'});
+  log('complete','IMAGE', data.name); loadWorkspace();
+  return data;
+}
+async function createVideo(prompt){
+  const r = await fetch('/api/media', {method:'POST', headers:apiHeaders({'content-type':'application/json'}), body:JSON.stringify({kind:'video', prompt})});
+  const data = await r.json(); if (!r.ok) throw new Error(data.error || 'Video failed');
+  showToast('Video started — Zuzu will announce it when ready (1–5 min)');
+  log('run','VIDEO', `started: ${prompt.slice(0, 80)}`); refreshMediaJobs();
+  return data;
+}
+async function refreshMediaJobs(){
+  try{
+    const data = await (await fetch('/api/media/jobs', {headers:apiHeaders()})).json();
+    const box = $('#mediaJobs'); if (!box) return;
+    box.innerHTML = (data.jobs || []).slice(-5).reverse().map(j => `<div class="mk-row"><b>${esc(j.prompt.slice(0, 50))}</b><span>${esc(j.status)}</span>${j.url ? `<a href="${escapeAttr(j.url)}" target="_blank" rel="noopener">open</a>` : `<em>${esc(j.error || '')}</em>`}</div>`).join('');
+  }catch(_){}
+}
+refreshMediaJobs();

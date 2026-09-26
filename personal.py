@@ -30,6 +30,7 @@ DEFAULT_SETTINGS = {
     "briefMorning": "08:00", "briefEvening": "20:00", "briefsEnabled": True,
     "telegramTarget": "",
     "wakeWord": False,
+    "emailBrief": False, "emailAlerts": False, "emailAlertMinutes": 30,
 }
 WEATHER_CODES = {
     0: "clear sky", 1: "mainly clear", 2: "partly cloudy", 3: "overcast", 45: "fog", 48: "fog",
@@ -410,7 +411,17 @@ def tick(now=None):
             if now - now.replace(hour=hh, minute=mm, second=0, microsecond=0) > datetime.timedelta(hours=3):
                 continue
             brief = build_brief(kind, now)
+            if s.get("emailBrief"):
+                try:
+                    brief["email"] = email_summary(12)
+                    if brief["email"]:
+                        brief["speech"] += " Your email: " + brief["email"]
+                except Exception as exc:  # noqa: BLE001
+                    brief["errors"].append(f"email unavailable ({type(exc).__name__})")
             announce("brief", brief["speech"], brief)
+
+
+EXTRA_TICKS = []   # other modules register periodic checks (market alerts, email)
 
 
 def start_scheduler(interval=30):
@@ -420,6 +431,11 @@ def start_scheduler(interval=30):
                 tick()
             except Exception:  # noqa: BLE001
                 pass
+            for extra in list(EXTRA_TICKS):
+                try:
+                    extra()
+                except Exception:  # noqa: BLE001
+                    pass
             time.sleep(interval)
     threading.Thread(target=loop, daemon=True, name="zuzu-personal").start()
 
@@ -432,8 +448,10 @@ def save_settings(values):
             continue
         if key in {"lat", "lon"}:
             clean[key] = float(value)
-        elif key in {"briefsEnabled", "wakeWord"}:
+        elif key in {"briefsEnabled", "wakeWord", "emailBrief", "emailAlerts"}:
             clean[key] = bool(value)
+        elif key == "emailAlertMinutes":
+            clean[key] = max(10, min(240, int(value or 30)))
         else:
             clean[key] = re.sub(r"[\r\n]", "", str(value)).strip()[:500]
     for key in ("briefMorning", "briefEvening"):
@@ -453,3 +471,55 @@ def geocode(city):
         raise ValueError("City not found")
     r = results[0]
     return {"city": r.get("name", city), "lat": r["latitude"], "lon": r["longitude"]}
+
+
+# ── email through Hermes (the account is connected in Hermes, never stored here) ──
+EMAIL_NOT_CONNECTED = "EMAIL_NOT_CONNECTED"
+
+
+def ask_hermes(prompt):
+    import hermes_api  # local imports keep this module testable without the server
+    import runtime
+    runner = (hermes_api.run_hermes(prompt, None, None, title="Zuzu background check")
+              if hermes_api.configured() else runtime.run_hermes(prompt, None, None))
+    text, error = "", ""
+    for event in runner:
+        if event.get("t") == "delta":
+            text += event.get("text", "")
+        elif event.get("t") == "error":
+            error = event.get("message", "Hermes failed")
+    if error and not text.strip():
+        raise RuntimeError(error)
+    return text.strip()
+
+
+def email_summary(hours=12):
+    reply = ask_hermes(
+        f"Check my connected email account. Summarize the important emails from the last {hours} hours in at most "
+        "5 short spoken-style sentences (who, what, what they need from me). Skip newsletters, promotions and "
+        f"automated notifications. If no email account is connected to Hermes, reply exactly {EMAIL_NOT_CONNECTED}.")
+    if EMAIL_NOT_CONNECTED in reply:
+        return "No email account is connected to Hermes yet."
+    return reply
+
+
+def email_alert_tick(now=None):
+    now = now or datetime.datetime.now()
+    data = load()
+    s = data["settings"]
+    if not s.get("emailAlerts"):
+        return
+    last = data.get("emailChecked")
+    if last and now - datetime.datetime.fromisoformat(last) < datetime.timedelta(minutes=s.get("emailAlertMinutes", 30)):
+        return
+    with LOCK:
+        fresh = _load()
+        fresh["emailChecked"] = now.isoformat(timespec="minutes")
+        _save(fresh)
+    since = last or (now - datetime.timedelta(hours=1)).isoformat(timespec="minutes")
+    reply = ask_hermes(
+        f"Check my email for NEW messages received since {since} (local time). Reply exactly NONE if nothing is important. "
+        "Otherwise list only the important ones, one per line: sender, subject, why it matters. Ignore newsletters and promotions. "
+        f"If no email account is connected, reply exactly {EMAIL_NOT_CONNECTED}.")
+    if reply and "NONE" not in reply.strip().upper()[:8] and EMAIL_NOT_CONNECTED not in reply:
+        announce("email", "Important email: " + reply[:600])

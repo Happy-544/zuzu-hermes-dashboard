@@ -113,7 +113,8 @@ class PersonalTests(unittest.TestCase):
 class VoiceToolTests(unittest.TestCase):
     def test_live_voice_declares_local_tools(self):
         names = {tool["name"] for tool in server.LOCAL_VOICE_TOOLS}
-        self.assertEqual(names, {"add_reminder", "get_daily_brief", "play_music", "play_video", "switch_model", "sleep_mode"})
+        self.assertEqual(names, {"add_reminder", "get_daily_brief", "play_music", "play_video", "switch_model", "sleep_mode",
+                                 "get_markets", "set_price_alert", "create_image", "create_video", "find_books"})
 
 
 if __name__ == "__main__":

@@ -11,7 +11,7 @@
 <title>Zuzu · Hermes</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-192.png">
-<link rel="stylesheet" href="styles.css?v=40">
+<link rel="stylesheet" href="styles.css?v=41">
 </head>
 <body>
 <div class="grid-bg"></div>
@@ -26,7 +26,8 @@
   <aside class="sidebar" aria-label="Main navigation">
     <nav class="primary-nav" role="tablist" aria-label="Main sections">
       <button class="nav-item active" role="tab" data-group="home" aria-selected="true"><span>Home</span><small>Talk and command center</small></button>
-      <button class="nav-item" role="tab" data-group="work" aria-selected="false"><span>Work</span><small>Reminders, chats, files</small></button>
+      <button class="nav-item" role="tab" data-group="day" aria-selected="false"><span>My day</span><small>Reminders, markets, books</small></button>
+      <button class="nav-item" role="tab" data-group="work" aria-selected="false"><span>Work</span><small>Chats, goals and files</small></button>
       <button class="nav-item" role="tab" data-group="brain" aria-selected="false"><span>Brain</span><small>Memory and skills</small></button>
       <button class="nav-item" role="tab" data-group="tools" aria-selected="false"><span>Tools</span><small>Hermes tools and calls</small></button>
       <button class="nav-item" role="tab" data-group="settings" aria-selected="false"><span>Settings</span><small>Assistant, model, health</small></button>
@@ -38,7 +39,9 @@
   <main class="workspace">
     <nav class="subnav" id="subnav" role="tablist" aria-label="Pages in this section" hidden>
       <button type="button" role="tab" data-sub="home" data-view="chat">Home</button>
-      <button type="button" role="tab" data-sub="work" data-view="reminders">Reminders &amp; brief</button>
+      <button type="button" role="tab" data-sub="day" data-view="reminders">Reminders &amp; brief</button>
+      <button type="button" role="tab" data-sub="day" data-view="markets">Markets</button>
+      <button type="button" role="tab" data-sub="day" data-view="library">Library</button>
       <button type="button" role="tab" data-sub="work" data-view="projects">Chats &amp; projects</button>
       <button type="button" role="tab" data-sub="work" data-view="missions">Goals &amp; missions</button>
       <button type="button" role="tab" data-sub="work" data-view="studio">Files &amp; create</button>
@@ -128,6 +131,10 @@
           </div>
         </section>
         <section class="cc-card">
+          <header><h3>Markets</h3><button type="button" class="cc-link" data-view="markets">All</button></header>
+          <div id="ccMarkets" class="cc-markets"><div class="cc-empty">Loading…</div></div>
+        </section>
+        <section class="cc-card">
           <header><h3>This PC</h3><span class="cc-hint" id="ccPcHost"></span></header>
           <div class="cc-meters" id="ccPc"><div class="cc-empty">Reading system…</div></div>
         </section>
@@ -144,7 +151,7 @@
     </section>
 
     <section class="view" role="tabpanel" data-view-panel="reminders" hidden>
-      <div class="view-head"><div><span class="kicker">Work</span><h1>Reminders &amp; daily brief</h1><p class="view-sub">Tell Zuzu what to remember and when. She announces it on time, here and on Telegram.</p></div></div>
+      <div class="view-head"><div><span class="kicker">My day</span><h1>Reminders &amp; daily brief</h1><p class="view-sub">Tell Zuzu what to remember and when. She announces it on time, here and on Telegram.</p></div></div>
       <div class="workspace-grid">
         <article class="panel glass">
           <div class="panel-head"><div><h2>Reminders</h2><p>Type naturally: "call mom tomorrow 6pm" or "بكرة الساعة 8 اصحى"</p></div></div>
@@ -168,6 +175,34 @@
           </form>
         </article>
       </div>
+    </section>
+
+    <section class="view" role="tabpanel" data-view-panel="markets" hidden>
+      <div class="view-head"><div><span class="kicker">My day</span><h1>Markets</h1><p class="view-sub">The 5 most active tradable markets right now, your watchlist and price alerts. Updates every minute. Information only, not financial advice.</p></div><span class="runtime-badge" id="mkUpdated">—</span></div>
+      <article class="panel glass"><div class="panel-head"><div><h2>Top 5 right now</h2><p>Ranked by today's move and recent volatility across gold, oil, indices, crypto, FX and big stocks</p></div></div><div id="mkTop" class="mk-grid"><div class="empty-state">Loading markets…</div></div></article>
+      <div class="workspace-grid">
+        <article class="panel glass"><div class="panel-head"><div><h2>My watchlist</h2><p>Add any Yahoo Finance ticker: AAPL, GC=F, BTC-USD, EURUSD=X, ^GSPC, EMAAR.AE</p></div></div>
+          <form id="mkWatchForm" class="pf-form"><div class="pf-row"><input id="mkSymbol" placeholder="Ticker, e.g. NVDA" autocomplete="off" required><button class="primary-btn" type="submit">Watch</button></div></form>
+          <div id="mkWatch" class="mk-list"></div></article>
+        <article class="panel glass"><div class="panel-head"><div><h2>Price alerts</h2><p>Zuzu tells you out loud (and on Telegram) when a price is crossed</p></div></div>
+          <form id="mkAlertForm" class="pf-form"><div class="pf-row"><input id="mkAlertSymbol" placeholder="Ticker" required><select id="mkAlertDir"><option value="above">goes above</option><option value="below">goes below</option></select><input id="mkAlertPrice" type="number" step="any" placeholder="Price" required><button class="primary-btn" type="submit">Add</button></div></form>
+          <div id="mkAlerts" class="mk-list"></div></article>
+      </div>
+    </section>
+
+    <section class="view" role="tabpanel" data-view-panel="library" hidden>
+      <div class="view-head"><div><span class="kicker">My day</span><h1>Library</h1><p class="view-sub">70,000+ free classic books from Project Gutenberg. Pick one to read, let Zuzu read it to you, or get a short brief.</p></div></div>
+      <div id="bkReader" class="panel glass bk-reader" hidden>
+        <div class="panel-head"><div><h2 id="bkTitle">Book</h2><p id="bkAuthor"></p></div><div class="call-actions"><button id="bkBrief" class="secondary-btn" type="button">Brief this book</button><button id="bkListen" class="primary-btn" type="button">Listen</button><button id="bkClose" class="secondary-btn" type="button">Close</button></div></div>
+        <div id="bkBriefText" class="bk-brief" hidden></div>
+        <div id="bkText" class="bk-text"></div>
+        <div class="bk-nav"><button id="bkPrev" class="secondary-btn" type="button">‹ Previous</button><span id="bkPage">—</span><button id="bkNext" class="secondary-btn" type="button">Next ›</button></div>
+      </div>
+      <article class="panel glass"><div class="panel-head"><div><h2>Find a book</h2><p>Search by title, author or subject</p></div></div>
+        <form id="bkSearchForm" class="pf-form"><div class="pf-row"><input id="bkQuery" placeholder="e.g. Sherlock Holmes, Dostoevsky, philosophy" autocomplete="off"><select id="bkLang" aria-label="Language"><option value="">Any language</option><option value="en">English</option><option value="ar">Arabic</option><option value="fr">French</option><option value="de">German</option><option value="es">Spanish</option></select><button class="primary-btn" type="submit">Search</button></div>
+          <div class="bk-topics"><button type="button" data-bk-topic="">Most popular</button><button type="button" data-bk-topic="fiction">Fiction</button><button type="button" data-bk-topic="adventure">Adventure</button><button type="button" data-bk-topic="philosophy">Philosophy</button><button type="button" data-bk-topic="history">History</button><button type="button" data-bk-topic="science">Science</button><button type="button" data-bk-topic="poetry">Poetry</button></div></form>
+        <div id="bkShelf" class="bk-shelf" hidden></div>
+        <div id="bkResults" class="bk-grid"><div class="empty-state">Pick a topic or search to browse books.</div></div></article>
     </section>
 
     <section class="view" role="tabpanel" data-view-panel="projects" hidden>
@@ -208,7 +243,7 @@
 
     <section class="view" role="tabpanel" data-view-panel="studio" hidden>
       <div class="view-head"><div><span class="kicker">Create</span><h1>Media studio</h1><p class="view-sub">Upload files for Zuzu to use, or ask Hermes to create images and video.</p></div><label class="primary-btn upload-label">Upload file<input id="fileUpload" type="file" multiple hidden></label></div>
-      <div class="studio-grid"><article class="panel glass"><h2>Files & images</h2><p>Attach local material to the active project.</p><div id="uploadList" class="upload-list"></div></article><article class="panel glass"><h2>Image generation</h2><textarea id="imagePrompt" rows="4" placeholder="Describe the image you want…"></textarea><button class="primary-btn generate-btn" data-media="image">Generate image</button></article><article class="panel glass"><h2>Video generation</h2><textarea id="videoPrompt" rows="4" placeholder="Describe the video, movement and duration…"></textarea><button class="primary-btn generate-btn" data-media="video">Generate video</button></article></div>
+      <div class="studio-grid"><article class="panel glass"><h2>Files & images</h2><p>Attach local material to the active project.</p><div id="uploadList" class="upload-list"></div></article><article class="panel glass"><h2>Create an image</h2><textarea id="imagePrompt" rows="4" placeholder="A walnut and blue-resin river table in a sunlit Dubai apartment, photo style…"></textarea><button class="primary-btn generate-btn" data-media="image">Create image</button><p class="form-note">Takes about 10 seconds. Uses your Gemini key.</p></article><article class="panel glass"><h2>Create a video</h2><textarea id="videoPrompt" rows="4" placeholder="Slow cinematic pan over an epoxy resin pour, golden light…"></textarea><button class="primary-btn generate-btn" data-media="video">Create video</button><p class="form-note">Takes 1–5 minutes; Zuzu announces it when ready. Video generation is billed by Google.</p><div id="mediaJobs" class="mk-list"></div></article></div>
     </section>
 
     <section class="view" role="tabpanel" data-view-panel="calls" hidden>
@@ -231,11 +266,11 @@
   </main>
 </div>
 
-<nav class="mobile-nav" role="tablist" aria-label="Mobile navigation"><button class="active" role="tab" data-group="home" aria-selected="true">Home</button><button role="tab" data-group="work" aria-selected="false">Work</button><button role="tab" data-group="brain" aria-selected="false">Brain</button><button role="tab" data-group="tools" aria-selected="false">Tools</button><button role="tab" data-group="settings" aria-selected="false">Settings</button></nav>
+<nav class="mobile-nav" role="tablist" aria-label="Mobile navigation"><button class="active" role="tab" data-group="home" aria-selected="true">Home</button><button role="tab" data-group="day" aria-selected="false">My day</button><button role="tab" data-group="work" aria-selected="false">Work</button><button role="tab" data-group="brain" aria-selected="false">Brain</button><button role="tab" data-group="tools" aria-selected="false">Tools</button><button role="tab" data-group="settings" aria-selected="false">Settings</button></nav>
 <button id="stopBtn" class="stop-btn" type="button" title="Stop everything Zuzu is doing (Esc)" aria-label="Stop" hidden>Stop <small>Esc</small></button>
 <dialog id="editorDialog"><form method="dialog" id="editorForm"><div class="dialog-head"><h2 id="dialogTitle">Add</h2><button value="cancel" aria-label="Close">×</button></div><div id="dialogFields"></div><div class="dialog-actions"><button value="cancel" class="secondary-btn">Cancel</button><button id="dialogSave" value="default" class="primary-btn">Save</button></div></form></dialog>
 <script src="live-bridge.js?v=12"></script>
-<script src="app.js?v=40"></script>
+<script src="app.js?v=41"></script>
 </body>
 </html>
 
