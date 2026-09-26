@@ -29,7 +29,7 @@ if (-not (Test-Path -LiteralPath $voicePython)) {
 }
 & $voicePython migrate_voice_mode.py
 if ($LASTEXITCODE -ne 0) { throw 'Could not migrate the Zuzu voice setting.' }
-& $voicePython -m pip install --disable-pip-version-check -q faster-whisper
+& $voicePython -m pip install --disable-pip-version-check -q faster-whisper psutil
 if ($LASTEXITCODE -ne 0) { throw 'Could not install local voice transcription.' }
 
 if (-not $NoOpen) {

@@ -113,6 +113,7 @@ function renderWorkspace(){
   $('#uploadList').innerHTML=(WS.uploads||[]).map(f=>`<div class="list-card"><div><b>${esc(f.name)}</b><small>${Math.max(1,Math.round(f.size/1024))} KB</small></div></div>`).join('')||'<div class="empty-state">No files uploaded.</div>';
   renderCapabilityCatalogue();
   drawMemoryBrain();
+  renderCommandCenterWorkspace();
 }
 function providerLabel(provider){
   return ({hermes:'Hermes profile default', gemini:'Gemini for Hermes', openai:'OpenAI for Hermes', anthropic:'Anthropic for Hermes', openrouter:'OpenRouter for Hermes', ollama:'Ollama local for Hermes'}[provider] || String(provider||'Provider'));
@@ -1642,7 +1643,7 @@ document.querySelectorAll('[data-compose]').forEach(b => b.onclick = () => {
   $('#input').value = b.dataset.compose || '';
   $('#input').focus();
 });
-let serverBusy = false;
+let serverBusy = false, lastStatus = null, backgroundMissions = 0;
 function isBusy(){
   return running || serverBusy || convo || liveConnecting || !!liveTts || liveSpeaking
     || document.body.classList.contains('speaking') || !!(player && !player.paused) || !!speechSynth?.speaking;
@@ -1741,6 +1742,7 @@ async function pollJobs(){
   try {
     const j = await fetch('/api/jobs', {headers:apiHeaders()}).then(r => r.json());
     renderActiveOperation(j.active_operation, 'jobs');
+    backgroundMissions = (j.running || []).length;
     for (const d of (j.done || [])){
       log('complete','MISSION', `${d.mission} → ${(d.result||'').slice(0,200)}`);
       if (!running) speak(`Mission complete. ${(d.result||'').slice(0,300)}`);
@@ -1790,6 +1792,8 @@ function renderStatus(s){
   sys('hermes', hermesLabel, hermesReady ? 'ok' : (hermesChecking ? '' : 'warn'));
   const hasActiveOperation = renderActiveOperation(s.active_operation, 'status');
   serverBusy = !!hasActiveOperation;
+  lastStatus = s;
+  renderCommandCenterStatus(s);
   if (!hasActiveOperation) sys('brain', brain, s.runtime === 'mock' ? 'warn' : 'ok');
   sys('voice', `${sttLabel} / ${ttsLabel}`, (RT.browserStt||RT.stt) ? 'ok' : 'warn');
   sys('profile', s.profile || 'default');
@@ -1879,3 +1883,141 @@ loadWorkspace();
 refreshStatus();
 refreshCalls();
 
+// ══════════ command center (main page) ══════════
+const fmtBytes = n => { if (!n && n !== 0) return '—'; const u=['B','KB','MB','GB','TB']; let i=0; while (n>=1024 && i<u.length-1){ n/=1024; i++; } return `${n.toFixed(i>2?1:0)} ${u[i]}`; };
+const fmtUptime = s => { if (s == null) return '—'; const d=Math.floor(s/86400), h=Math.floor(s%86400/3600), m=Math.floor(s%3600/60); return d ? `${d}d ${h}h` : (h ? `${h}h ${m}m` : `${m}m`); };
+const kv = rows => rows.filter(r => r[1] !== undefined && r[1] !== null && r[1] !== '').map(([k,v]) => `<dt>${esc(k)}</dt><dd title="${esc(v)}">${esc(v)}</dd>`).join('');
+function setPill(id, tone, value){
+  const el = $(id); if (!el) return;
+  el.dataset.tone = tone || '';
+  const em = el.querySelector('em'); if (em && value !== undefined) em.textContent = value;
+}
+
+function renderCommandCenterStatus(s){
+  const hermes = s.hermes_connected ? 'connected' : (s.hermes_pending ? 'checking' : 'offline');
+  setPill('#ccPillHermes', s.hermes_connected ? 'ok' : (s.hermes_pending ? '' : 'bad'), `${hermes} · ${s.transport === 'api' ? 'API' : 'CLI'}`);
+  setPill('#ccPillBrain', s.runtime === 'hermes' ? 'ok' : 'bad', s.model || s.provider || '—');
+  const voiceText = RT.live ? `Native audio · ${WS?.settings?.voice || ''}` : (s.tts === 'browser' ? 'Browser voice' : `${s.tts} voice`);
+  setPill('#ccPillVoice', RT.live ? 'ok' : '', voiceText);
+  const brain = $('#ccBrain');
+  if (brain) brain.innerHTML = kv([
+    ['Agent', s.hermes_connected ? 'Hermes · connected' : `Hermes · ${hermes}`],
+    ['Link', s.transport === 'api' ? 'Hermes API (streaming)' : 'Hermes CLI'],
+    ['Model', s.model],
+    ['Voice model', s.live_model || (s.tts === 'browser' ? 'Browser speech' : s.tts)],
+    ['Voice', WS?.settings?.voice],
+    ['Tools', (s.tools || []).length ? `${(s.tools || []).length} available` : (s.tools_pending ? 'loading…' : 'none reported')],
+    ['Profile', s.profile || 'default'],
+  ]);
+  renderCommandCenterProfile();
+}
+
+function renderCommandCenterProfile(){
+  const box = $('#ccProfile'); if (!box || !WS) return;
+  const st = WS.settings || {};
+  box.innerHTML = kv([
+    ['Hermes profile', st.profile || 'default'],
+    ['Working folder', st.workdir || '~'],
+    ['Persona', (st.persona || '').slice(0, 70) + ((st.persona || '').length > 70 ? '…' : '')],
+    ['Memories', `${(WS.memory || []).length} saved`],
+    ['Skills', `${(WS.skills || []).filter(x => x.enabled !== false).length} active`],
+    ['PC control', st.computerControl ? 'Allowed' : 'Off'],
+  ]);
+}
+
+function renderCommandCenterWorkspace(){
+  if (!WS) return;
+  const projects = WS.projects || [];
+  const selected = projects.find(p => p.id === WS.selectedProject) || projects[0];
+  const select = $('#ccProject');
+  if (select) select.innerHTML = projects.map(p => `<option value="${esc(p.id)}" ${p.id === selected?.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('');
+  const sessions = (selected?.sessions || []).slice().sort((a,b) => (b.created||0) - (a.created||0)).slice(0, 6);
+  const list = $('#ccSessions');
+  if (list) list.innerHTML = sessions.map(x => `<button type="button" data-session="${esc(x.id)}" class="${x.id === WS.selectedSession ? 'active' : ''}"><span>${esc(x.name)}</span>${x.hermesSessionId ? '<i title="Has Hermes history"></i>' : ''}</button>`).join('') || '<div class="cc-empty">No chats yet.</div>';
+  renderCommandCenterProfile();
+}
+$('#ccProject')?.addEventListener('change', async e => {
+  try { await workspaceRequest({action:'select_session', projectId:e.target.value, sessionId:''}); await loadHistory(); }
+  catch(err){ log('error','WORKSPACE',String(err.message||err)); }
+});
+$('#ccNewChat')?.addEventListener('click', () => $('#addSession').click());
+
+let ccRunStartedAt = 0;
+function renderCommandCenterNow(){
+  const state = $('#ccNowState'), detail = $('#ccNowDetail'), elapsed = $('#ccNowElapsed'), missions = $('#ccNowMissions');
+  if (!state) return;
+  if (running && !ccRunStartedAt) ccRunStartedAt = Date.now();
+  if (!running) ccRunStartedAt = 0;
+  const speaking = document.body.classList.contains('speaking');
+  const op = lastStatus?.active_operation;
+  let label = 'Ready for your next request.', tone = 'idle', text = '', secs = 0;
+  if (running){ label = 'Working on your request'; tone = 'busy'; text = $('#userText')?.textContent || ''; secs = (Date.now() - ccRunStartedAt) / 1000; }
+  else if (serverBusy && op){ label = op.label || 'Hermes task'; tone = 'busy'; text = op.detail || ''; secs = op.started_ms ? (Date.now() - op.started_ms) / 1000 : 0; }
+  else if (speaking){ label = 'Speaking'; tone = 'speak'; }
+  else if (convo){ label = 'Listening — go ahead'; tone = 'listen'; }
+  state.textContent = label; state.dataset.tone = tone;
+  detail.textContent = text;
+  elapsed.textContent = secs > 0.5 ? `${secs.toFixed(0)}s elapsed` : '';
+  missions.textContent = backgroundMissions ? `${backgroundMissions} background mission${backgroundMissions > 1 ? 's' : ''}` : '';
+  const pill = $('#ccPillState');
+  if (pill){ pill.dataset.tone = tone === 'idle' ? 'ok' : 'busy'; pill.querySelector('b').textContent = ({idle:'Ready', busy:'Working', speak:'Speaking', listen:'Listening'})[tone]; }
+  const clock = $('#ccClock'); if (clock) clock.textContent = new Date().toLocaleString([], {weekday:'short', hour:'2-digit', minute:'2-digit'});
+}
+setInterval(renderCommandCenterNow, 500);
+
+// Mirror the live exchange from the core into a readable transcript card.
+function syncConversation(){
+  const you = ($('#userText')?.textContent || '').trim();
+  const zuzu = ($('#response')?.textContent || '').trim();
+  $('#ccYou').textContent = you; $('#ccYouRow').hidden = !you;
+  $('#ccZuzu').textContent = zuzu; $('#ccZuzuRow').hidden = !zuzu;
+  $('#ccLiveEmpty').hidden = !!(you || zuzu);
+}
+['#userText', '#response'].forEach(sel => { const el = $(sel); if (el) new MutationObserver(syncConversation).observe(el, {childList:true, subtree:true, characterData:true}); });
+
+function syncFeed(){
+  const feed = $('#ccFeed'); if (!feed) return;
+  feed.innerHTML = [...document.querySelectorAll('#log .entry')].slice(0, 5).map(e => {
+    const kind = e.querySelector('.kind')?.textContent || '', msg = e.querySelector('.msg')?.textContent || '', ts = e.querySelector('.ts')?.textContent || '';
+    return `<li class="${esc(e.className.replace('entry',''))}"><span>${esc(ts)}</span><b>${esc(kind)}</b><em>${esc(msg.slice(0, 90))}</em></li>`;
+  }).join('') || '<li class="cc-empty">No activity yet.</li>';
+}
+const logBox = $('#log'); if (logBox) new MutationObserver(syncFeed).observe(logBox, {childList:true});
+
+// Smart tools: run now, or prefill the message box when details are needed.
+document.addEventListener('click', e => {
+  const run = e.target.closest('[data-cc-run]');
+  if (run){ transmit(run.dataset.ccRun); return; }
+  const compose = e.target.closest('[data-cc-compose]');
+  const summarize = e.target.closest('[data-cc-summarize]');
+  if (!compose && !summarize) return;
+  if (summarize && activeAttachments.length){ transmit('Summarize the attached file(s) into key points, decisions and next actions.'); return; }
+  const input = $('#input');
+  input.value = compose ? compose.dataset.ccCompose : 'Summarize this into key points and next actions: ';
+  input.focus(); input.setSelectionRange(input.value.length, input.value.length);
+  input.scrollIntoView({block:'center', behavior:'smooth'});
+});
+
+async function refreshPcInfo(){
+  if (document.visibilityState === 'hidden') return;
+  try{
+    const r = await fetch('/api/system', {headers:apiHeaders(), cache:'no-store'});
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const s = await r.json();
+    $('#ccPcHost').textContent = s.host || '';
+    const meter = (label, used, total, extra) => {
+      const pct = total ? Math.round(used / total * 100) : null;
+      return `<div class="cc-meter"><div><b>${esc(label)}</b><span>${esc(extra || (pct == null ? '—' : pct + '%'))}</span></div><i style="--p:${pct ?? 0}%" data-hot="${pct >= 85 ? 1 : 0}"></i></div>`;
+    };
+    const mem = s.memory, disk = s.disk;
+    $('#ccPc').innerHTML =
+      (s.cpu_percent != null ? meter('CPU', s.cpu_percent, 100, `${Math.round(s.cpu_percent)}% · ${s.cpus} cores`) : '')
+      + (mem ? meter('Memory', mem.total - mem.available, mem.total, `${fmtBytes(mem.total - mem.available)} / ${fmtBytes(mem.total)}`) : '')
+      + (disk ? meter('Disk', disk.total - disk.free, disk.total, `${fmtBytes(disk.free)} free`) : '')
+      + (s.battery ? meter('Battery', s.battery.percent, 100, `${s.battery.percent}%${s.battery.plugged ? ' · charging' : ''}`) : '')
+      + `<dl class="cc-kv">${kv([['System', s.os], ['Uptime', fmtUptime(s.uptime)]])}</dl>`;
+  }catch(err){ $('#ccPc').innerHTML = `<div class="cc-empty">PC info unavailable (${esc(err.message||err)})</div>`; }
+}
+refreshPcInfo();
+setInterval(refreshPcInfo, 20000);
+syncFeed();

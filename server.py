@@ -226,6 +226,71 @@ def _web_search(query):
     return {"query": query, "results": results, "best": results[0]}
 
 
+def _memory_bytes():
+    """Return (total, available) RAM in bytes using only the standard library."""
+    if os.name == "nt":
+        import ctypes
+
+        class _Status(ctypes.Structure):
+            _fields_ = [("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong),
+                        ("ullTotalPhys", ctypes.c_ulonglong), ("ullAvailPhys", ctypes.c_ulonglong),
+                        ("ullTotalPageFile", ctypes.c_ulonglong), ("ullAvailPageFile", ctypes.c_ulonglong),
+                        ("ullTotalVirtual", ctypes.c_ulonglong), ("ullAvailVirtual", ctypes.c_ulonglong),
+                        ("ullAvailExtendedVirtual", ctypes.c_ulonglong)]
+        status = _Status()
+        status.dwLength = ctypes.sizeof(_Status)
+        if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+            return status.ullTotalPhys, status.ullAvailPhys
+        return None, None
+    try:
+        values = {}
+        for line in pathlib.Path("/proc/meminfo").read_text().splitlines():
+            key, _, rest = line.partition(":")
+            values[key] = int(rest.split()[0]) * 1024
+        return values.get("MemTotal"), values.get("MemAvailable")
+    except (OSError, ValueError):
+        return None, None
+
+
+def _uptime_seconds():
+    if os.name == "nt":
+        import ctypes
+        return int(ctypes.windll.kernel32.GetTickCount64() // 1000)
+    try:
+        return int(float(pathlib.Path("/proc/uptime").read_text().split()[0]))
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+def system_snapshot():
+    """Small, non-sensitive PC summary for the dashboard's This PC card."""
+    import platform
+    import shutil
+    import socket
+    import time
+    info = {"host": socket.gethostname(), "os": f"{platform.system()} {platform.release()}".strip(),
+            "machine": platform.machine(), "cpus": os.cpu_count(), "python": platform.python_version(),
+            "time": time.strftime("%Y-%m-%d %H:%M"), "cpu_percent": None, "battery": None}
+    total, available = _memory_bytes()
+    info["memory"] = {"total": total, "available": available} if total else None
+    try:
+        usage = shutil.disk_usage(os.path.expanduser(runtime.WORKDIR or "~"))
+        info["disk"] = {"total": usage.total, "free": usage.free}
+    except OSError:
+        info["disk"] = None
+    info["uptime"] = _uptime_seconds()
+    try:
+        import psutil  # optional: richer live numbers when installed
+        info["cpu_percent"] = psutil.cpu_percent(interval=None)
+        battery = psutil.sensors_battery()
+        if battery:
+            info["battery"] = {"percent": round(battery.percent), "plugged": bool(battery.power_plugged)}
+    except Exception:  # noqa: BLE001
+        if hasattr(os, "getloadavg") and info["cpus"]:
+            info["cpu_percent"] = round(min(100.0, os.getloadavg()[0] / info["cpus"] * 100), 1)
+    return info
+
+
 def capture_laptop_screen_jpeg():
     """Capture the visible Windows desktop for mobile live-screen preview."""
     try:
@@ -413,6 +478,8 @@ class Handler(BaseHTTPRequestHandler):
                                    running=[j for j in commands.jobs_snapshot()
                                             if j["status"] == "running"],
                                    active_operation=runtime.active_operation_snapshot()))
+        if p == "/api/system":
+            return self._json(system_snapshot())
         if p == "/api/workspace":
             if not self._token_ok():
                 return self._json({"error": "unauthorized"}, 401)

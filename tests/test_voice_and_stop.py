@@ -56,6 +56,21 @@ class StopTests(unittest.TestCase):
         self.assertIn("/api/cancel", script)
 
 
+class CommandCenterTests(unittest.TestCase):
+    def test_pc_snapshot_has_core_fields(self):
+        info = server.system_snapshot()
+        for key in ("host", "os", "cpus", "memory", "disk", "uptime"):
+            self.assertIn(key, info)
+
+    def test_main_page_cards_are_wired(self):
+        html = (ROOT / "ui" / "index.html").read_text(encoding="utf-8")
+        script = (ROOT / "ui" / "app.js").read_text(encoding="utf-8")
+        for element in ("ccNow", "ccProject", "ccSessions", "ccBrain", "ccPc", "ccProfile", "ccFeed", "ccYou", "ccZuzu"):
+            self.assertIn(f'id="{element}"', html)
+        self.assertGreaterEqual(html.count("data-cc-run=") + html.count("data-cc-compose="), 7)
+        self.assertIn("/api/system", script)
+
+
 class ReadAloudTokenTests(unittest.TestCase):
     def test_speak_token_uses_live_model_and_voice_without_tools(self):
         with tempfile.TemporaryDirectory() as folder, \

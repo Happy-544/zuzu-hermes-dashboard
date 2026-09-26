@@ -11,7 +11,7 @@
 <title>Zuzu · Hermes</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-192.png">
-<link rel="stylesheet" href="styles.css?v=37">
+<link rel="stylesheet" href="styles.css?v=38">
 </head>
 <body>
 <div class="grid-bg"></div>
@@ -43,6 +43,33 @@
   <main class="workspace">
     <section class="view active" role="tabpanel" data-view-panel="chat">
       <div class="view-head home-title"><div><h1>Zuzu</h1></div></div>
+      <div class="cc-status" aria-label="Live status">
+        <span class="cc-pill" id="ccPillState"><i></i><b>Ready</b></span>
+        <span class="cc-pill" id="ccPillHermes"><i></i><b>Hermes</b><em>checking</em></span>
+        <span class="cc-pill" id="ccPillBrain"><i></i><b>Brain</b><em>—</em></span>
+        <span class="cc-pill" id="ccPillVoice"><i></i><b>Voice</b><em>—</em></span>
+        <span class="cc-pill cc-clock" id="ccClock"></span>
+      </div>
+      <div class="cc-grid">
+      <aside class="cc-rail cc-left" aria-label="Current work">
+        <section class="cc-card cc-now" id="ccNow">
+          <header><h3>Now</h3><button type="button" class="cc-link" data-cc-run="/busy">What's running?</button></header>
+          <div class="cc-now-state" id="ccNowState">Ready for your next request.</div>
+          <div class="cc-now-detail" id="ccNowDetail"></div>
+          <div class="cc-now-meta"><span id="ccNowElapsed"></span><span id="ccNowMissions"></span></div>
+        </section>
+        <section class="cc-card">
+          <header><h3>Workspace</h3><button type="button" class="cc-link" data-view="projects">Manage</button></header>
+          <label class="cc-field"><span>Project</span><select id="ccProject" aria-label="Active project"></select></label>
+          <div class="cc-sessions" id="ccSessions"></div>
+          <button type="button" class="cc-ghost" id="ccNewChat">+ New chat</button>
+        </section>
+        <section class="cc-card">
+          <header><h3>Brain</h3><button type="button" class="cc-link" data-view="models">Change</button></header>
+          <dl class="cc-kv" id="ccBrain"></dl>
+        </section>
+      </aside>
+      <div class="cc-main">
       <div class="chat-layout">
         <aside class="core-card glass">
           <div class="reactor" id="reactor">
@@ -59,11 +86,46 @@
           <div class="core-details"><span><i class="online"></i> Online</span><span id="core-model">Gemini</span></div><div class="core-visual-actions"><button id="dockCamera" type="button">Livestream</button><button id="dockScreen" type="button">Screen share</button><button id="dockLaptop" type="button">Laptop live</button><button id="dockImage" type="button">Screenshot</button><button id="dockVideo" type="button">Video / YouTube</button><button id="dockBrowser" type="button">Browser view</button></div>
         </aside>
       </div>
+      <section class="cc-card cc-live" aria-live="polite">
+        <header><h3>Conversation</h3><span class="cc-hint">Voice for the headline, screen for the details</span></header>
+        <div class="cc-turn cc-you" id="ccYouRow" hidden><b>You</b><p id="ccYou"></p></div>
+        <div class="cc-turn cc-zuzu" id="ccZuzuRow" hidden><b>Zuzu</b><p id="ccZuzu"></p></div>
+        <div class="cc-empty" id="ccLiveEmpty">Ask anything, pick a smart tool, or press <b>Zuzu Voice</b> to talk.</div>
+      </section>
       <div id="chatHistory" class="chat-history glass" aria-label="Selected Hermes chat history"></div>
       <div class="composer glass">
         <textarea id="input" rows="2" spellcheck="false" aria-label="Message Zuzu" placeholder="Message Zuzu…"></textarea>
         <div id="chatAttachments" class="chat-attachments" hidden></div>
         <div class="composer-actions"><span class="tip" id="tip">Enter to send · Shift+Enter for a new line</span><label class="icon-btn attach-label" title="Attach files or images">Attach<input id="chatFileUpload" type="file" multiple accept="image/*,.pdf,.txt,.md,.csv,.json,.doc,.docx,.xls,.xlsx,.ppt,.pptx" hidden></label><button id="mute" class="icon-btn on" title="Mute Zuzu speech" aria-label="Mute Zuzu speech">Sound</button><button id="run" class="send-btn">Send</button></div>
+      </div>
+      </div>
+      <aside class="cc-rail cc-right" aria-label="Tools and system">
+        <section class="cc-card">
+          <header><h3>Smart tools</h3><span class="cc-hint">One click</span></header>
+          <div class="cc-tools">
+            <button type="button" data-cc-run="Give me a quick daily brief: today's date and time, my standing goal, open missions, and anything that needs my attention today. Keep it short."><b>Daily brief</b><small>Goal, missions, today</small></button>
+            <button type="button" data-cc-run="Plan my day: use my standing goal, mission queue, reminders and calendar if connected. Give a prioritized list with suggested times."><b>Plan my day</b><small>Prioritized schedule</small></button>
+            <button type="button" data-cc-compose="Research this and give me a short brief with sources: "><b>Research</b><small>Web brief + sources</small></button>
+            <button type="button" data-cc-summarize><b>Summarize</b><small>File, link or text</small></button>
+            <button type="button" data-cc-compose="Draft a message in my tone (show it to me before sending) to "><b>Draft message</b><small>Email / Telegram</small></button>
+            <button type="button" data-cc-run="Look at my laptop screen right now using the computer or screenshot tools. Tell me what is open and what I should do next. Do not click or change anything."><b>My screen</b><small>Explain what's open</small></button>
+            <button type="button" data-cc-compose="/browser search for "><b>Web search</b><small>Open results</small></button>
+            <button type="button" data-cc-compose="/remind "><b>Remind me</b><small>Follow-ups</small></button>
+          </div>
+        </section>
+        <section class="cc-card">
+          <header><h3>This PC</h3><span class="cc-hint" id="ccPcHost"></span></header>
+          <div class="cc-meters" id="ccPc"><div class="cc-empty">Reading system…</div></div>
+        </section>
+        <section class="cc-card">
+          <header><h3>Profile</h3><button type="button" class="cc-link" data-view="settings">Edit</button></header>
+          <dl class="cc-kv" id="ccProfile"></dl>
+        </section>
+        <section class="cc-card">
+          <header><h3>Recent activity</h3><button type="button" class="cc-link" data-view="activity">All</button></header>
+          <ol class="cc-feed" id="ccFeed"></ol>
+        </section>
+      </aside>
       </div>
     </section>
 
@@ -127,7 +189,7 @@
 <button id="stopBtn" class="stop-btn" type="button" title="Stop everything Zuzu is doing (Esc)" aria-label="Stop" hidden>Stop <small>Esc</small></button>
 <dialog id="editorDialog"><form method="dialog" id="editorForm"><div class="dialog-head"><h2 id="dialogTitle">Add</h2><button value="cancel" aria-label="Close">×</button></div><div id="dialogFields"></div><div class="dialog-actions"><button value="cancel" class="secondary-btn">Cancel</button><button id="dialogSave" value="default" class="primary-btn">Save</button></div></form></dialog>
 <script src="live-bridge.js?v=11"></script>
-<script src="app.js?v=37"></script>
+<script src="app.js?v=38"></script>
 </body>
 </html>
 
