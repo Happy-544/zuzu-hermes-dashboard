@@ -1270,6 +1270,7 @@ async function startGeminiLive(){
     }).then(async r => { const data=await r.json(); if(!r.ok) throw new Error(data.error||`HTTP ${r.status}`); return data; });
     micStream = await navigator.mediaDevices.getUserMedia(
       {audio:{echoCancellation:true, noiseSuppression:true, autoGainControl:true, channelCount:1}});
+    syncMicMute();
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
     liveInputCtx = new AudioCtx(); liveOutputCtx = new AudioCtx();
     await Promise.all([liveInputCtx.resume(), liveOutputCtx.resume()]);
@@ -1505,6 +1506,24 @@ function speakFallback(spoken, voiceStarted, resolve){
     });
 }
 
+// ── microphone mute toggle ──
+let micMuted = false;
+function syncMicMute(){
+  const t = micStream ? micStream.getAudioTracks()[0] : null;
+  if (t) t.enabled = !micMuted;
+  const b = $('#micMute');
+  if (b){
+    b.textContent = micMuted ? 'Unmute mic' : 'Mute mic';
+    b.classList.toggle('on', !micMuted);
+    b.classList.toggle('off', micMuted);
+  }
+}
+function toggleMicMute(){
+  micMuted = !micMuted;
+  syncMicMute();
+  log('voice','VOICE', micMuted ? 'microphone muted' : 'microphone unmuted');
+}
+
 // ── start / stop the whole conversation ──
 async function micToggle(){
   if (liveConnecting){ stopConvo(); return; }
@@ -1516,6 +1535,7 @@ async function micToggle(){
     try {
       micStream = await navigator.mediaDevices.getUserMedia(
         {audio:{echoCancellation:true, noiseSuppression:true, autoGainControl:true}});
+      syncMicMute();
     } catch(e){ log('error','VOICE','mic blocked — allow it in the address bar'); return; }
     actx = new (window.AudioContext||window.webkitAudioContext)();
     await actx.resume();
@@ -1777,6 +1797,7 @@ function sendFromInput(){
 }
 $('#run').onclick = sendFromInput;
 $('#mic').onclick = micToggle;
+$('#micMute').onclick = toggleMicMute;
 $('#showCommands').onclick = () => transmit('/commands', {speak:false});
 $('#missionBtn').onclick = () => transmit('/mission', {speak:false});
 $('#clearBtn').onclick = () => { answer=''; setUserText(''); $('#response').innerHTML='<span class="rplaceholder"></span>'; setState('', 'READY', ''); log('note','CLEAR','response panel cleared'); };
