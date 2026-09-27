@@ -9,3 +9,7 @@ state.json
 workspace.json
 uploads/
 tests/voice-smoke.wav
+personal.json
+markets.json
+books.json
+books/

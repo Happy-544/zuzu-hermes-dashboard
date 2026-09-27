@@ -25,3 +25,13 @@ test('cancelled or disconnected requests cannot speak late results',async()=>{
   await bridge.handle({id:'b',name:'hermes_action',args:{request:'Open Paint'}});
   assert.equal(sent.length,0);
 });
+test('local voice tools run in the page and never reach Hermes',async()=>{
+  const sent=[];let hermesCalls=0;
+  const bridge=new HermesVoiceBridge(async()=>{hermesCalls++;return {result:'x'};},m=>sent.push(m),
+    {play_music:async args=>({playing:args.query})});
+  await bridge.handle({id:'m1',name:'play_music',args:{query:'Amr Diab'}});
+  assert.equal(hermesCalls,0);
+  assert.deepEqual(sent[0].toolResponse.functionResponses[0].response,{playing:'Amr Diab'});
+  await bridge.handle({id:'m2',name:'unknown_tool',args:{}});
+  assert.match(sent[1].toolResponse.functionResponses[0].response.error,/Invalid/);
+});

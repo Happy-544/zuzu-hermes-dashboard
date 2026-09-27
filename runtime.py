@@ -506,7 +506,8 @@ def _run_hermes_locked(message, session_id=None, system=None):
             pass
 
     threading.Thread(target=pump_stdout, daemon=True).start()
-    threading.Thread(target=pump_stderr, daemon=True).start()
+    stderr_reader = threading.Thread(target=pump_stderr, daemon=True)
+    stderr_reader.start()
 
     first = True
     last = time.monotonic()
@@ -551,6 +552,7 @@ def _run_hermes_locked(message, session_id=None, system=None):
             yield dict(t="delta", text=clean + "\n")
 
         rc = proc.wait(timeout=5)
+        stderr_reader.join(timeout=2)
         # Hermes writes its programmatic session_id marker to stderr in quiet
         # mode, so capture it there without exposing it as response text.
         for errline in errbuf:

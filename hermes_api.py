@@ -2,10 +2,35 @@
 import json
 import os
 import secrets
+import socket
+import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+
+
+_ACTIVE_STREAMS = set()
+_ACTIVE_LOCK = threading.Lock()
+
+
+def cancel_active():
+    """Close every open Hermes chat stream; returns True if one was running."""
+    with _ACTIVE_LOCK:
+        streams = list(_ACTIVE_STREAMS)
+        _ACTIVE_STREAMS.clear()
+    for stream in streams:
+        stream.zuzu_cancelled = True
+        try:
+            # Wake a read blocked on the socket, then release the response.
+            stream.fp.raw._sock.shutdown(socket.SHUT_RDWR)
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            stream.close()
+        except Exception:  # noqa: BLE001
+            pass
+    return bool(streams)
 
 
 def configured():
@@ -95,8 +120,12 @@ def run_hermes(message, session_id=None, system=None, *, title="Zuzu chat", prov
     saw_delta = False
     final_text = ""
     terminal = None
+    failure = ""
+    response = None
     try:
         with _request(path, body, timeout=180) as response:
+            with _ACTIVE_LOCK:
+                _ACTIVE_STREAMS.add(response)
             event_name = ""
             for raw in response:
                 line = raw.decode("utf-8", "replace").rstrip("\r\n")
@@ -129,7 +158,7 @@ def run_hermes(message, session_id=None, system=None, *, title="Zuzu chat", prov
                             yield {"t": "usage", **event["usage"]}
                     elif kind == "error":
                         terminal = "run.failed"
-                        yield {"t": "error", "message": str(event.get("message") or "Hermes run failed")[:300]}
+                        failure = str(event.get("message") or "Hermes run failed")[:300]
                 elif not line:
                     event_name = ""
         if terminal == "run.completed":
@@ -146,5 +175,11 @@ def run_hermes(message, session_id=None, system=None, *, title="Zuzu chat", prov
         except (ValueError, OSError, AttributeError):
             pass
         yield {"t": "error", "message": detail or f"Hermes API HTTP {exc.code}"}
-    except (OSError, ValueError, RuntimeError) as exc:
-        yield {"t": "error", "message": f"Hermes API disconnected: {type(exc).__name__}"}
+    except (OSError, ValueError, RuntimeError, AttributeError) as exc:
+        if getattr(response, "zuzu_cancelled", False):
+            yield {"t": "error", "message": "Stopped by user."}
+        else:
+            yield {"t": "error", "message": f"Hermes API disconnected: {type(exc).__name__}"}
+    finally:
+        with _ACTIVE_LOCK:
+            _ACTIVE_STREAMS.discard(response)

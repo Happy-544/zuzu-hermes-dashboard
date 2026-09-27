@@ -30,26 +30,48 @@ const rid = () => 'run_' + (crypto.randomUUID ? crypto.randomUUID().replace(/-/g
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 // ── workspace navigation ──
-const VIEW_NAMES = new Set(['chat','projects','models','tools','memory','studio','missions','activity','calls','settings']);
+// Five simple sections; each holds one or more pages.
+const VIEW_GROUPS = {home:['chat'], day:['reminders','markets','library'], work:['projects','missions','studio'], brain:['memory','skills'],
+                     tools:['tools','calls'], settings:['settings','models','activity']};
+const VIEW_NAMES = new Set(Object.values(VIEW_GROUPS).flat());
+const groupOf = name => Object.keys(VIEW_GROUPS).find(group => VIEW_GROUPS[group].includes(name)) || 'home';
 function showView(name, remember = true){
+  if (VIEW_GROUPS[name]){
+    let last = ''; try{ last = localStorage.getItem(`zuzu-page-${name}`) || ''; }catch(_){}
+    name = VIEW_GROUPS[name].includes(last) ? last : VIEW_GROUPS[name][0];
+  }
   if (!VIEW_NAMES.has(name)) name = 'chat';
+  const group = groupOf(name);
   document.querySelectorAll('[data-view-panel]').forEach(panel => {
     const active = panel.dataset.viewPanel === name;
     panel.hidden = !active;
     panel.classList.toggle('active', active);
   });
-  document.querySelectorAll('[data-view]').forEach(button => {
-    const active = button.dataset.view === name;
+  document.querySelectorAll('[data-group]').forEach(button => {
+    const active = button.dataset.group === group;
     button.classList.toggle('active', active);
     button.setAttribute('aria-selected', String(active));
   });
-  if (remember) localStorage.setItem('jarvis-view', name);
+  const subnav = $('#subnav');
+  if (subnav){
+    subnav.hidden = VIEW_GROUPS[group].length < 2;
+    subnav.querySelectorAll('[data-sub]').forEach(button => {
+      button.hidden = button.dataset.sub !== group;
+      const active = button.dataset.view === name;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-selected', String(active));
+    });
+  }
+  if (remember){ try{ localStorage.setItem('jarvis-view', name); localStorage.setItem(`zuzu-page-${group}`, name); }catch(_){} }
   window.scrollTo({top:0, behavior:'auto'});
 }
-document.querySelectorAll('[data-view]').forEach(button => {
-  button.addEventListener('click', () => showView(button.dataset.view));
+document.addEventListener('click', e => {
+  const target = e.target.closest('[data-group],[data-view]');
+  if (!target) return;
+  showView(target.dataset.view || target.dataset.group);
 });
-showView(localStorage.getItem('jarvis-view') || 'chat', false);
+let savedView = 'chat'; try{ savedView = localStorage.getItem('jarvis-view') || 'chat'; }catch(_){}
+showView(savedView, false);
 
 // ── projects, settings, skills, memory and files ──
 let WS = null;
@@ -113,6 +135,7 @@ function renderWorkspace(){
   $('#uploadList').innerHTML=(WS.uploads||[]).map(f=>`<div class="list-card"><div><b>${esc(f.name)}</b><small>${Math.max(1,Math.round(f.size/1024))} KB</small></div></div>`).join('')||'<div class="empty-state">No files uploaded.</div>';
   renderCapabilityCatalogue();
   drawMemoryBrain();
+  renderCommandCenterWorkspace();
 }
 function providerLabel(provider){
   return ({hermes:'Hermes profile default', gemini:'Gemini for Hermes', openai:'OpenAI for Hermes', anthropic:'Anthropic for Hermes', openrouter:'OpenRouter for Hermes', ollama:'Ollama local for Hermes'}[provider] || String(provider||'Provider'));
@@ -344,6 +367,7 @@ function resetVisualSurfaces(){
 }
 function stopVisualStream(){
   if (visualStream){ visualStream.getTracks().forEach(t=>t.stop()); visualStream=null; }
+  if ($('#drawScreen')){ $('#drawScreen').hidden = true; $('#clearDrawing').hidden = true; setDrawMode(false); }
   resetVisualSurfaces();
   visualKind=''; setVisualStatus('Vision idle'); setVisionBox(false);
   document.body.classList.remove('vision-on');
@@ -425,7 +449,14 @@ async function showLaptopSnapshot(){
 async function refreshLaptopLive(){
   try{
     const blob=await fetchLaptopScreen('Laptop live');
-    showImageBlob(blob,'Laptop live');
+    if(visualKind!=='laptop-live') return;
+    // Swap the frame in place: going through showImageBlob would stop this live timer.
+    const img=$('#visualImage'), previous=visualObjectUrl;
+    visualObjectUrl=URL.createObjectURL(blob);
+    if(img){ img.src=visualObjectUrl; img.hidden=false; }
+    ['#visualPreview','#visualFrame','#visualEmpty'].forEach(sel=>{ const el=$(sel); if(el) el.hidden=true; });
+    if(previous) setTimeout(()=>URL.revokeObjectURL(previous), 2000);
+    setVisualStatus('Laptop live'); setVisionBox(true); document.body.classList.add('vision-on');
   }catch(err){
     stopLaptopScreen();
     setVisualStatus('Laptop screen unavailable');
@@ -435,6 +466,7 @@ async function refreshLaptopLive(){
 async function startLaptopLive(){
   stopVisualStream();
   visualKind='laptop-live';
+  $('#drawScreen').hidden = false; $('#clearDrawing').hidden = false;
   setVisualStatus('Laptop live');
   setVisionBox(true); document.body.classList.add('vision-on');
   await refreshLaptopLive();
@@ -668,7 +700,7 @@ $('#dockVideo')?.addEventListener('click',requestLaptopVideo);
 $('#dockBrowser')?.addEventListener('click',openBrowserPreview);
 $('#flipCamera')?.addEventListener('click',flipCamera);
 $('#stopVisual')?.addEventListener('click',stopVisualStream);
-document.querySelectorAll('.generate-btn').forEach(b=>b.onclick=()=>{const type=b.dataset.media,prompt=$(`#${type}Prompt`).value.trim();if(!prompt)return;showView('chat');transmit(`Use my Hermes ${type} generation tools to create: ${prompt}`,{speak:false});});
+document.querySelectorAll('.generate-btn').forEach(b=>b.onclick=async()=>{const type=b.dataset.media,prompt=$(`#${type}Prompt`).value.trim();if(!prompt)return;b.disabled=true;const label=b.textContent;b.textContent='Creating…';try{ type==='video'?await createVideo(prompt):await createImage(prompt); }catch(err){showToast(String(err.message||err),'error');}finally{b.disabled=false;b.textContent=label;}});
 function memoryItems(){
   if(!WS) return [];
   const settings=WS.settings||{};
@@ -810,6 +842,14 @@ async function transmit(message, options = {}){
   }
   dispatchReserved = true;
   try {
+    if (await handleLocalCommand(message)){ dispatchReserved = false; return; }
+  } catch(error) {
+    dispatchReserved = false;
+    log('error','ZUZU',String(error.message||error));
+    showToast(String(error.message||error), 'error');
+    return;
+  }
+  try {
     await autoRemember(message);
     pendingLiveAttachmentParts = [];
     const previewNote = maybeOpenRequestedBrowserPreview(message);
@@ -832,6 +872,7 @@ async function transmit(message, options = {}){
     return;
   }
   showView('chat');
+  resetSteps(message); watchPc(message);
   running = true; answer = ''; firstDelta = false; speakThisRun = options.speak !== false;
   dispatchReserved = false;
   setUserText(message.trim().slice(0,90));
@@ -890,6 +931,7 @@ async function transmit(message, options = {}){
   activeController = null;
   running = false;
   clearInterval(tick);
+  finishSteps();
   scheduleJobPoll(1500);
   loadHistory();
   await speakDone;                 // don't return until Zuzu has finished talking
@@ -939,6 +981,7 @@ function handle(ev){
       log('latency', 'LATENCY', `first token after ${ev.ms}ms`);
       break;
     case 'tool':
+      pushStep(ev);
       if (ev.phase === 'use')
         log('tool', 'TOOL', `→ ${ev.name}(${ev.input || ''})`);
       else
@@ -1087,6 +1130,7 @@ async function holdScreenAwake(){
 
 async function executeLiveAction(request, signal){
   log('tool', 'HERMES', 'Executing voice action');
+  resetSteps(request); watchPc(request);
   const response = await fetch('/api/run', {
     method:'POST', headers:apiHeaders({'content-type':'application/json'}),
     body:JSON.stringify({message:request, client_context: clientDeviceContext(), system: clientContextSystemText()}), signal
@@ -1103,7 +1147,7 @@ async function executeLiveAction(request, signal){
     if(ev.t==='delta') result+=ev.text || '';
     if(ev.t==='error') failure=ev.message || 'Hermes action failed';
     if(ev.t==='complete') completed=true;
-    if(ev.t==='tool') log('tool','HERMES',ev.name || 'Tool activity');
+    if(ev.t==='tool'){ log('tool','HERMES',ev.name || 'Tool activity'); pushStep(ev); }
   };
   while(true){
     const {value,done}=await reader.read();
@@ -1150,7 +1194,7 @@ async function startGeminiLive(){
     }, 12000);
     liveBridge = new HermesVoiceBridge(executeLiveAction, message => {
       if (connectedSocket === liveWs && connectedSocket.readyState === WebSocket.OPEN) connectedSocket.send(JSON.stringify(message));
-    });
+    }, LOCAL_TOOLS);
     liveWs.onmessage = async event => {
       liveLastMessageAt = Date.now();
       let payload = event.data;
@@ -1192,6 +1236,7 @@ async function startGeminiLive(){
       const content = msg.serverContent;
       if (!content) return;
       if (content.inputTranscription?.text){
+        if (SLEEP_RE.test(content.inputTranscription.text)) setTimeout(() => { if (convo) stopConvo(); }, 1800);
         setUserText(content.inputTranscription.text.slice(0,90));
         sendLiveVisualFrame(content.inputTranscription.text.slice(0,80));
       }
@@ -1229,52 +1274,136 @@ async function startGeminiLive(){
 }
 
 // ── voice out ──
-let muted = false, player = null;
+let muted = false, player = null, speakResolve = null, liveTts = null, liveTtsFailedUntil = 0;
+
+// Read a typed reply with the same Gemini native-audio model and voice as voice chat.
+// Resolves true once the audio has finished playing, false if nothing was spoken.
+async function speakWithLive(text){
+  const auth = await fetch('/api/live-token', {method:'POST', headers:apiHeaders({'content-type':'application/json'}),
+    body:JSON.stringify({purpose:'speak'})}).then(async r => { const d=await r.json(); if(!r.ok) throw new Error(d.error||`HTTP ${r.status}`); return d; });
+  return new Promise(resolve => {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const sources = new Set();
+    let playAt = ctx.currentTime, gotAudio = false, finished = false;
+    const ws = new WebSocket('wss://generativelanguage.googleapis.com/ws/'
+      + 'google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContentConstrained'
+      + `?access_token=${encodeURIComponent(auth.token)}`);
+    const finish = (ok, waitForAudio) => {
+      if (finished) return; finished = true; clearTimeout(timer);
+      try{ ws.close(); }catch(_){}
+      const delay = waitForAudio ? Math.max(0, (playAt - ctx.currentTime) * 1000) + 60 : 0;
+      setTimeout(() => {
+        for (const s of sources){ try{s.stop();}catch(_){} }
+        ctx.close().catch(()=>{});
+        if (liveTts?.ws === ws) liveTts = null;
+        resolve(ok);
+      }, delay);
+    };
+    liveTts = {ws, stop: () => finish(gotAudio, false)};
+    const timer = setTimeout(() => finish(gotAudio, gotAudio), 20000);
+    ws.onopen = () => ws.send(JSON.stringify({setup:{
+      model:`models/${auth.model}`,
+      generationConfig:{responseModalities:['AUDIO'], thinkingConfig:{thinkingBudget:0},
+        speechConfig:{voiceConfig:{prebuiltVoiceConfig:{voiceName:auth.voice||'Kore'}}}},
+      systemInstruction:{parts:[{text:auth.system}]}
+    }}));
+    ws.onmessage = async event => {
+      let payload = event.data;
+      if (payload instanceof Blob) payload = await payload.text();
+      const msg = JSON.parse(payload);
+      if (msg.setupComplete){
+        ws.send(JSON.stringify({clientContent:{turns:[{role:'user', parts:[{text:`Read this aloud exactly, word for word:\n\n${text}`}]}], turnComplete:true}}));
+        return;
+      }
+      for (const part of (msg.serverContent?.modelTurn?.parts || [])){
+        if (!part.inlineData?.data || muted) continue;
+        const raw = atob(part.inlineData.data), bytes = new Uint8Array(raw.length);
+        for (let i=0; i<raw.length; i++) bytes[i] = raw.charCodeAt(i);
+        const pcm = new Int16Array(bytes.buffer), buf = ctx.createBuffer(1, pcm.length, 24000), ch = buf.getChannelData(0);
+        for (let i=0; i<pcm.length; i++) ch[i] = pcm[i] / 32768;
+        const src = ctx.createBufferSource(); src.buffer = buf; src.connect(ctx.destination);
+        sources.add(src); src.onended = () => sources.delete(src);
+        if (!gotAudio){ gotAudio = true; document.body.classList.add('speaking'); }
+        const when = Math.max(ctx.currentTime + 0.015, playAt); src.start(when); playAt = when + buf.duration;
+      }
+      if (msg.serverContent?.turnComplete) finish(gotAudio, true);
+    };
+    ws.onerror = () => finish(gotAudio, gotAudio);
+    ws.onclose = () => finish(gotAudio, gotAudio);
+  });
+}
+
+function stopSpeech(){
+  if (player){ try{player.pause();}catch(_){} }
+  speechSynth?.cancel();
+  liveTts?.stop();
+  document.body.classList.remove('speaking');
+  if (speakResolve){ const r = speakResolve; speakResolve = null; r(); }
+}
+
 function speak(text){
   return new Promise(resolve => {
     const voiceStarted=performance.now();
     text = cleanForSpeech(text);
     if (muted || !text) return resolve();
+    speakResolve = resolve;
     suppress = true;
     const spoken = text.length > 700 ? text.slice(0, 680).replace(/\s+\S*$/,'') + '…' : text;
-    if (!RT.tts && RT.browserTts && speechSynth){
-      try{
-        speechSynth.cancel();
-        const u = new SpeechSynthesisUtterance(spoken);
-        u.lang = /[\u0600-\u06ff]/.test(spoken) ? 'ar-EG' : 'en-US';
-        u.rate = 0.95; u.pitch = 0.82; u.volume = 1;
-        document.body.classList.add('speaking');
-        u.onstart = () => log('latency','VOICE',`browser speech started after ${Math.round(performance.now()-voiceStarted)}ms`);
-        u.onend = u.onerror = () => { document.body.classList.remove('speaking'); resolve(); };
-        speechSynth.speak(u);
-        return;
-      }catch(_){ return resolve(); }
-    }
-    if (!RT.tts) return resolve();
-    fetch('/api/speak', {method:'POST', headers:apiHeaders({'content-type':'application/json'}),
-                         body: JSON.stringify({text:spoken})})
-      .then(r => r.ok ? r.blob() : Promise.reject())
-      .then(blob => {
-        log('latency','VOICE',`speech audio ready after ${Math.round(performance.now()-voiceStarted)}ms`);
-        const url = URL.createObjectURL(blob);
-        if (player) player.pause();
-        player = new Audio(url);
-        document.body.classList.add('speaking');
-        const done = () => { document.body.classList.remove('speaking');
-          URL.revokeObjectURL(url); resolve(); };
-        player.onended = done; player.onerror = done;
-        return player.play();
-      })
-      .catch(() => {
-        ttsFailed=true; RT.tts=false;
-        if (!speechSynth) return resolve();
-        const u = new SpeechSynthesisUtterance(spoken);
-        u.lang = /[\u0600-\u06ff]/.test(spoken) ? 'ar-EG' : 'en-US';
-        u.onend = u.onerror = () => { document.body.classList.remove('speaking'); resolve(); };
-        document.body.classList.add('speaking');
-        speechSynth.speak(u);
+    if (RT.live && Date.now() >= liveTtsFailedUntil){
+      speakWithLive(spoken).then(ok => {
+        document.body.classList.remove('speaking');
+        if (ok || speakResolve !== resolve){ log('latency','VOICE',`native voice finished after ${Math.round(performance.now()-voiceStarted)}ms`); return resolve(); }
+        throw new Error('no audio returned');
+      }).catch(err => {
+        if (speakResolve !== resolve) return resolve();
+        liveTtsFailedUntil = Date.now() + 5*60*1000;
+        log('error','VOICE',`native voice unavailable (${String(err.message||err).slice(0,80)}); using backup voice`);
+        speakFallback(spoken, voiceStarted, resolve);
       });
+      return;
+    }
+    speakFallback(spoken, voiceStarted, resolve);
   });
+}
+
+function speakFallback(spoken, voiceStarted, resolve){
+  if (!RT.tts && RT.browserTts && speechSynth){
+    try{
+      speechSynth.cancel();
+      const u = new SpeechSynthesisUtterance(spoken);
+      u.lang = /[\u0600-\u06ff]/.test(spoken) ? 'ar-EG' : 'en-US';
+      u.rate = 0.95; u.pitch = 0.82; u.volume = 1;
+      document.body.classList.add('speaking');
+      u.onstart = () => log('latency','VOICE',`browser speech started after ${Math.round(performance.now()-voiceStarted)}ms`);
+      u.onend = u.onerror = () => { document.body.classList.remove('speaking'); resolve(); };
+      speechSynth.speak(u);
+      return;
+    }catch(_){ return resolve(); }
+  }
+  if (!RT.tts) return resolve();
+  fetch('/api/speak', {method:'POST', headers:apiHeaders({'content-type':'application/json'}),
+                       body: JSON.stringify({text:spoken})})
+    .then(r => r.ok ? r.blob() : Promise.reject())
+    .then(blob => {
+      log('latency','VOICE',`speech audio ready after ${Math.round(performance.now()-voiceStarted)}ms`);
+      const url = URL.createObjectURL(blob);
+      if (player) player.pause();
+      player = new Audio(url);
+      document.body.classList.add('speaking');
+      const done = () => { document.body.classList.remove('speaking');
+        URL.revokeObjectURL(url); resolve(); };
+      player.onended = done; player.onerror = done;
+      return player.play();
+    })
+    .catch(() => {
+      ttsFailed=true; RT.tts=false;
+      if (!speechSynth) return resolve();
+      const u = new SpeechSynthesisUtterance(spoken);
+      u.lang = /[\u0600-\u06ff]/.test(spoken) ? 'ar-EG' : 'en-US';
+      u.onend = u.onerror = () => { document.body.classList.remove('speaking'); resolve(); };
+      document.body.classList.add('speaking');
+      speechSynth.speak(u);
+    });
 }
 
 // ── start / stop the whole conversation ──
@@ -1335,6 +1464,7 @@ function stopConvo(manual=true){
   document.body.classList.remove('speaking');
   $('#mic').classList.remove('on'); $('#mic').textContent = 'Zuzu Voice';
   log('voice','VOICE','conversation closed');
+  if (wakeWanted) setTimeout(startWakeListener, 900);
   setState('', 'READY', '');
 }
 
@@ -1558,19 +1688,36 @@ document.querySelectorAll('[data-compose]').forEach(b => b.onclick = () => {
   $('#input').value = b.dataset.compose || '';
   $('#input').focus();
 });
-document.addEventListener('keydown', e => {
-  if (e.key !== 'Escape') return;
-  if (running && activeController){
+let serverBusy = false, lastStatus = null, backgroundMissions = 0;
+function isBusy(){
+  return running || serverBusy || convo || liveConnecting || !!liveTts || liveSpeaking
+    || document.body.classList.contains('speaking') || !!(player && !player.paused) || !!speechSynth?.speaking;
+}
+function stopEverything(){
+  if (running || serverBusy){
     fetch('/api/cancel', {method:'POST', headers:apiHeaders({'content-type':'application/json'}), body:JSON.stringify({client_context: clientDeviceContext(), system: clientContextSystemText()})}).catch(()=>{});
-    activeController.abort();
-    return;
   }
-  if (convo) stopConvo();
+  if (activeController) activeController.abort();
+  stopSpeech();
+  if (convo || liveConnecting) stopConvo();
+  serverBusy = false;
+  setState('', 'STOPPED', 'stopped by you');
+  setTag('', 'IDLE');
+  log('note','STOP','stopped the running request, speech and voice');
+  refreshStopButton();
+}
+function refreshStopButton(){ const b=$('#stopBtn'); if (b) b.hidden = !isBusy(); }
+$('#stopBtn').onclick = stopEverything;
+setInterval(refreshStopButton, 250);
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape' || !isBusy()) return;
+  e.preventDefault();
+  stopEverything();
 });
 $('#mute').onclick = () => {
   muted = !muted; const b=$('#mute');
   b.textContent = muted?'🔇':'🔊'; b.classList.toggle('on',!muted); b.classList.toggle('off',muted);
-  if (muted && player) player.pause();
+  if (muted) stopSpeech();
 };
 $('#input').addEventListener('keydown', e => {
   if (e.key==='Enter' && !e.shiftKey && !e.isComposing){ e.preventDefault(); sendFromInput(); }
@@ -1640,6 +1787,7 @@ async function pollJobs(){
   try {
     const j = await fetch('/api/jobs', {headers:apiHeaders()}).then(r => r.json());
     renderActiveOperation(j.active_operation, 'jobs');
+    backgroundMissions = (j.running || []).length;
     for (const d of (j.done || [])){
       log('complete','MISSION', `${d.mission} → ${(d.result||'').slice(0,200)}`);
       if (!running) speak(`Mission complete. ${(d.result||'').slice(0,300)}`);
@@ -1688,6 +1836,9 @@ function renderStatus(s){
   sys('gw', 'Online', 'ok');
   sys('hermes', hermesLabel, hermesReady ? 'ok' : (hermesChecking ? '' : 'warn'));
   const hasActiveOperation = renderActiveOperation(s.active_operation, 'status');
+  serverBusy = !!hasActiveOperation;
+  lastStatus = s;
+  renderCommandCenterStatus(s);
   if (!hasActiveOperation) sys('brain', brain, s.runtime === 'mock' ? 'warn' : 'ok');
   sys('voice', `${sttLabel} / ${ttsLabel}`, (RT.browserStt||RT.stt) ? 'ok' : 'warn');
   sys('profile', s.profile || 'default');
@@ -1777,3 +1928,676 @@ loadWorkspace();
 refreshStatus();
 refreshCalls();
 
+// ══════════ command center (main page) ══════════
+const fmtBytes = n => { if (!n && n !== 0) return '—'; const u=['B','KB','MB','GB','TB']; let i=0; while (n>=1024 && i<u.length-1){ n/=1024; i++; } return `${n.toFixed(i>2?1:0)} ${u[i]}`; };
+const fmtUptime = s => { if (s == null) return '—'; const d=Math.floor(s/86400), h=Math.floor(s%86400/3600), m=Math.floor(s%3600/60); return d ? `${d}d ${h}h` : (h ? `${h}h ${m}m` : `${m}m`); };
+const kv = rows => rows.filter(r => r[1] !== undefined && r[1] !== null && r[1] !== '').map(([k,v]) => `<dt>${esc(k)}</dt><dd title="${esc(v)}">${esc(v)}</dd>`).join('');
+function setPill(id, tone, value){
+  const el = $(id); if (!el) return;
+  el.dataset.tone = tone || '';
+  const em = el.querySelector('em'); if (em && value !== undefined) em.textContent = value;
+}
+
+function renderCommandCenterStatus(s){
+  const hermes = s.hermes_connected ? 'connected' : (s.hermes_pending ? 'checking' : 'offline');
+  setPill('#ccPillHermes', s.hermes_connected ? 'ok' : (s.hermes_pending ? '' : 'bad'), `${hermes} · ${s.transport === 'api' ? 'API' : 'CLI'}`);
+  setPill('#ccPillBrain', s.runtime === 'hermes' ? 'ok' : 'bad', s.model || s.provider || '—');
+  const voiceText = RT.live ? `Native audio · ${WS?.settings?.voice || ''}` : (s.tts === 'browser' ? 'Browser voice' : `${s.tts} voice`);
+  setPill('#ccPillVoice', RT.live ? 'ok' : '', voiceText);
+  const brain = $('#ccBrain');
+  if (brain) brain.innerHTML = kv([
+    ['Agent', s.hermes_connected ? 'Hermes · connected' : `Hermes · ${hermes}`],
+    ['Link', s.transport === 'api' ? 'Hermes API (streaming)' : 'Hermes CLI'],
+    ['Model', s.model],
+    ['Voice model', s.live_model || (s.tts === 'browser' ? 'Browser speech' : s.tts)],
+    ['Voice', WS?.settings?.voice],
+    ['Tools', (s.tools || []).length ? `${(s.tools || []).length} available` : (s.tools_pending ? 'loading…' : 'none reported')],
+    ['Profile', s.profile || 'default'],
+  ]);
+  renderCommandCenterProfile();
+}
+
+function renderCommandCenterProfile(){
+  const box = $('#ccProfile'); if (!box || !WS) return;
+  const st = WS.settings || {};
+  box.innerHTML = kv([
+    ['Hermes profile', st.profile || 'default'],
+    ['Working folder', st.workdir || '~'],
+    ['Persona', (st.persona || '').slice(0, 70) + ((st.persona || '').length > 70 ? '…' : '')],
+    ['Memories', `${(WS.memory || []).length} saved`],
+    ['Skills', `${(WS.skills || []).filter(x => x.enabled !== false).length} active`],
+    ['PC control', st.computerControl ? 'Allowed' : 'Off'],
+  ]);
+}
+
+function renderCommandCenterWorkspace(){
+  if (!WS) return;
+  const projects = WS.projects || [];
+  const selected = projects.find(p => p.id === WS.selectedProject) || projects[0];
+  const select = $('#ccProject');
+  if (select) select.innerHTML = projects.map(p => `<option value="${esc(p.id)}" ${p.id === selected?.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('');
+  const sessions = (selected?.sessions || []).slice().sort((a,b) => (b.created||0) - (a.created||0)).slice(0, 6);
+  const list = $('#ccSessions');
+  if (list) list.innerHTML = sessions.map(x => `<button type="button" data-session="${esc(x.id)}" class="${x.id === WS.selectedSession ? 'active' : ''}"><span>${esc(x.name)}</span>${x.hermesSessionId ? '<i title="Has Hermes history"></i>' : ''}</button>`).join('') || '<div class="cc-empty">No chats yet.</div>';
+  renderCommandCenterProfile();
+}
+$('#ccProject')?.addEventListener('change', async e => {
+  try { await workspaceRequest({action:'select_session', projectId:e.target.value, sessionId:''}); await loadHistory(); }
+  catch(err){ log('error','WORKSPACE',String(err.message||err)); }
+});
+$('#ccNewChat')?.addEventListener('click', () => $('#addSession').click());
+
+let ccRunStartedAt = 0;
+function renderCommandCenterNow(){
+  const state = $('#ccNowState'), detail = $('#ccNowDetail'), elapsed = $('#ccNowElapsed'), missions = $('#ccNowMissions');
+  if (!state) return;
+  if (running && !ccRunStartedAt) ccRunStartedAt = Date.now();
+  if (!running) ccRunStartedAt = 0;
+  const speaking = document.body.classList.contains('speaking');
+  const op = lastStatus?.active_operation;
+  let label = 'Ready for your next request.', tone = 'idle', text = '', secs = 0;
+  if (running){ label = 'Working on your request'; tone = 'busy'; text = $('#userText')?.textContent || ''; secs = (Date.now() - ccRunStartedAt) / 1000; }
+  else if (serverBusy && op){ label = op.label || 'Hermes task'; tone = 'busy'; text = op.detail || ''; secs = op.started_ms ? (Date.now() - op.started_ms) / 1000 : 0; }
+  else if (speaking){ label = 'Speaking'; tone = 'speak'; }
+  else if (convo){ label = 'Listening — go ahead'; tone = 'listen'; }
+  state.textContent = label; state.dataset.tone = tone;
+  detail.textContent = text;
+  elapsed.textContent = secs > 0.5 ? `${secs.toFixed(0)}s elapsed` : '';
+  missions.textContent = backgroundMissions ? `${backgroundMissions} background mission${backgroundMissions > 1 ? 's' : ''}` : '';
+  const pill = $('#ccPillState');
+  if (pill){ pill.dataset.tone = tone === 'idle' ? 'ok' : 'busy'; pill.querySelector('b').textContent = ({idle:'Ready', busy:'Working', speak:'Speaking', listen:'Listening'})[tone]; }
+  const clock = $('#ccClock'); if (clock) clock.textContent = new Date().toLocaleString([], {weekday:'short', hour:'2-digit', minute:'2-digit'});
+}
+setInterval(renderCommandCenterNow, 500);
+
+// Mirror the live exchange from the core into a readable transcript card.
+function syncConversation(){
+  const you = ($('#userText')?.textContent || '').trim();
+  const zuzu = ($('#response')?.textContent || '').trim();
+  $('#ccYou').textContent = you; $('#ccYouRow').hidden = !you;
+  $('#ccZuzu').textContent = zuzu; $('#ccZuzuRow').hidden = !zuzu;
+  $('#ccLiveEmpty').hidden = !!(you || zuzu);
+}
+['#userText', '#response'].forEach(sel => { const el = $(sel); if (el) new MutationObserver(syncConversation).observe(el, {childList:true, subtree:true, characterData:true}); });
+
+function syncFeed(){
+  const feed = $('#ccFeed'); if (!feed) return;
+  feed.innerHTML = [...document.querySelectorAll('#log .entry')].slice(0, 5).map(e => {
+    const kind = e.querySelector('.kind')?.textContent || '', msg = e.querySelector('.msg')?.textContent || '', ts = e.querySelector('.ts')?.textContent || '';
+    return `<li class="${esc(e.className.replace('entry',''))}"><span>${esc(ts)}</span><b>${esc(kind)}</b><em>${esc(msg.slice(0, 90))}</em></li>`;
+  }).join('') || '<li class="cc-empty">No activity yet.</li>';
+}
+const logBox = $('#log'); if (logBox) new MutationObserver(syncFeed).observe(logBox, {childList:true});
+
+// Smart tools: run now, or prefill the message box when details are needed.
+document.addEventListener('click', e => {
+  const run = e.target.closest('[data-cc-run]');
+  if (run){ transmit(run.dataset.ccRun); return; }
+  const compose = e.target.closest('[data-cc-compose]');
+  const summarize = e.target.closest('[data-cc-summarize]');
+  if (!compose && !summarize) return;
+  if (summarize && activeAttachments.length){ transmit('Summarize the attached file(s) into key points, decisions and next actions.'); return; }
+  const input = $('#input');
+  input.value = compose ? compose.dataset.ccCompose : 'Summarize this into key points and next actions: ';
+  input.focus(); input.setSelectionRange(input.value.length, input.value.length);
+  input.scrollIntoView({block:'center', behavior:'smooth'});
+});
+
+async function refreshPcInfo(){
+  if (document.visibilityState === 'hidden') return;
+  try{
+    const r = await fetch('/api/system', {headers:apiHeaders(), cache:'no-store'});
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const s = await r.json();
+    $('#ccPcHost').textContent = s.host || '';
+    const meter = (label, used, total, extra) => {
+      const pct = total ? Math.round(used / total * 100) : null;
+      return `<div class="cc-meter"><div><b>${esc(label)}</b><span>${esc(extra || (pct == null ? '—' : pct + '%'))}</span></div><i style="--p:${pct ?? 0}%" data-hot="${pct >= 85 ? 1 : 0}"></i></div>`;
+    };
+    const mem = s.memory, disk = s.disk;
+    $('#ccPc').innerHTML =
+      (s.cpu_percent != null ? meter('CPU', s.cpu_percent, 100, `${Math.round(s.cpu_percent)}% · ${s.cpus} cores`) : '')
+      + (mem ? meter('Memory', mem.total - mem.available, mem.total, `${fmtBytes(mem.total - mem.available)} / ${fmtBytes(mem.total)}`) : '')
+      + (disk ? meter('Disk', disk.total - disk.free, disk.total, `${fmtBytes(disk.free)} free`) : '')
+      + (s.battery ? meter('Battery', s.battery.percent, 100, `${s.battery.percent}%${s.battery.plugged ? ' · charging' : ''}`) : '')
+      + `<dl class="cc-kv">${kv([['System', s.os], ['Uptime', fmtUptime(s.uptime)]])}</dl>`;
+  }catch(err){ $('#ccPc').innerHTML = `<div class="cc-empty">PC info unavailable (${esc(err.message||err)})</div>`; }
+}
+refreshPcInfo();
+setInterval(refreshPcInfo, 20000);
+syncFeed();
+
+// ══════════ personal: reminders, brief, music, video, model, wake word ══════════
+let PERSONAL = null, lastBrief = null, wakeRec = null, wakeWanted = false, inboxPolls = 0;
+const WAKE_RE = /\b(?:hey|hi|ok|okay|ya)?\s*(?:zu\s?zu|zoo\s?zoo|zouzou|zuzo|zozo|susu)\b|زوزو/i;
+const SLEEP_RE = /sleep mode|go to sleep|stop listening|وضع النوم|نامي|اسكتي يا زوزو/i;
+
+function showToast(text, kind = 'info', link = null){
+  let box = $('#toasts');
+  if (!box){ box = document.createElement('div'); box.id = 'toasts'; box.setAttribute('aria-live','polite'); document.body.appendChild(box); }
+  const el = document.createElement('div');
+  el.className = `toast toast-${kind}`;
+  el.innerHTML = `<span>${esc(text)}</span>` + (link ? `<a href="${escapeAttr(link.url)}" target="_blank" rel="noopener noreferrer">${esc(link.label)}</a>` : '') + '<button type="button" aria-label="Dismiss">×</button>';
+  el.querySelector('button').onclick = () => el.remove();
+  box.appendChild(el);
+  setTimeout(() => el.remove(), kind === 'reminder' ? 60000 : 9000);
+}
+
+async function personalRequest(payload){
+  const r = await fetch('/api/personal', {method:'POST', headers:apiHeaders({'content-type':'application/json'}), body:JSON.stringify(payload)});
+  const data = await r.json();
+  if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+  PERSONAL = data; renderPersonal();
+  return data;
+}
+async function loadPersonal(){
+  try{ const r = await fetch('/api/personal', {headers:apiHeaders()}); if (r.ok){ PERSONAL = await r.json(); renderPersonal(); } }catch(_){}
+}
+function fmtDue(iso){
+  if (!iso) return 'No time set';
+  const d = new Date(iso), today = new Date(), tomorrow = new Date(Date.now() + 864e5);
+  const time = d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+  if (d.toDateString() === today.toDateString()) return `Today ${time}`;
+  if (d.toDateString() === tomorrow.toDateString()) return `Tomorrow ${time}`;
+  return d.toLocaleDateString([], {weekday:'short', day:'numeric', month:'short'}) + ` ${time}`;
+}
+function renderPersonal(){
+  if (!PERSONAL) return;
+  const list = $('#reminderList');
+  const items = PERSONAL.reminders || [];
+  if (list) list.innerHTML = items.map(r => `<div class="pf-item ${r.done ? 'done' : ''} ${!r.done && r.due && new Date(r.due) < new Date() ? 'overdue' : ''}">
+      <label><input type="checkbox" data-rem-done="${esc(r.id)}" ${r.done ? 'checked' : ''}><span>${esc(r.text)}</span></label>
+      <small>${esc(fmtDue(r.due))}${r.repeat ? ` · ${esc(r.repeat)}` : ''}</small>
+      <button type="button" class="danger-link" data-rem-delete="${esc(r.id)}" aria-label="Delete reminder">×</button></div>`).join('')
+    || '<div class="empty-state">No reminders yet. Try "call mom tomorrow 6pm".</div>';
+  const form = $('#briefForm'), st = PERSONAL.settings || {};
+  if (form && !form.contains(document.activeElement)){
+    $('#pfCity').value = st.city || ''; $('#pfMorning').value = st.briefMorning || ''; $('#pfEvening').value = st.briefEvening || '';
+    $('#pfRegion').value = st.newsRegion || 'AE'; $('#pfLang').value = st.newsLang || 'en'; $('#pfTopic').value = st.newsTopic || '';
+    $('#pfIcs').value = st.calendarIcs || ''; $('#pfTelegram').value = st.telegramTarget || '';
+    $('#pfBriefs').checked = st.briefsEnabled !== false; $('#pfWake').checked = !!st.wakeWord;
+  }
+  if (!!st.wakeWord !== wakeWanted) setWakeWord(!!st.wakeWord);
+  renderToday();
+}
+function renderToday(){
+  const box = $('#ccToday'); if (!box) return;
+  const now = new Date();
+  const w = lastBrief?.weather;
+  const upcoming = (PERSONAL?.reminders || []).filter(r => !r.done && r.due && new Date(r.due) >= new Date(now - 36e5)).slice(0, 3);
+  box.innerHTML = `<div class="cc-today-date">${esc(now.toLocaleDateString([], {weekday:'long', day:'numeric', month:'long'}))}</div>`
+    + (w ? `<div class="cc-today-weather"><b>${Math.round(w.temp)}°</b><span>${esc(w.summary)} · H ${Math.round(w.high)}° L ${Math.round(w.low)}°${w.rain != null ? ` · rain ${w.rain}%` : ''}</span><small>${esc(lastBrief.city)}</small></div>` : '')
+    + (upcoming.length ? `<ul class="cc-today-list">${upcoming.map(r => `<li><span>${esc(fmtDue(r.due))}</span>${esc(r.text)}</li>`).join('')}</ul>` : '<div class="cc-empty">No upcoming reminders.</div>')
+    + (lastBrief?.news?.length ? `<div class="cc-today-news"><b>Headline</b> ${esc(lastBrief.news[0].title)}</div>` : '');
+}
+async function fetchBrief(kind = 'morning'){
+  const r = await fetch(`/api/personal/brief?kind=${kind === 'evening' ? 'evening' : 'morning'}`, {headers:apiHeaders(), cache:'no-store'});
+  if (!r.ok) throw new Error(`brief unavailable (HTTP ${r.status})`);
+  lastBrief = await r.json();
+  renderToday(); renderBriefPreview(lastBrief);
+  return lastBrief;
+}
+function renderBriefPreview(b){
+  const box = $('#briefPreview'); if (!box || !b) return;
+  const w = b.weather;
+  box.innerHTML = `<h3>${esc(b.date)}</h3>`
+    + (w ? `<p><b>${esc(b.city)}:</b> ${Math.round(w.temp)}° ${esc(w.summary)}, high ${Math.round(w.high)}°, low ${Math.round(w.low)}°</p>` : '')
+    + (b.events.length ? `<p><b>Schedule:</b> ${b.events.map(e => esc(`${e.time} ${e.title}`)).join(' · ')}</p>` : '')
+    + `<p><b>Reminders:</b> ${b.reminders.length ? b.reminders.map(r => esc(`${r.time} ${r.text}`)).join(' · ') : 'none'}</p>`
+    + (b.news.length ? `<ol>${b.news.map(n => `<li><a href="${escapeAttr(n.url)}" target="_blank" rel="noopener noreferrer">${esc(n.title)}</a> <small>${esc(n.source)}</small></li>`).join('')}</ol>` : '')
+    + (b.errors.length ? `<p class="form-note">${esc(b.errors.join(' · '))}</p>` : '');
+}
+function announce(text){
+  if (liveReady && liveWs?.readyState === WebSocket.OPEN){
+    liveWs.send(JSON.stringify({clientContent:{turns:[{role:'user', parts:[{text:`Announce this to me now, briefly and naturally in my language: ${text}`}]}], turnComplete:true}}));
+    return Promise.resolve();
+  }
+  return speak(text);
+}
+async function playBrief(kind){
+  const hour = new Date().getHours();
+  const b = await fetchBrief(kind || (hour >= 16 ? 'evening' : 'morning'));
+  log('complete','BRIEF', b.speech.slice(0, 200));
+  setUserText('Daily brief'); answer = b.speech; renderAnswer(true);
+  await announce(b.speech);
+  return b;
+}
+
+async function youtubeResults(query){
+  const r = await fetch(`/api/youtube-search?q=${encodeURIComponent(query)}`, {headers:apiHeaders()});
+  const data = await r.json();
+  if (!r.ok || !data.results?.length) throw new Error(data.error || 'Nothing found on YouTube');
+  return data;
+}
+async function playMusic(query){
+  const data = await youtubeResults(query);
+  const ids = data.results.map(v => v.id);
+  const url = `https://www.youtube.com/embed/${ids[0]}?autoplay=1&playsinline=1&rel=0` + (ids.length > 1 ? `&playlist=${ids.slice(1).join(',')}` : '');
+  showView('chat');
+  setFrameUrl(url, `Music · ${data.best.title}`);
+  const ytm = `https://music.youtube.com/watch?v=${ids[0]}`;
+  showToast(`Playing: ${data.best.title}`, 'info', {url: ytm, label: 'Open in YouTube Music'});
+  log('complete','MUSIC', `${data.best.title} (+${ids.length - 1} queued)`);
+  return {playing: data.best.title, queued: ids.length - 1, youtube_music_link: ytm};
+}
+async function playVideo(query){
+  const data = await youtubeResults(query);
+  showView('chat');
+  setFrameUrl(data.best.embed, `Video · ${data.best.title}`);
+  showToast(`Showing: ${data.best.title}`, 'info', {url: data.best.url, label: 'Open on YouTube'});
+  log('complete','VIDEO', data.best.title);
+  return {showing: data.best.title, other_results: data.results.slice(1, 4).map(v => v.title)};
+}
+const PROVIDER_ALIASES = {google:'gemini', gemini:'gemini', claude:'anthropic', anthropic:'anthropic', gpt:'openai', chatgpt:'openai', openai:'openai',
+  openrouter:'openrouter', ollama:'ollama', local:'ollama', hermes:'hermes', default:'hermes'};
+async function switchModel(provider, model){
+  const key = PROVIDER_ALIASES[String(provider || '').toLowerCase().replace(/[^a-z]/g, '')];
+  if (!key || !WS?.models?.[key]) throw new Error(`Unknown provider "${provider}". Use gemini, openai, anthropic, openrouter, ollama or hermes.`);
+  const chosen = String(model || '').trim() || WS.models[key][0];
+  await workspaceRequest({action:'save_settings', settings:{...WS.settings, provider:key, model:chosen, apiBase:WS.settings.apiBase || ''}});
+  refreshStatus();
+  log('complete','MODEL', `Hermes now thinks with ${providerLabel(key)} · ${chosen}`);
+  showToast(`Model: ${providerLabel(key)} · ${chosen}`);
+  return {provider:key, model:chosen};
+}
+async function addReminderFromText(text, due = '', repeat = ''){
+  const data = await personalRequest({action:'add_reminder', text, due, repeat});
+  const it = data.item;
+  showToast(`Reminder saved: ${it.text} — ${fmtDue(it.due)}`);
+  log('complete','REMINDER', `${it.text} · ${fmtDue(it.due)}`);
+  return it;
+}
+
+const LOCAL_TOOLS = {
+  add_reminder: async a => { const it = await addReminderFromText(a.text, a.due || '', a.repeat || ''); return {saved:true, text:it.text, due:it.due || 'no time set'}; },
+  get_daily_brief: async a => { const b = await fetchBrief(a.kind); return {brief:b.speech, date:b.date, weather:b.weather, events:b.events, reminders:b.reminders, headlines:b.news.map(n => n.title)}; },
+  play_music: async a => playMusic(a.query),
+  play_video: async a => playVideo(a.query),
+  switch_model: async a => switchModel(a.provider, a.model),
+  sleep_mode: async () => { setTimeout(() => { if (convo) stopConvo(); }, 2500); return {ok:true, note:'Say a very short goodbye now.'}; },
+  get_markets: async () => { const m = await loadMarkets(); return {note:m.note, top5:m.top5.map(q => ({name:q.name, price:q.price, change_pct:q.change})), watchlist:m.watchlist.map(q => ({name:q.name, price:q.price, change_pct:q.change}))}; },
+  set_price_alert: async a => { await marketsRequest({action:'add_alert', symbol:a.symbol, direction:a.direction, price:a.price}); return {saved:true}; },
+  create_image: async a => { const r = await createImage(a.prompt); return {created:true, file:r.name}; },
+  create_video: async a => { await createVideo(a.prompt); return {started:true, note:'It takes 1 to 5 minutes; I will announce it when ready.'}; },
+  find_books: async a => { showView('library'); const list = await searchBooks(a.query); return {found:list.slice(0, 5).map(b => `${b.title} by ${b.authors}`)}; },
+  point_at: async a => pointAt(a.description),
+  clear_screen_drawing: async () => { await overlayCommand({type:'clear'}); return {cleared:true}; },
+  find_new_skills: async a => { const d = await skillsRequest({action:'scout', topic:a.topic || ''}); return {found:d.found.map(p => `${p.name}: ${p.description.slice(0, 80)}`), note:'Ask the user which one to install; install only after a clear yes.'}; },
+  install_skill: async a => {
+    if (!/^(yes|true|نعم|اه|أيوه|ايوه)$/i.test(String(a.confirmed || '').trim())) return {installed:false, note:'Ask the user to confirm first.'};
+    const list = PROPOSALS.filter(p => p.status === 'new');
+    const pick = list.find(p => p.name.toLowerCase() === String(a.name || '').toLowerCase()) || list.find(p => p.name.toLowerCase().includes(String(a.name || '').toLowerCase()));
+    if (!pick) return {installed:false, note:'No matching proposal. Use find_new_skills first.'};
+    const d = await skillsRequest({action:'approve', id:pick.id, confirmed:true});
+    return {installed:true, name:d.item.name};
+  },
+};
+
+// Slash commands handled instantly in the page.
+async function handleLocalCommand(message){
+  const m = message.trim().match(/^\/(music|play|video|model|brief|remind|reminder)\b\s*(.*)$/is);
+  if (!m) return false;
+  const [, cmd, arg] = m;
+  if (cmd === 'music' || cmd === 'play'){ if (!arg) throw new Error('Type what to play, e.g. /music Amr Diab'); await playMusic(arg); return true; }
+  if (cmd === 'video'){ if (!arg) throw new Error('Type what to find, e.g. /video resin table pour'); await playVideo(arg); return true; }
+  if (cmd === 'brief'){ await playBrief(/evening|tonight|مساء/i.test(arg) ? 'evening' : undefined); return true; }
+  if (cmd === 'model'){ const [provider, ...rest] = arg.split(/\s+/); await switchModel(provider, rest.join(' ')); return true; }
+  if (!arg) throw new Error('Type the reminder, e.g. /remind call mom tomorrow 6pm');
+  await addReminderFromText(arg); return true;
+}
+
+// "Hey Zuzu" wake word (Chrome / Edge on the laptop).
+function startWakeListener(){
+  if (!wakeWanted || !SpeechRecognition || wakeRec || convo || liveConnecting) return;
+  const rec = new SpeechRecognition();
+  rec.continuous = true; rec.interimResults = true; rec.lang = 'en-US';
+  rec.onresult = e => {
+    const heard = [...e.results].slice(e.resultIndex).map(r => r[0].transcript).join(' ');
+    if (WAKE_RE.test(heard)){ stopWakeListener(); log('voice','WAKE','"Hey Zuzu" heard'); micToggle(); }
+  };
+  rec.onerror = e => { if (e.error === 'not-allowed' || e.error === 'service-not-allowed'){ wakeWanted = false; log('error','WAKE','microphone permission is needed for the wake word'); } };
+  rec.onend = () => { wakeRec = null; if (wakeWanted && !convo && !liveConnecting) setTimeout(startWakeListener, 500); };
+  try{ rec.start(); wakeRec = rec; document.body.classList.add('wake-on'); }catch(_){ wakeRec = null; }
+}
+function stopWakeListener(){
+  const rec = wakeRec; wakeRec = null; document.body.classList.remove('wake-on');
+  if (rec){ rec.onend = null; try{ rec.stop(); }catch(_){} }
+}
+function setWakeWord(on){
+  wakeWanted = !!on && !!SpeechRecognition;
+  if (on && !SpeechRecognition) log('error','WAKE','this browser has no speech recognition; use Chrome or Edge on the laptop');
+  wakeWanted ? startWakeListener() : stopWakeListener();
+}
+
+// Spoken announcements: due reminders and scheduled briefs.
+async function pollPersonalInbox(){
+  if (document.visibilityState === 'hidden') return;
+  try{
+    const r = await fetch('/api/personal/inbox', {headers:apiHeaders(), cache:'no-store'});
+    if (!r.ok) return;
+    for (const item of (await r.json()).items || []){
+      if (item.kind === 'brief'){ lastBrief = item.payload; renderToday(); renderBriefPreview(lastBrief); }
+      if (item.kind === 'media' && item.payload?.url){ showView('chat'); showVideoFile(item.payload.url); refreshMediaJobs(); loadWorkspace(); }
+      showToast(item.text.slice(0, 220), item.kind === 'reminder' ? 'reminder' : 'info');
+      log('note', item.kind.toUpperCase(), item.text.slice(0, 200));
+      if (!running) await announce(item.text);
+    }
+    if (++inboxPolls % 3 === 0) loadPersonal();
+  }catch(_){}
+}
+
+$('#reminderForm')?.addEventListener('submit', async e => {
+  e.preventDefault();
+  const text = $('#reminderText').value.trim(); if (!text) return;
+  const due = $('#reminderDue').value, repeat = $('#reminderRepeat').value;
+  try{ await addReminderFromText(text, due, repeat); $('#reminderText').value = ''; $('#reminderDue').value = ''; $('#reminderRepeat').value = ''; }
+  catch(err){ showToast(String(err.message || err), 'error'); }
+});
+$('#briefForm')?.addEventListener('submit', async e => {
+  e.preventDefault();
+  try{
+    await personalRequest({action:'save_settings', settings:{city:$('#pfCity').value, briefMorning:$('#pfMorning').value, briefEvening:$('#pfEvening').value,
+      newsRegion:$('#pfRegion').value, newsLang:$('#pfLang').value, newsTopic:$('#pfTopic').value, calendarIcs:$('#pfIcs').value,
+      telegramTarget:$('#pfTelegram').value, briefsEnabled:$('#pfBriefs').checked, wakeWord:$('#pfWake').checked}});
+    showToast('Daily brief settings saved'); fetchBrief().catch(() => {});
+  }catch(err){ showToast(String(err.message || err), 'error'); }
+});
+document.addEventListener('click', async e => {
+  const done = e.target.closest('[data-rem-done]');
+  const del = e.target.closest('[data-rem-delete]');
+  const brief = e.target.closest('[data-cc-brief]');
+  try{
+    if (done) await personalRequest({action:'update_reminder', id:done.dataset.remDone, done:done.checked});
+    if (del) await personalRequest({action:'delete_reminder', id:del.dataset.remDelete});
+    if (brief) await playBrief();
+  }catch(err){ showToast(String(err.message || err), 'error'); }
+});
+$('#briefNow')?.addEventListener('click', () => playBrief().catch(err => showToast(String(err.message || err), 'error')));
+$('#ccAddReminder')?.addEventListener('click', () => { const input = $('#input'); input.value = '/remind '; input.focus(); });
+
+loadPersonal();
+fetchBrief().catch(() => {});
+setInterval(pollPersonalInbox, 20000);
+setInterval(() => fetchBrief().catch(() => {}), 30 * 60 * 1000);
+setInterval(renderToday, 60000);
+
+// ══════════ markets ══════════
+let MARKETS = null;
+async function marketsRequest(payload){
+  const r = await fetch('/api/markets', {method:'POST', headers:apiHeaders({'content-type':'application/json'}), body:JSON.stringify(payload)});
+  const data = await r.json(); if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+  MARKETS = data; renderMarkets(); return data;
+}
+async function loadMarkets(){
+  const r = await fetch('/api/markets', {headers:apiHeaders(), cache:'no-store'});
+  const data = await r.json(); if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+  MARKETS = data; renderMarkets(); return data;
+}
+function sparkline(values){
+  if (!values || values.length < 2) return '';
+  const min = Math.min(...values), max = Math.max(...values), span = max - min || 1;
+  const pts = values.map((v, i) => `${(i / (values.length - 1) * 100).toFixed(1)},${(28 - (v - min) / span * 26).toFixed(1)}`).join(' ');
+  const up = values[values.length - 1] >= values[0];
+  return `<svg class="mk-spark ${up ? 'up' : 'down'}" viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden="true"><polyline points="${pts}"/></svg>`;
+}
+const fmtPrice = q => q.price == null ? '—' : Number(q.price).toLocaleString([], {maximumFractionDigits: q.price < 5 ? 4 : 2});
+const fmtChange = c => `${c > 0 ? '+' : ''}${Number(c).toFixed(2)}%`;
+function renderMarkets(){
+  if (!MARKETS) return;
+  const top = MARKETS.top5 || [];
+  const card = q => `<div class="mk-card ${q.change >= 0 ? 'up' : 'down'}"><div><b>${esc(q.name)}</b><small>${esc(q.symbol)}</small></div>
+      <div class="mk-price">${esc(fmtPrice(q))}<span>${esc(fmtChange(q.change))}</span></div>${sparkline(q.spark)}
+      <small class="mk-meta">5-day ${esc(fmtChange(q.trend5d))} · ${q.bias === 'flat' ? 'quiet' : q.bias === 'up' ? 'buyers in control' : 'sellers in control'}</small></div>`;
+  if ($('#mkTop')) $('#mkTop').innerHTML = top.map(card).join('') || '<div class="empty-state">Market data is unavailable right now.</div>';
+  const row = (q, extra) => `<div class="mk-row"><b>${esc(q.name)}</b><span>${esc(fmtPrice(q))}</span><em class="${(q.change || 0) >= 0 ? 'up' : 'down'}">${q.error ? esc(q.error) : esc(fmtChange(q.change))}</em>${extra}</div>`;
+  if ($('#mkWatch')) $('#mkWatch').innerHTML = (MARKETS.watchlist || []).map(q => row(q, `<button type="button" class="danger-link" data-mk-unwatch="${esc(q.symbol)}">×</button>`)).join('') || '<div class="empty-state">Nothing on your watchlist yet.</div>';
+  if ($('#mkAlerts')) $('#mkAlerts').innerHTML = (MARKETS.alerts || []).map(a => `<div class="mk-row ${a.fired ? 'fired' : ''}"><b>${esc(a.name)}</b><span>${esc(a.direction)} ${esc(a.price)}</span><em>${a.fired ? 'triggered' : 'waiting'}</em><button type="button" class="danger-link" data-mk-alert-del="${esc(a.id)}">×</button></div>`).join('') || '<div class="empty-state">No alerts yet.</div>';
+  if ($('#mkUpdated')) $('#mkUpdated').textContent = `Updated ${MARKETS.updated}`;
+  const home = $('#ccMarkets');
+  if (home) home.innerHTML = top.slice(0, 5).map(q => `<div class="cc-mk"><span>${esc(q.name)}</span><b>${esc(fmtPrice(q))}</b><em class="${q.change >= 0 ? 'up' : 'down'}">${esc(fmtChange(q.change))}</em></div>`).join('') || '<div class="cc-empty">Markets unavailable.</div>';
+}
+$('#mkWatchForm')?.addEventListener('submit', async e => { e.preventDefault(); try{ await marketsRequest({action:'watch', symbol:$('#mkSymbol').value}); $('#mkSymbol').value=''; }catch(err){ showToast(String(err.message||err),'error'); } });
+$('#mkAlertForm')?.addEventListener('submit', async e => { e.preventDefault(); try{ await marketsRequest({action:'add_alert', symbol:$('#mkAlertSymbol').value, direction:$('#mkAlertDir').value, price:$('#mkAlertPrice').value}); $('#mkAlertPrice').value=''; showToast('Price alert saved'); }catch(err){ showToast(String(err.message||err),'error'); } });
+document.addEventListener('click', async e => {
+  const un = e.target.closest('[data-mk-unwatch]'), del = e.target.closest('[data-mk-alert-del]');
+  try{
+    if (un) await marketsRequest({action:'unwatch', symbol:un.dataset.mkUnwatch});
+    if (del) await marketsRequest({action:'delete_alert', id:del.dataset.mkAlertDel});
+  }catch(err){ showToast(String(err.message||err),'error'); }
+});
+function marketsVisible(){ const home = !$('[data-view-panel="chat"]')?.hidden, page = !$('[data-view-panel="markets"]')?.hidden; return document.visibilityState === 'visible' && (home || page); }
+loadMarkets().catch(() => { if ($('#ccMarkets')) $('#ccMarkets').innerHTML = '<div class="cc-empty">Markets unavailable.</div>'; });
+setInterval(() => { if (marketsVisible()) loadMarkets().catch(() => {}); }, 60000);
+
+// ══════════ library ══════════
+let BOOK = null, bookListening = false;
+async function searchBooks(query = '', topic = ''){
+  const lang = $('#bkLang')?.value || '';
+  $('#bkResults').innerHTML = '<div class="empty-state">Searching the library…</div>';
+  const r = await fetch(`/api/books/search?q=${encodeURIComponent(query)}&topic=${encodeURIComponent(topic)}&lang=${encodeURIComponent(lang)}`, {headers:apiHeaders()});
+  const data = await r.json();
+  if (!r.ok){ $('#bkResults').innerHTML = `<div class="empty-state">${esc(data.error || 'Library unavailable')}</div>`; throw new Error(data.error || 'Library unavailable'); }
+  const list = data.results || [];
+  $('#bkResults').innerHTML = list.filter(b => b.readable).map(b => `<button type="button" class="bk-card" data-bk-open="${esc(b.id)}">
+      ${b.cover ? `<img src="${escapeAttr(b.cover)}" alt="" loading="lazy">` : '<div class="bk-nocover">📖</div>'}
+      <b>${esc(b.title)}</b><small>${esc(b.authors || 'Unknown author')}</small></button>`).join('') || '<div class="empty-state">No readable books found.</div>';
+  return list;
+}
+async function loadShelf(){
+  try{
+    const r = await fetch('/api/books/shelf', {headers:apiHeaders()}); const data = await r.json();
+    const shelf = data.shelf || [];
+    const box = $('#bkShelf'); if (!box) return;
+    box.hidden = !shelf.length;
+    box.innerHTML = '<h3>Continue reading</h3>' + shelf.map(b => `<button type="button" class="bk-cont" data-bk-open="${esc(b.id)}">${esc(b.title)} <small>page ${b.page + 1} of ${b.pages}</small></button>`).join('');
+  }catch(_){}
+}
+async function openBook(id, pageNo){
+  const r = await fetch(`/api/books/page?id=${encodeURIComponent(id)}${pageNo != null ? `&page=${pageNo}` : ''}`, {headers:apiHeaders()});
+  const data = await r.json(); if (!r.ok) throw new Error(data.error || 'Could not open the book');
+  BOOK = data;
+  $('#bkReader').hidden = false;
+  $('#bkTitle').textContent = data.title; $('#bkAuthor').textContent = data.authors;
+  $('#bkText').textContent = data.text;
+  $('#bkPage').textContent = `Page ${data.page + 1} of ${data.pages}`;
+  $('#bkPrev').disabled = data.page === 0; $('#bkNext').disabled = data.page >= data.pages - 1;
+  $('#bkBriefText').hidden = !data.brief; $('#bkBriefText').textContent = data.brief || '';
+  $('#bkReader').scrollIntoView({block:'start', behavior:'smooth'});
+  loadShelf();
+  return data;
+}
+async function listenLoop(){
+  while (bookListening && BOOK){
+    const chunks = BOOK.text.match(/[^.!?؟\n]{1,600}(?:[.!?؟]+|\n|$)/g) || [BOOK.text];
+    let part = '';
+    for (const piece of chunks){
+      if ((part + piece).length > 620 && part){ if (!bookListening) break; await speak(part); part = ''; }
+      part += piece;
+    }
+    if (bookListening && part.trim()) await speak(part);
+    if (!bookListening || BOOK.page >= BOOK.pages - 1) break;
+    await openBook(BOOK.id, BOOK.page + 1);
+  }
+  bookListening = false; $('#bkListen').textContent = 'Listen';
+}
+$('#bkSearchForm')?.addEventListener('submit', e => { e.preventDefault(); searchBooks($('#bkQuery').value.trim()).catch(() => {}); });
+document.addEventListener('click', e => {
+  const topic = e.target.closest('[data-bk-topic]'), open = e.target.closest('[data-bk-open]');
+  if (topic) searchBooks('', topic.dataset.bkTopic).catch(() => {});
+  if (open) openBook(open.dataset.bkOpen).catch(err => showToast(String(err.message||err),'error'));
+});
+$('#bkPrev')?.addEventListener('click', () => BOOK && openBook(BOOK.id, BOOK.page - 1));
+$('#bkNext')?.addEventListener('click', () => BOOK && openBook(BOOK.id, BOOK.page + 1));
+$('#bkClose')?.addEventListener('click', () => { bookListening = false; stopSpeech(); $('#bkReader').hidden = true; });
+$('#bkListen')?.addEventListener('click', () => {
+  if (bookListening){ bookListening = false; stopSpeech(); $('#bkListen').textContent = 'Listen'; return; }
+  bookListening = true; $('#bkListen').textContent = 'Stop listening'; listenLoop();
+});
+$('#bkBrief')?.addEventListener('click', async () => {
+  if (!BOOK) return;
+  const btn = $('#bkBrief'); btn.disabled = true; btn.textContent = 'Reading the book…';
+  try{
+    const r = await fetch('/api/books', {method:'POST', headers:apiHeaders({'content-type':'application/json'}), body:JSON.stringify({action:'brief', id:BOOK.id, language:/[؀-ۿ]/.test(WS?.settings?.persona || '') ? 'Egyptian Arabic' : 'English'})});
+    const data = await r.json(); if (!r.ok) throw new Error(data.error || 'Brief failed');
+    $('#bkBriefText').hidden = false; $('#bkBriefText').textContent = data.brief;
+    announce(data.brief);
+  }catch(err){ showToast(String(err.message||err),'error'); }
+  finally{ btn.disabled = false; btn.textContent = 'Brief this book'; }
+});
+loadShelf();
+
+// ══════════ image & video creation ══════════
+function showVideoFile(url){
+  const video = $('#visualPreview'), img = $('#visualImage'), frame = $('#visualFrame'), empty = $('#visualEmpty');
+  stopVisualStream();
+  if (frame){ frame.hidden = true; frame.removeAttribute('src'); }
+  if (img) img.hidden = true; if (empty) empty.hidden = true;
+  if (video){ video.srcObject = null; video.src = url; video.controls = true; video.muted = false; video.hidden = false; video.setAttribute('data-active', 'file'); video.play().catch(() => {}); }
+  setVisualStatus('Zuzu video'); setVisionBox(true); document.body.classList.add('vision-on');
+}
+async function createImage(prompt){
+  showToast('Creating your image…');
+  const r = await fetch('/api/media', {method:'POST', headers:apiHeaders({'content-type':'application/json'}), body:JSON.stringify({kind:'image', prompt})});
+  const data = await r.json(); if (!r.ok) throw new Error(data.error || 'Image failed');
+  const blob = await (await fetch(data.url, {headers:apiHeaders()})).blob();
+  showView('chat'); showImageBlob(blob, 'Zuzu image');
+  showToast('Image ready', 'info', {url:data.url, label:'Open full size'});
+  log('complete','IMAGE', data.name); loadWorkspace();
+  return data;
+}
+async function createVideo(prompt){
+  const r = await fetch('/api/media', {method:'POST', headers:apiHeaders({'content-type':'application/json'}), body:JSON.stringify({kind:'video', prompt})});
+  const data = await r.json(); if (!r.ok) throw new Error(data.error || 'Video failed');
+  showToast('Video started — Zuzu will announce it when ready (1–5 min)');
+  log('run','VIDEO', `started: ${prompt.slice(0, 80)}`); refreshMediaJobs();
+  return data;
+}
+async function refreshMediaJobs(){
+  try{
+    const data = await (await fetch('/api/media/jobs', {headers:apiHeaders()})).json();
+    const box = $('#mediaJobs'); if (!box) return;
+    box.innerHTML = (data.jobs || []).slice(-5).reverse().map(j => `<div class="mk-row"><b>${esc(j.prompt.slice(0, 50))}</b><span>${esc(j.status)}</span>${j.url ? `<a href="${escapeAttr(j.url)}" target="_blank" rel="noopener">open</a>` : `<em>${esc(j.error || '')}</em>`}</div>`).join('');
+  }catch(_){}
+}
+refreshMediaJobs();
+
+// ══════════ live PC control: see the screen and every step while Hermes works ══════════
+const PC_INTENT_RE = /^\/(?:pc|computer)\b|\b(?:open|close|launch|run|click|tap|type|press|download|install|uninstall|move|rename|delete|control|navigate|switch to|minimi[sz]e|maximi[sz]e)\b.*\b(?:pc|computer|laptop|desktop|windows|chrome|edge|browser|file|folder|app|application|notepad|calculator|excel|word|powerpoint|outlook|teams|whatsapp|settings|explorer|spotify)\b|(?:افتح|اقفل|شغل|اضغط|اكتب|نزل|حمل|احذف|انقل|غير).*(?:الكمبيوتر|اللابتوب|الويندوز|كروم|إيدج|المتصفح|ملف|مجلد|برنامج)/i;
+let STEPS = [], pcAutoLive = false;
+function resetSteps(){ STEPS = []; renderSteps(); }
+function pushStep(ev){
+  if (ev.phase === 'use' || !STEPS.length || STEPS[STEPS.length - 1].done){
+    STEPS.push({name: ev.name || 'step', input: ev.input || '', done: ev.phase !== 'use', ok: ev.ok !== false});
+  } else {
+    Object.assign(STEPS[STEPS.length - 1], {done: true, ok: ev.ok !== false});
+  }
+  STEPS = STEPS.slice(-8); renderSteps();
+}
+function renderSteps(){
+  const box = $('#ccSteps'); if (!box) return;
+  box.hidden = !STEPS.length;
+  box.innerHTML = STEPS.map(s => `<li class="${s.done ? (s.ok ? 'ok' : 'fail') : 'live'}"><b>${esc(s.name)}</b>${s.input ? `<span>${esc(s.input.slice(0, 90))}</span>` : ''}</li>`).join('');
+}
+function watchPc(message){
+  if (!PC_INTENT_RE.test(String(message || ''))) return;
+  if (visualKind !== 'laptop-live'){ pcAutoLive = true; startLaptopLive().catch(() => {}); log('status','PC','showing your laptop screen live while Hermes works'); }
+}
+function finishSteps(){
+  STEPS.forEach(s => { s.done = true; }); renderSteps();
+  if (pcAutoLive){ pcAutoLive = false; setTimeout(() => { if (!running) stopLaptopScreen(); }, 6000); }
+}
+
+// ══════════ drawing on the laptop screen (from the laptop or the phone) ══════════
+let drawMode = false, drawPoints = [];
+async function overlayCommand(cmd){
+  const r = await fetch('/api/overlay', {method:'POST', headers:apiHeaders({'content-type':'application/json'}), body:JSON.stringify(cmd)});
+  const data = await r.json(); if (!r.ok) throw new Error(data.error || 'Drawing failed');
+  return data;
+}
+async function pointAt(description){
+  showToast(`Looking for: ${description}`);
+  const r = await fetch('/api/overlay/point', {method:'POST', headers:apiHeaders({'content-type':'application/json'}), body:JSON.stringify({description})});
+  const data = await r.json(); if (!r.ok) throw new Error(data.error || 'Could not point');
+  if (!data.found) showToast(`I couldn't see "${description}" on the screen`, 'error');
+  else log('complete','POINT', `pointed at ${data.label}`);
+  return data.found ? {pointed:true, at:data.label} : {pointed:false, note:'Not visible on the screen right now.'};
+}
+function imageContentRect(img){
+  const box = img.getBoundingClientRect();
+  const nw = img.naturalWidth || box.width, nh = img.naturalHeight || box.height;
+  const scale = Math.min(box.width / nw, box.height / nh);
+  const w = nw * scale, h = nh * scale;
+  return {left: box.left + (box.width - w) / 2, top: box.top + (box.height - h) / 2, width: w, height: h};
+}
+function setDrawMode(on){
+  drawMode = !!on;
+  const canvas = $('#drawCanvas'), img = $('#visualImage'), btn = $('#drawScreen');
+  if (btn){ btn.classList.toggle('on', drawMode); btn.textContent = drawMode ? 'Drawing…' : 'Draw'; }
+  if (!canvas) return;
+  canvas.hidden = !drawMode;
+  if (drawMode && img){
+    const parent = canvas.parentElement.getBoundingClientRect();
+    canvas.width = parent.width; canvas.height = parent.height;
+  }
+}
+function canvasPoint(e){
+  const img = $('#visualImage'), rect = imageContentRect(img);
+  return {nx: (e.clientX - rect.left) / rect.width, ny: (e.clientY - rect.top) / rect.height};
+}
+$('#drawScreen')?.addEventListener('click', () => setDrawMode(!drawMode));
+$('#clearDrawing')?.addEventListener('click', () => overlayCommand({type:'clear'}).catch(err => showToast(String(err.message||err),'error')));
+(() => {
+  const canvas = $('#drawCanvas'); if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  canvas.addEventListener('pointerdown', e => { drawPoints = []; canvas.setPointerCapture(e.pointerId); const p = canvasPoint(e); drawPoints.push([p.nx, p.ny]);
+    const b = canvas.getBoundingClientRect(); ctx.strokeStyle = '#ffad35'; ctx.lineWidth = 4; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(e.clientX - b.left, e.clientY - b.top); });
+  canvas.addEventListener('pointermove', e => { if (!drawPoints.length || !(e.buttons & 1)) return; const p = canvasPoint(e); drawPoints.push([p.nx, p.ny]);
+    const b = canvas.getBoundingClientRect(); ctx.lineTo(e.clientX - b.left, e.clientY - b.top); ctx.stroke(); });
+  canvas.addEventListener('pointerup', async () => {
+    const pts = drawPoints.filter(([x, y]) => x >= 0 && x <= 1 && y >= 0 && y <= 1); drawPoints = [];
+    setTimeout(() => ctx.clearRect(0, 0, canvas.width, canvas.height), 1200);
+    if (pts.length > 1){ try{ await overlayCommand({type:'path', points:pts, ttl:20}); }catch(err){ showToast(String(err.message||err),'error'); } }
+  });
+})();
+
+// ══════════ skill suggestions ══════════
+let PROPOSALS = [];
+async function skillsRequest(payload){
+  const r = await fetch('/api/skills', {method:'POST', headers:apiHeaders({'content-type':'application/json'}), body:JSON.stringify(payload)});
+  const data = await r.json(); if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+  PROPOSALS = data.proposals || PROPOSALS; renderProposals(); return data;
+}
+async function loadProposals(){
+  try{ const data = await (await fetch('/api/skills/proposals', {headers:apiHeaders()})).json(); PROPOSALS = data.proposals || []; renderProposals(); }catch(_){}
+}
+function renderProposals(){
+  const box = $('#skProposals'); if (!box) return;
+  const open = PROPOSALS.filter(p => p.status === 'new').reverse(), done = PROPOSALS.filter(p => p.status !== 'new').slice(-4).reverse();
+  box.innerHTML = open.map(p => `<div class="sk-item"><div><b>${esc(p.name)}</b> <small>${esc(p.kind)} · ${esc(p.source || 'Hermes')}${p.trust ? ' · ' + esc(p.trust) : ''}</small><p>${esc(p.description || 'No description')}</p><small>Found while looking for: ${esc(p.reason)}</small></div>
+      <div class="sk-actions"><button type="button" class="primary-btn" data-sk-approve="${esc(p.id)}">Install</button><button type="button" class="secondary-btn" data-sk-dismiss="${esc(p.id)}">Dismiss</button></div></div>`).join('')
+    + done.map(p => `<div class="mk-row"><b>${esc(p.name)}</b><span>${esc(p.kind)}</span><em>${esc(p.status)}</em></div>`).join('')
+    || '<div class="empty-state">No suggestions yet. Ask Zuzu to look for skills.</div>';
+  const st = PERSONAL?.settings;
+  if (st && !$('#skScoutForm').contains(document.activeElement)){ $('#skAuto').checked = !!st.skillScout; $('#skDays').value = String(st.skillScoutDays || 7); }
+}
+$('#skScoutForm')?.addEventListener('submit', async e => {
+  e.preventDefault(); const btn = e.submitter; if (btn){ btn.disabled = true; btn.textContent = 'Searching…'; }
+  try{ const d = await skillsRequest({action:'scout', topic:$('#skTopic').value}); showToast(d.found.length ? `Found ${d.found.length} new skills` : 'No new skills found this time'); }
+  catch(err){ showToast(String(err.message||err),'error'); }
+  finally{ if (btn){ btn.disabled = false; btn.textContent = 'Look for skills'; } }
+});
+['#skAuto', '#skDays'].forEach(sel => $(sel)?.addEventListener('change', () => personalRequest({action:'save_settings', settings:{skillScout:$('#skAuto').checked, skillScoutDays:$('#skDays').value}}).catch(() => {})));
+document.addEventListener('click', async e => {
+  const ok = e.target.closest('[data-sk-approve]'), no = e.target.closest('[data-sk-dismiss]');
+  if (!ok && !no) return;
+  try{
+    if (ok){
+      const item = PROPOSALS.find(p => p.id === ok.dataset.skApprove);
+      if (!confirm(`Install "${item?.name}" into Hermes?`)) return;
+      ok.disabled = true; ok.textContent = 'Installing…';
+      const d = await skillsRequest({action:'approve', id:ok.dataset.skApprove, confirmed:true}); showToast(`Installed ${d.item.name}`);
+    }
+    if (no) await skillsRequest({action:'dismiss', id:no.dataset.skDismiss});
+  }catch(err){ showToast(String(err.message||err),'error'); renderProposals(); }
+});
+loadProposals();

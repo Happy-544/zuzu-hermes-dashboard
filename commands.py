@@ -127,7 +127,7 @@ def take_finished():
         return done
 
 
-_CMD = re.compile(r"^\s*/(new|profile|goal|personality|kanban|mission|missions|background|tools|toolsets|connectors|connect|music|playlist|remind|reminder|followup|busy|now|status|commands|help|browser|clear)\b\s*(.*)$", re.I | re.S)
+_CMD = re.compile(r"^\s*/(new|profile|goal|personality|kanban|mission|missions|background|tools|toolsets|connectors|connect|music|playlist|remind|reminder|followup|busy|now|status|commands|help|browser|pc|computer|clear)\b\s*(.*)$", re.I | re.S)
 
 
 def _hermes_command(*args):

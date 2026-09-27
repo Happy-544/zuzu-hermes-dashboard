@@ -8,6 +8,7 @@ configured tools, browser/Chrome automation, MCP servers, skills, memory, and
 third-party integrations that your normal Hermes sessions have. Voice can use the
 browser Web Speech API, with optional server-side ElevenLabs STT/TTS if present.
 """
+import datetime
 import io
 import json
 import mimetypes
@@ -45,6 +46,12 @@ import runtime          # noqa: E402
 import voice            # noqa: E402
 import workspace        # noqa: E402
 import ngrok_setup      # noqa: E402
+import personal         # noqa: E402
+import markets          # noqa: E402
+import books            # noqa: E402
+import media            # noqa: E402
+import screen_pointer   # noqa: E402
+import skills_scout     # noqa: E402
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -147,9 +154,66 @@ def live_voice_persona(client_extra=""):
         "You are Zuzu in a realtime voice conversation. The user's saved persona above is authoritative: keep its tone, warmth, language and relationship style in every direct reply. "
         "For greetings, casual conversation, opinions, emotional support, jokes, and questions you can answer reliably without current or private data, answer immediately yourself in one or two natural spoken sentences. "
         "Call hermes_action exactly once when the user asks you to DO something or needs current/private/system information: Telegram or email, accounts, computer or iPhone actions, browser/search, files, apps, tools, memory changes, reminders, projects, connected services, or Zuzu configuration. "
-        "If you are unsure whether a real action or connected data is required, call Hermes. Never claim you cannot do an action before Hermes returns. Never invent success. Speak the returned result naturally in your persona."
+        "If you are unsure whether a real action or connected data is required, call Hermes. Never claim you cannot do an action before Hermes returns. Never invent success. Speak the returned result naturally in your persona. "
+        "Fast local tools (use these instead of Hermes when they fit): add_reminder for any 'remind me' request (convert the time to an ISO local datetime); "
+        "get_daily_brief when asked about the day, date, weather, news, schedule or reminders; play_music to play songs or playlists; "
+        "play_video to show a YouTube video about something; switch_model when asked to change the AI model or provider; "
+        "sleep_mode when the user says 'Zuzu sleep mode', goodbye or asks you to stop listening (say a short goodbye first). "
+        "get_markets and set_price_alert for prices and markets (say it is information, not financial advice); "
+        "create_image and create_video to make pictures or clips; find_books to find something to read; "
+        "point_at to show the user where something is on their laptop screen; find_new_skills to look for new abilities, "
+        "and install_skill only after the user explicitly says yes to a specific skill. "
+        f"The current local date and time is {datetime.datetime.now().strftime('%A %Y-%m-%d %H:%M')}."
     )
     return "\n\n".join(x for x in (custom, routing, memory, client_extra) if x)
+
+
+def _tool(name, description, props=None, required=()):
+    params = {"type": "OBJECT", "properties": {k: {"type": "STRING", "description": v} for k, v in (props or {}).items()}}
+    if required:
+        params["required"] = list(required)
+    return {"name": name, "description": description, "parameters": params}
+
+
+LOCAL_VOICE_TOOLS = [
+    _tool("add_reminder", "Save a personal reminder.", {
+        "text": "What to remind the user about, in their words.",
+        "due": "Local date-time in ISO format YYYY-MM-DDTHH:MM, or empty if no time was given.",
+        "repeat": "Empty, 'daily' or 'weekly'."}, ("text",)),
+    _tool("get_daily_brief", "Get today's date, weather, calendar, reminders and top news headlines.",
+          {"kind": "'morning' (today) or 'evening' (tonight and tomorrow)."}),
+    _tool("play_music", "Play music from YouTube Music on the dashboard.",
+          {"query": "Artist, song, mood or playlist to play."}, ("query",)),
+    _tool("play_video", "Search YouTube and show a video on the dashboard.",
+          {"query": "What the video should be about."}, ("query",)),
+    _tool("switch_model", "Change the AI model Hermes uses.", {
+        "provider": "One of: gemini, openai, anthropic, openrouter, ollama, hermes.",
+        "model": "Model name, or empty for that provider's default."}, ("provider",)),
+    _tool("sleep_mode", "Stop listening until the wake word is heard again."),
+    _tool("get_markets", "Get live prices and today's most active tradable markets, plus the user's watchlist."),
+    _tool("set_price_alert", "Alert the user when a market crosses a price.", {
+        "symbol": "Ticker such as GC=F (gold), BTC-USD, ^GSPC, EURUSD=X, AAPL.",
+        "direction": "'above' or 'below'.", "price": "Price level as a number."}, ("symbol", "direction", "price")),
+    _tool("create_image", "Create an image from a description and show it.", {"prompt": "Detailed description of the image."}, ("prompt",)),
+    _tool("create_video", "Start creating a short video from a description; it is announced when ready.",
+          {"prompt": "Detailed description of the video."}, ("prompt",)),
+    _tool("find_books", "Search the free library for books to read or brief.", {"query": "Title, author or subject."}, ("query",)),
+    _tool("point_at", "Draw an arrow and circle on the user's laptop screen pointing at something visible.",
+          {"description": "What to point at, e.g. 'the Save button' or 'the Wi-Fi icon'."}, ("description",)),
+    _tool("clear_screen_drawing", "Remove Zuzu's drawings from the laptop screen."),
+    _tool("find_new_skills", "Search for new Hermes skills that could help, and list them for approval.",
+          {"topic": "What the skill should help with, or empty to decide from the user's habits."}),
+    _tool("install_skill", "Install a proposed skill. Only after the user clearly said yes to installing that exact skill.",
+          {"name": "Name of the proposed skill.", "confirmed": "'yes' only if the user explicitly approved."}, ("name", "confirmed")),
+]
+
+
+READ_ALOUD_PROMPT = (
+    "You are Zuzu's speaking voice. Every user message is text that Zuzu already wrote. "
+    "Speak it aloud exactly as written, word for word, in its original language and dialect, "
+    "with a warm, natural, conversational delivery. Never answer it, summarise it, translate it, "
+    "add words, or comment on it. Skip URLs and code; read everything else."
+)
 
 
 def _fetch_text(url, timeout=10):
@@ -175,8 +239,13 @@ def _youtube_search(query):
             continue
         seen.add(vid)
         around = html[max(0, match.start() - 900):match.end() + 1600]
-        title_match = re.search(r'"title"\s*:\s*\{\s*"runs"\s*:\s*\[\s*\{\s*"text"\s*:\s*"(.*?)"', around)
-        title = title_match.group(1).encode("utf-8").decode("unicode_escape", "ignore") if title_match else query
+        title_match = re.search(r'"title"\s*:\s*\{\s*"runs"\s*:\s*\[\s*\{\s*"text"\s*:\s*"((?:[^"\\]|\\.)*)"', around)
+        title = query
+        if title_match:
+            try:
+                title = json.loads('"' + title_match.group(1) + '"')
+            except ValueError:
+                title = title_match.group(1)
         videos.append({
             "id": vid,
             "title": title,
@@ -211,6 +280,71 @@ def _web_search(query):
     if not results:
         results = [{"title": f"Search Google for {query}", "url": "https://www.google.com/search?q=" + urllib.parse.quote_plus(query)}]
     return {"query": query, "results": results, "best": results[0]}
+
+
+def _memory_bytes():
+    """Return (total, available) RAM in bytes using only the standard library."""
+    if os.name == "nt":
+        import ctypes
+
+        class _Status(ctypes.Structure):
+            _fields_ = [("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong),
+                        ("ullTotalPhys", ctypes.c_ulonglong), ("ullAvailPhys", ctypes.c_ulonglong),
+                        ("ullTotalPageFile", ctypes.c_ulonglong), ("ullAvailPageFile", ctypes.c_ulonglong),
+                        ("ullTotalVirtual", ctypes.c_ulonglong), ("ullAvailVirtual", ctypes.c_ulonglong),
+                        ("ullAvailExtendedVirtual", ctypes.c_ulonglong)]
+        status = _Status()
+        status.dwLength = ctypes.sizeof(_Status)
+        if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+            return status.ullTotalPhys, status.ullAvailPhys
+        return None, None
+    try:
+        values = {}
+        for line in pathlib.Path("/proc/meminfo").read_text().splitlines():
+            key, _, rest = line.partition(":")
+            values[key] = int(rest.split()[0]) * 1024
+        return values.get("MemTotal"), values.get("MemAvailable")
+    except (OSError, ValueError):
+        return None, None
+
+
+def _uptime_seconds():
+    if os.name == "nt":
+        import ctypes
+        return int(ctypes.windll.kernel32.GetTickCount64() // 1000)
+    try:
+        return int(float(pathlib.Path("/proc/uptime").read_text().split()[0]))
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+def system_snapshot():
+    """Small, non-sensitive PC summary for the dashboard's This PC card."""
+    import platform
+    import shutil
+    import socket
+    import time
+    info = {"host": socket.gethostname(), "os": f"{platform.system()} {platform.release()}".strip(),
+            "machine": platform.machine(), "cpus": os.cpu_count(), "python": platform.python_version(),
+            "time": time.strftime("%Y-%m-%d %H:%M"), "cpu_percent": None, "battery": None}
+    total, available = _memory_bytes()
+    info["memory"] = {"total": total, "available": available} if total else None
+    try:
+        usage = shutil.disk_usage(os.path.expanduser(runtime.WORKDIR or "~"))
+        info["disk"] = {"total": usage.total, "free": usage.free}
+    except OSError:
+        info["disk"] = None
+    info["uptime"] = _uptime_seconds()
+    try:
+        import psutil  # optional: richer live numbers when installed
+        info["cpu_percent"] = psutil.cpu_percent(interval=None)
+        battery = psutil.sensors_battery()
+        if battery:
+            info["battery"] = {"percent": round(battery.percent), "plugged": bool(battery.power_plugged)}
+    except Exception:  # noqa: BLE001
+        if hasattr(os, "getloadavg") and info["cpus"]:
+            info["cpu_percent"] = round(min(100.0, os.getloadavg()[0] / info["cpus"] * 100), 1)
+    return info
 
 
 def capture_laptop_screen_jpeg():
@@ -301,6 +435,8 @@ class Handler(BaseHTTPRequestHandler):
         if not self._host_ok():
             return self._json({"error": "invalid host"}, 403)
         p = urlparse(self.path).path
+        if p == "/favicon.ico":
+            return self._bytes((UI / "icon-192.png").read_bytes(), "image/png")
         if p == "/login.html":
             return self._bytes((UI / "login.html").read_bytes(), "text/html; charset=utf-8", headers={
                 "Content-Security-Policy": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; form-action 'none'; frame-ancestors 'none'",
@@ -341,6 +477,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._bytes(b"not found", "text/plain", 404)
             return self._bytes(f.read_bytes(), mimetypes.guess_type(f.name)[0] or "application/octet-stream", headers={
                 "Cache-Control": "private, no-store",
+                "Content-Security-Policy": "sandbox",
+                "X-Content-Type-Options": "nosniff",
             })
 
         if p == "/api/youtube-search":
@@ -396,6 +534,40 @@ class Handler(BaseHTTPRequestHandler):
                                    running=[j for j in commands.jobs_snapshot()
                                             if j["status"] == "running"],
                                    active_operation=runtime.active_operation_snapshot()))
+        if p == "/api/system":
+            return self._json(system_snapshot())
+        if p == "/api/personal":
+            return self._json(personal.public_state())
+        if p == "/api/personal/inbox":
+            return self._json({"items": personal.take_outbox()})
+        if p == "/api/personal/email":
+            try:
+                return self._json({"summary": personal.email_summary(12)})
+            except (RuntimeError, OSError) as exc:
+                return self._json({"error": str(exc)[:200]}, 503)
+        if p == "/api/markets":
+            return self._json(markets.state())
+        if p == "/api/skills/proposals":
+            return self._json({"proposals": skills_scout.proposals(), "overlay": screen_pointer.available()})
+        if p == "/api/media/jobs":
+            return self._json({"jobs": media.jobs()})
+        if p.startswith("/api/books/"):
+            q = {k: v[0] for k, v in urllib.parse.parse_qs(urlparse(self.path).query).items()}
+            try:
+                if p == "/api/books/search":
+                    return self._json({"results": books.search(q.get("q", ""), q.get("topic", ""), q.get("lang", ""))})
+                if p == "/api/books/shelf":
+                    return self._json({"shelf": books.shelf()})
+                if p == "/api/books/page":
+                    page_no = int(q["page"]) if q.get("page", "").isdigit() else None
+                    return self._json(books.page(int(q.get("id", "0")), page_no))
+            except ValueError as exc:
+                return self._json({"error": str(exc)[:200]}, 400)
+            except (RuntimeError, OSError) as exc:
+                return self._json({"error": f"Library unavailable: {type(exc).__name__}"}, 503)
+        if p == "/api/personal/brief":
+            kind = urllib.parse.parse_qs(urlparse(self.path).query).get("kind", ["morning"])[0]
+            return self._json(personal.build_brief("evening" if kind == "evening" else "morning"))
         if p == "/api/workspace":
             if not self._token_ok():
                 return self._json({"error": "unauthorized"}, 401)
@@ -476,7 +648,7 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json({"error": "invalid password or temporarily rate limited"}, 401)
                 sid, csrf = result
                 return self._json({"ok": True, "csrf": csrf}, headers={"Set-Cookie": self._login_cookie(sid)})
-            except (ValueError, TypeError) as exc:
+            except (ValueError, TypeError, AttributeError) as exc:
                 return self._json({"error": str(exc)[:120]}, 400)
         if p == "/api/setup/ngrok":
             return ngrok_setup.handle_post(self)
@@ -488,7 +660,7 @@ class Handler(BaseHTTPRequestHandler):
             auth.logout(self.headers.get("Cookie"))
             return self._json({"ok": True}, headers={"Set-Cookie": "zuzu_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0"})
         ctype = self.headers.get("Content-Type", "").split(";", 1)[0].lower()
-        if p in {"/api/run", "/api/speak", "/api/live-token", "/api/workspace", "/api/new", "/api/cancel", "/api/calls/outbound", "/api/catalog/install"} and ctype != "application/json":
+        if p in {"/api/run", "/api/speak", "/api/live-token", "/api/workspace", "/api/new", "/api/cancel", "/api/calls/outbound", "/api/catalog/install", "/api/personal", "/api/markets", "/api/books", "/api/media", "/api/overlay", "/api/overlay/point", "/api/skills"} and ctype != "application/json":
             return self._json({"error": "application/json required"}, 415)
         if p == "/api/listen" and not ctype.startswith("audio/"):
             return self._json({"error": "audio content type required"}, 415)
@@ -510,7 +682,7 @@ class Handler(BaseHTTPRequestHandler):
                 payload = json.loads(raw or b"{}")
                 result = phone_calls.outbound(payload.get("number"), payload.get("confirmed"), payload.get("requestId"))
                 return self._json(result)
-            except ValueError as exc:
+            except (ValueError, AttributeError) as exc:
                 return self._json({"error": str(exc)}, 400)
             except RuntimeError as exc:
                 return self._json({"error": str(exc)}, 503)
@@ -521,7 +693,7 @@ class Handler(BaseHTTPRequestHandler):
                 if payload.get("confirmed") is not True:
                     return self._json({"error": "Confirm the skill installation"}, 400)
                 return self._json(catalog.install(payload.get("identifier"), payload.get("kind", "skill")))
-            except ValueError as exc:
+            except (ValueError, AttributeError) as exc:
                 return self._json({"error": str(exc)}, 400)
             except (RuntimeError, OSError) as exc:
                 return self._json({"error": str(exc)[:400]}, 503)
@@ -529,8 +701,16 @@ class Handler(BaseHTTPRequestHandler):
         if p == "/api/live-token":
             try:
                 payload = json.loads(raw or b"{}")
-                client_extra = "\n\n".join(x for x in ((payload.get("system") or "").strip(), _client_context_prompt(payload.get("client_context"))) if x)
+                if not isinstance(payload, dict):
+                    return self._json({"error": "JSON object required"}, 400)
                 live_auth = voice.create_live_token()
+                live_auth["voice"] = workspace.load()["settings"].get("voice", voice.GEMINI_TTS_VOICE)
+                if payload.get("purpose") == "speak":
+                    # Read Hermes' typed replies with the same native-audio model and voice.
+                    live_auth["system"] = READ_ALOUD_PROMPT
+                    live_auth["tools"] = []
+                    return self._json(live_auth)
+                client_extra = "\n\n".join(x for x in ((payload.get("system") or "").strip(), _client_context_prompt(payload.get("client_context"))) if x)
                 live_auth["system"] = live_voice_persona(client_extra)
                 live_auth["tools"] = [{"functionDeclarations": [{
                     "name": "hermes_action",
@@ -538,8 +718,7 @@ class Handler(BaseHTTPRequestHandler):
                     "parameters": {"type": "OBJECT", "properties": {
                         "request": {"type": "STRING", "description": "The full user request, preserving language and constraints."}
                     }, "required": ["request"]}
-                }]}]
-                live_auth["voice"] = workspace.load()["settings"].get("voice", voice.GEMINI_TTS_VOICE)
+                }] + LOCAL_VOICE_TOOLS}]
                 return self._json(live_auth)
             except Exception as e:                        # noqa: BLE001
                 return self._json({"error": str(e)[:200]}, 503)
@@ -558,6 +737,80 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(result)
             except Exception as e:                        # noqa: BLE001
                 return self._json({"error": str(e)[:240]}, 400)
+
+        if p == "/api/personal":
+            try:
+                payload = json.loads(raw or b"{}")
+                if not isinstance(payload, dict):
+                    raise ValueError("JSON object required")
+                kind = payload.get("action")
+                if kind == "add_reminder":
+                    item = personal.add_reminder(payload.get("text"), payload.get("due"), payload.get("repeat"))
+                    return self._json({"item": item, **personal.public_state()})
+                if kind == "update_reminder":
+                    changes = {k: payload[k] for k in ("done", "text", "due") if k in payload}
+                    personal.update_reminder(str(payload.get("id", "")), **changes)
+                elif kind == "delete_reminder":
+                    personal.delete_reminder(str(payload.get("id", "")))
+                elif kind == "save_settings":
+                    values = dict(payload.get("settings") or {})
+                    city = str(values.get("city", "")).strip()
+                    if city and city != personal.load()["settings"]["city"]:
+                        values.update(personal.geocode(city))
+                    return self._json(personal.save_settings(values))
+                else:
+                    raise ValueError("unknown personal action")
+                return self._json(personal.public_state())
+            except ValueError as exc:
+                return self._json({"error": str(exc)[:200]}, 400)
+            except (OSError, RuntimeError) as exc:
+                return self._json({"error": f"Could not reach a service: {type(exc).__name__}"}, 503)
+
+        if p in {"/api/overlay", "/api/overlay/point", "/api/skills"}:
+            try:
+                payload = json.loads(raw or b"{}")
+                if not isinstance(payload, dict):
+                    raise ValueError("JSON object required")
+                if p == "/api/overlay":
+                    screen_pointer.send(screen_pointer.clean_command(payload))
+                    return self._json({"ok": True})
+                if p == "/api/overlay/point":
+                    description = str(payload.get("description", "")).strip()[:200]
+                    if not description:
+                        raise ValueError("Say what to point at")
+                    return self._json(screen_pointer.point(capture_laptop_screen_jpeg(), description))
+                kind = payload.get("action")
+                if kind == "scout":
+                    return self._json({"found": skills_scout.scout(payload.get("topic")), "proposals": skills_scout.proposals()})
+                if kind in {"approve", "dismiss"}:
+                    if kind == "approve" and payload.get("confirmed") is not True:
+                        raise ValueError("Confirm the installation first")
+                    item = skills_scout.decide(str(payload.get("id", "")), kind == "approve")
+                    return self._json({"item": item, "proposals": skills_scout.proposals()})
+                raise ValueError("unknown skills action")
+            except (ValueError, KeyError, TypeError) as exc:
+                return self._json({"error": str(exc)[:200]}, 400)
+            except (RuntimeError, OSError) as exc:
+                return self._json({"error": str(exc)[:240]}, 503)
+
+        if p in {"/api/markets", "/api/books", "/api/media"}:
+            try:
+                payload = json.loads(raw or b"{}")
+                if not isinstance(payload, dict):
+                    raise ValueError("JSON object required")
+                if p == "/api/markets":
+                    return self._json(markets.action(payload))
+                if p == "/api/books":
+                    if payload.get("action") != "brief":
+                        raise ValueError("unknown library action")
+                    return self._json({"brief": books.brief(int(payload.get("id", 0)), payload.get("language") or "English")})
+                if payload.get("kind") == "video":
+                    return self._json(media.create_video(payload.get("prompt")))
+                return self._json(media.create_image(payload.get("prompt")))
+            except ValueError as exc:
+                return self._json({"error": str(exc)[:200]}, 400)
+            except (RuntimeError, OSError) as exc:
+                return self._json({"error": str(exc)[:240]}, 503)
 
         if p == "/api/upload":
             try:
@@ -580,6 +833,7 @@ class Handler(BaseHTTPRequestHandler):
 
         if p == "/api/cancel":
             stopped = runtime.cancel_active()
+            stopped = hermes_api.cancel_active() or stopped
             project_id, ui_id, _ = workspace.selected_hermes_session()
             workspace.bind_hermes_session(project_id, ui_id, None)
             return self._json({"ok": True, "stopped": stopped})
@@ -604,6 +858,8 @@ class Handler(BaseHTTPRequestHandler):
             payload = json.loads(raw or b"{}")
         except json.JSONDecodeError:
             return self._json({"error": "bad json"}, 400)
+        if not isinstance(payload, dict):
+            return self._json({"error": "JSON object required"}, 400)
         message = (payload.get("message") or "").strip()
         extra = "\n\n".join(x for x in ((payload.get("system") or "").strip(), _client_context_prompt(payload.get("client_context"))) if x)
         system = "\n\n".join(x for x in (persona(), extra) if x) or None
@@ -711,6 +967,12 @@ def main():
   open         http://localhost:{PORT}
 """, flush=True)
 
+    def market_alert_tick():
+        for alert in markets.check_alerts():
+            word = "above" if alert["direction"] == "above" else "below"
+            personal.announce("market", f"{alert['name']} is now {alert['now']}, {word} your alert at {alert['price']}.", alert)
+    personal.EXTRA_TICKS.extend([market_alert_tick, personal.email_alert_tick, skills_scout.scout_tick])
+    personal.start_scheduler()
     srv = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     if os.environ.get("JARVIS_OPEN", "1") != "0":
         webbrowser.open(f"http://localhost:{PORT}")

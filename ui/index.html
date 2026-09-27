@@ -11,7 +11,7 @@
 <title>Zuzu · Hermes</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-192.png">
-<link rel="stylesheet" href="styles.css?v=36">
+<link rel="stylesheet" href="styles.css?v=42">
 </head>
 <body>
 <div class="grid-bg"></div>
@@ -24,25 +24,65 @@
 
 <div class="app-shell">
   <aside class="sidebar" aria-label="Main navigation">
-    <nav class="primary-nav" role="tablist">
-      <button class="nav-item active" role="tab" data-view="chat" aria-selected="true"><span>Chat</span><small>Talk to Zuzu</small></button>
-      <button class="nav-item" role="tab" data-view="projects" aria-selected="false"><span>Projects</span><small>Folders and sessions</small></button>
-      <button class="nav-item" role="tab" data-view="models" aria-selected="false"><span>Models</span><small>Providers and API</small></button>
-      <button class="nav-item" role="tab" data-view="tools" aria-selected="false"><span>Tools</span><small>Hermes capabilities</small></button>
-      <button class="nav-item" role="tab" data-view="memory" aria-selected="false"><span>Memory</span><small>Connected knowledge</small></button>
-      <button class="nav-item" role="tab" data-view="studio" aria-selected="false"><span>Studio</span><small>Files, images and video</small></button>
-      <button class="nav-item" role="tab" data-view="missions" aria-selected="false"><span>Missions</span><small>Goals and background work</small></button>
-      <button class="nav-item" role="tab" data-view="activity" aria-selected="false"><span>Activity</span><small>Status and event log</small></button>
-      <button class="nav-item" role="tab" data-view="calls" aria-selected="false"><span>Calls</span><small>iPhone and Zuzu AI calls</small></button>
-      <button class="nav-item" role="tab" data-view="settings" aria-selected="false"><span>Settings</span><small>Profile and controls</small></button>
+    <nav class="primary-nav" role="tablist" aria-label="Main sections">
+      <button class="nav-item active" role="tab" data-group="home" aria-selected="true"><span>Home</span><small>Talk and command center</small></button>
+      <button class="nav-item" role="tab" data-group="day" aria-selected="false"><span>My day</span><small>Reminders, markets, books</small></button>
+      <button class="nav-item" role="tab" data-group="work" aria-selected="false"><span>Work</span><small>Chats, goals and files</small></button>
+      <button class="nav-item" role="tab" data-group="brain" aria-selected="false"><span>Brain</span><small>Memory and skills</small></button>
+      <button class="nav-item" role="tab" data-group="tools" aria-selected="false"><span>Tools</span><small>Hermes tools and calls</small></button>
+      <button class="nav-item" role="tab" data-group="settings" aria-selected="false"><span>Settings</span><small>Assistant, model, health</small></button>
     </nav>
     <div class="project-peek"><div class="mini-head"><b>Projects</b><button id="quickProject" aria-label="Add project">+</button></div><div id="sidebarProjects"></div></div>
     <div class="sidebar-foot"><span class="status-dot"></span><span>Gemini + Hermes</span></div>
   </aside>
 
   <main class="workspace">
+    <nav class="subnav" id="subnav" role="tablist" aria-label="Pages in this section" hidden>
+      <button type="button" role="tab" data-sub="home" data-view="chat">Home</button>
+      <button type="button" role="tab" data-sub="day" data-view="reminders">Reminders &amp; brief</button>
+      <button type="button" role="tab" data-sub="day" data-view="markets">Markets</button>
+      <button type="button" role="tab" data-sub="day" data-view="library">Library</button>
+      <button type="button" role="tab" data-sub="work" data-view="projects">Chats &amp; projects</button>
+      <button type="button" role="tab" data-sub="work" data-view="missions">Goals &amp; missions</button>
+      <button type="button" role="tab" data-sub="work" data-view="studio">Files &amp; create</button>
+      <button type="button" role="tab" data-sub="brain" data-view="memory">Memory</button>
+      <button type="button" role="tab" data-sub="brain" data-view="skills">Skills</button>
+      <button type="button" role="tab" data-sub="tools" data-view="tools">Hermes tools</button>
+      <button type="button" role="tab" data-sub="tools" data-view="calls">Phone calls</button>
+      <button type="button" role="tab" data-sub="settings" data-view="settings">Assistant</button>
+      <button type="button" role="tab" data-sub="settings" data-view="models">AI model</button>
+      <button type="button" role="tab" data-sub="settings" data-view="activity">System health</button>
+    </nav>
     <section class="view active" role="tabpanel" data-view-panel="chat">
       <div class="view-head home-title"><div><h1>Zuzu</h1></div></div>
+      <div class="cc-status" aria-label="Live status">
+        <span class="cc-pill" id="ccPillState"><i></i><b>Ready</b></span>
+        <span class="cc-pill" id="ccPillHermes"><i></i><b>Hermes</b><em>checking</em></span>
+        <span class="cc-pill" id="ccPillBrain"><i></i><b>Brain</b><em>—</em></span>
+        <span class="cc-pill" id="ccPillVoice"><i></i><b>Voice</b><em>—</em></span>
+        <span class="cc-pill cc-clock" id="ccClock"></span>
+      </div>
+      <div class="cc-grid">
+      <aside class="cc-rail cc-left" aria-label="Current work">
+        <section class="cc-card cc-now" id="ccNow">
+          <header><h3>Now</h3><button type="button" class="cc-link" data-cc-run="/busy">What's running?</button></header>
+          <div class="cc-now-state" id="ccNowState">Ready for your next request.</div>
+          <div class="cc-now-detail" id="ccNowDetail"></div>
+          <div class="cc-now-meta"><span id="ccNowElapsed"></span><span id="ccNowMissions"></span></div>
+          <ol class="cc-steps" id="ccSteps" hidden></ol>
+        </section>
+        <section class="cc-card">
+          <header><h3>Workspace</h3><button type="button" class="cc-link" data-view="projects">Manage</button></header>
+          <label class="cc-field"><span>Project</span><select id="ccProject" aria-label="Active project"></select></label>
+          <div class="cc-sessions" id="ccSessions"></div>
+          <button type="button" class="cc-ghost" id="ccNewChat">+ New chat</button>
+        </section>
+        <section class="cc-card">
+          <header><h3>Brain</h3><button type="button" class="cc-link" data-view="models">Change</button></header>
+          <dl class="cc-kv" id="ccBrain"></dl>
+        </section>
+      </aside>
+      <div class="cc-main">
       <div class="chat-layout">
         <aside class="core-card glass">
           <div class="reactor" id="reactor">
@@ -54,31 +94,130 @@
               <g class="spark-field"><circle cx="124" cy="160" r="3"/><circle cx="172" cy="115" r="2"/><circle cx="385" cy="130" r="3"/><circle cx="424" cy="229" r="2"/><circle cx="390" cy="384" r="3"/><circle cx="193" cy="411" r="2"/><circle cx="104" cy="301" r="2"/><circle cx="323" cy="92" r="2"/><circle cx="452" cy="326" r="2"/><circle cx="271" cy="432" r="3"/></g>
               <g class="signal-ellipses"><ellipse cx="228" cy="260" rx="14" ry="5"/><ellipse cx="260" cy="260" rx="18" ry="6"/><ellipse cx="292" cy="260" rx="14" ry="5"/></g>
             </svg>
-            <div class="core-state"><div class="core-status"><strong id="stword">READY</strong><small id="strun"></small></div><div class="core-user" id="userText"></div><button id="mic" class="core-voice-btn" title="Voice input" aria-label="Start voice input">Zuzu Voice</button><div class="core-output" id="responseWrap"><span class="rtag core-hidden-tag" id="rtag" aria-hidden="true">IDLE</span><div class="rbody" id="response"><span class="rplaceholder"></span></div></div></div><div class="core-vision-box" id="coreVisionBox" hidden><div class="core-vision-head"><span id="visualMode">Vision idle</span><button id="flipCamera" type="button">Flip</button><button id="stopVisual" type="button">×</button></div><video id="visualPreview" playsinline autoplay muted></video><img id="visualImage" alt="Zuzu shared image preview" hidden><iframe id="visualFrame" title="Zuzu browser preview" sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox" hidden></iframe><div id="visualEmpty" class="vision-empty">Show laptop live screen, screenshot, picture, video, YouTube, browser, camera, or screen share.</div></div>
+            <div class="core-state"><div class="core-status"><strong id="stword">READY</strong><small id="strun"></small></div><div class="core-user" id="userText"></div><button id="mic" class="core-voice-btn" title="Voice input" aria-label="Start voice input">Zuzu Voice</button><div class="core-output" id="responseWrap"><span class="rtag core-hidden-tag" id="rtag" aria-hidden="true">IDLE</span><div class="rbody" id="response"><span class="rplaceholder"></span></div></div></div><div class="core-vision-box" id="coreVisionBox" hidden><div class="core-vision-head"><span id="visualMode">Vision idle</span><button id="flipCamera" type="button">Flip</button><button id="drawScreen" type="button" title="Draw on the laptop screen" hidden>Draw</button><button id="clearDrawing" type="button" title="Clear drawings on the laptop screen" hidden>Clear</button><button id="stopVisual" type="button">×</button></div><video id="visualPreview" playsinline autoplay muted></video><img id="visualImage" alt="Zuzu shared image preview" hidden><canvas id="drawCanvas" hidden></canvas><iframe id="visualFrame" title="Zuzu browser preview" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox" hidden></iframe><div id="visualEmpty" class="vision-empty">Show laptop live screen, screenshot, picture, video, YouTube, browser, camera, or screen share.</div></div>
           </div>
           <div class="core-details"><span><i class="online"></i> Online</span><span id="core-model">Gemini</span></div><div class="core-visual-actions"><button id="dockCamera" type="button">Livestream</button><button id="dockScreen" type="button">Screen share</button><button id="dockLaptop" type="button">Laptop live</button><button id="dockImage" type="button">Screenshot</button><button id="dockVideo" type="button">Video / YouTube</button><button id="dockBrowser" type="button">Browser view</button></div>
         </aside>
       </div>
+      <section class="cc-card cc-live" aria-live="polite">
+        <header><h3>Conversation</h3><span class="cc-hint">Voice for the headline, screen for the details</span></header>
+        <div class="cc-turn cc-you" id="ccYouRow" hidden><b>You</b><p id="ccYou"></p></div>
+        <div class="cc-turn cc-zuzu" id="ccZuzuRow" hidden><b>Zuzu</b><p id="ccZuzu"></p></div>
+        <div class="cc-empty" id="ccLiveEmpty">Ask anything, pick a smart tool, or press <b>Zuzu Voice</b> to talk.</div>
+      </section>
       <div id="chatHistory" class="chat-history glass" aria-label="Selected Hermes chat history"></div>
       <div class="composer glass">
         <textarea id="input" rows="2" spellcheck="false" aria-label="Message Zuzu" placeholder="Message Zuzu…"></textarea>
         <div id="chatAttachments" class="chat-attachments" hidden></div>
         <div class="composer-actions"><span class="tip" id="tip">Enter to send · Shift+Enter for a new line</span><label class="icon-btn attach-label" title="Attach files or images">Attach<input id="chatFileUpload" type="file" multiple accept="image/*,.pdf,.txt,.md,.csv,.json,.doc,.docx,.xls,.xlsx,.ppt,.pptx" hidden></label><button id="mute" class="icon-btn on" title="Mute Zuzu speech" aria-label="Mute Zuzu speech">Sound</button><button id="run" class="send-btn">Send</button></div>
       </div>
+      </div>
+      <aside class="cc-rail cc-right" aria-label="Tools and system">
+        <section class="cc-card cc-today">
+          <header><h3>Today</h3><button type="button" class="cc-link" data-cc-brief>Play brief</button></header>
+          <div id="ccToday"><div class="cc-empty">Loading your day…</div></div>
+          <div class="cc-today-actions"><button type="button" class="cc-ghost" id="ccAddReminder">+ Reminder</button><button type="button" class="cc-ghost" data-view="reminders">All reminders</button></div>
+        </section>
+        <section class="cc-card">
+          <header><h3>Smart tools</h3><span class="cc-hint">One click</span></header>
+          <div class="cc-tools">
+            <button type="button" data-cc-brief><b>Daily brief</b><small>Weather, news, your day</small></button>
+            <button type="button" data-cc-run="Plan my day: use my standing goal, mission queue, reminders and calendar if connected. Give a prioritized list with suggested times."><b>Plan my day</b><small>Prioritized schedule</small></button>
+            <button type="button" data-cc-compose="Research this and give me a short brief with sources: "><b>Research</b><small>Web brief + sources</small></button>
+            <button type="button" data-cc-summarize><b>Summarize</b><small>File, link or text</small></button>
+            <button type="button" data-cc-compose="Draft a message in my tone (show it to me before sending) to "><b>Draft message</b><small>Email / Telegram</small></button>
+            <button type="button" data-cc-run="Look at my laptop screen right now using the computer or screenshot tools. Tell me what is open and what I should do next. Do not click or change anything."><b>My screen</b><small>Explain what's open</small></button>
+            <button type="button" data-cc-compose="/music "><b>Music</b><small>YouTube Music</small></button>
+            <button type="button" data-cc-compose="/video "><b>Video</b><small>Find on YouTube</small></button>
+          </div>
+        </section>
+        <section class="cc-card">
+          <header><h3>Markets</h3><button type="button" class="cc-link" data-view="markets">All</button></header>
+          <div id="ccMarkets" class="cc-markets"><div class="cc-empty">Loading…</div></div>
+        </section>
+        <section class="cc-card">
+          <header><h3>This PC</h3><span class="cc-hint" id="ccPcHost"></span></header>
+          <div class="cc-meters" id="ccPc"><div class="cc-empty">Reading system…</div></div>
+        </section>
+        <section class="cc-card">
+          <header><h3>Profile</h3><button type="button" class="cc-link" data-view="settings">Edit</button></header>
+          <dl class="cc-kv" id="ccProfile"></dl>
+        </section>
+        <section class="cc-card">
+          <header><h3>Recent activity</h3><button type="button" class="cc-link" data-view="activity">All</button></header>
+          <ol class="cc-feed" id="ccFeed"></ol>
+        </section>
+      </aside>
+      </div>
+    </section>
+
+    <section class="view" role="tabpanel" data-view-panel="reminders" hidden>
+      <div class="view-head"><div><span class="kicker">My day</span><h1>Reminders &amp; daily brief</h1><p class="view-sub">Tell Zuzu what to remember and when. She announces it on time, here and on Telegram.</p></div></div>
+      <div class="workspace-grid">
+        <article class="panel glass">
+          <div class="panel-head"><div><h2>Reminders</h2><p>Type naturally: "call mom tomorrow 6pm" or "بكرة الساعة 8 اصحى"</p></div></div>
+          <form id="reminderForm" class="pf-form">
+            <input id="reminderText" placeholder="What, and when…" autocomplete="off" required>
+            <div class="pf-row"><input id="reminderDue" type="datetime-local" aria-label="Exact time (optional)"><select id="reminderRepeat" aria-label="Repeat"><option value="">Once</option><option value="daily">Every day</option><option value="weekly">Every week</option></select><button class="primary-btn" type="submit">Add</button></div>
+          </form>
+          <div id="reminderList" class="pf-list"></div>
+        </article>
+        <article class="panel glass">
+          <div class="panel-head"><div><h2>Daily brief</h2><p>Date, weather, calendar, reminders and headlines</p></div><button id="briefNow" class="secondary-btn" type="button">Play now</button></div>
+          <div id="briefPreview" class="pf-brief"><div class="empty-state">Press Play now to hear today's brief.</div></div>
+          <form id="briefForm" class="pf-form">
+            <div class="pf-row"><label>City<input id="pfCity" placeholder="Dubai"></label><label>Morning brief<input id="pfMorning" type="time"></label><label>Evening brief<input id="pfEvening" type="time"></label></div>
+            <div class="pf-row"><label>News region<select id="pfRegion"><option value="AE">UAE</option><option value="EG">Egypt</option><option value="SA">Saudi Arabia</option><option value="GB">UK</option><option value="US">USA</option></select></label><label>News language<select id="pfLang"><option value="en">English</option><option value="ar">Arabic</option></select></label><label>News topic<input id="pfTopic" placeholder="optional, e.g. Dubai property"></label></div>
+            <label>Calendar link (iCal)<input id="pfIcs" placeholder="Google Calendar → Settings → Secret address in iCal format"></label>
+            <label>Telegram target<input id="pfTelegram" placeholder="optional; from: hermes send --list telegram"></label>
+            <label class="pf-check"><input id="pfBriefs" type="checkbox"> Announce morning and evening briefs automatically</label>
+            <label class="pf-check"><input id="pfWake" type="checkbox"> Wake word: say "Hey Zuzu" to start talking, "Zuzu sleep mode" to stop</label>
+            <button class="primary-btn" type="submit">Save</button>
+          </form>
+        </article>
+      </div>
+    </section>
+
+    <section class="view" role="tabpanel" data-view-panel="markets" hidden>
+      <div class="view-head"><div><span class="kicker">My day</span><h1>Markets</h1><p class="view-sub">The 5 most active tradable markets right now, your watchlist and price alerts. Updates every minute. Information only, not financial advice.</p></div><span class="runtime-badge" id="mkUpdated">—</span></div>
+      <article class="panel glass"><div class="panel-head"><div><h2>Top 5 right now</h2><p>Ranked by today's move and recent volatility across gold, oil, indices, crypto, FX and big stocks</p></div></div><div id="mkTop" class="mk-grid"><div class="empty-state">Loading markets…</div></div></article>
+      <div class="workspace-grid">
+        <article class="panel glass"><div class="panel-head"><div><h2>My watchlist</h2><p>Add any Yahoo Finance ticker: AAPL, GC=F, BTC-USD, EURUSD=X, ^GSPC, EMAAR.AE</p></div></div>
+          <form id="mkWatchForm" class="pf-form"><div class="pf-row"><input id="mkSymbol" placeholder="Ticker, e.g. NVDA" autocomplete="off" required><button class="primary-btn" type="submit">Watch</button></div></form>
+          <div id="mkWatch" class="mk-list"></div></article>
+        <article class="panel glass"><div class="panel-head"><div><h2>Price alerts</h2><p>Zuzu tells you out loud (and on Telegram) when a price is crossed</p></div></div>
+          <form id="mkAlertForm" class="pf-form"><div class="pf-row"><input id="mkAlertSymbol" placeholder="Ticker" required><select id="mkAlertDir"><option value="above">goes above</option><option value="below">goes below</option></select><input id="mkAlertPrice" type="number" step="any" placeholder="Price" required><button class="primary-btn" type="submit">Add</button></div></form>
+          <div id="mkAlerts" class="mk-list"></div></article>
+      </div>
+    </section>
+
+    <section class="view" role="tabpanel" data-view-panel="library" hidden>
+      <div class="view-head"><div><span class="kicker">My day</span><h1>Library</h1><p class="view-sub">70,000+ free classic books from Project Gutenberg. Pick one to read, let Zuzu read it to you, or get a short brief.</p></div></div>
+      <div id="bkReader" class="panel glass bk-reader" hidden>
+        <div class="panel-head"><div><h2 id="bkTitle">Book</h2><p id="bkAuthor"></p></div><div class="call-actions"><button id="bkBrief" class="secondary-btn" type="button">Brief this book</button><button id="bkListen" class="primary-btn" type="button">Listen</button><button id="bkClose" class="secondary-btn" type="button">Close</button></div></div>
+        <div id="bkBriefText" class="bk-brief" hidden></div>
+        <div id="bkText" class="bk-text"></div>
+        <div class="bk-nav"><button id="bkPrev" class="secondary-btn" type="button">‹ Previous</button><span id="bkPage">—</span><button id="bkNext" class="secondary-btn" type="button">Next ›</button></div>
+      </div>
+      <article class="panel glass"><div class="panel-head"><div><h2>Find a book</h2><p>Search by title, author or subject</p></div></div>
+        <form id="bkSearchForm" class="pf-form"><div class="pf-row"><input id="bkQuery" placeholder="e.g. Sherlock Holmes, Dostoevsky, philosophy" autocomplete="off"><select id="bkLang" aria-label="Language"><option value="">Any language</option><option value="en">English</option><option value="ar">Arabic</option><option value="fr">French</option><option value="de">German</option><option value="es">Spanish</option></select><button class="primary-btn" type="submit">Search</button></div>
+          <div class="bk-topics"><button type="button" data-bk-topic="">Most popular</button><button type="button" data-bk-topic="fiction">Fiction</button><button type="button" data-bk-topic="adventure">Adventure</button><button type="button" data-bk-topic="philosophy">Philosophy</button><button type="button" data-bk-topic="history">History</button><button type="button" data-bk-topic="science">Science</button><button type="button" data-bk-topic="poetry">Poetry</button></div></form>
+        <div id="bkShelf" class="bk-shelf" hidden></div>
+        <div id="bkResults" class="bk-grid"><div class="empty-state">Pick a topic or search to browse books.</div></div></article>
     </section>
 
     <section class="view" role="tabpanel" data-view-panel="projects" hidden>
-      <div class="view-head"><div><span class="kicker">Workspace</span><h1>Projects & chats</h1></div><button id="addProject" class="primary-btn">New project</button></div>
+      <div class="view-head"><div><span class="kicker">Workspace</span><h1>Projects & chats</h1><p class="view-sub">Keep each piece of work in its own project, with its own folder and chats.</p></div><button id="addProject" class="primary-btn">New project</button></div>
       <div class="workspace-grid"><article class="panel glass"><div class="panel-head"><div><h2>Your projects</h2><p>Each project keeps its own folder and conversations.</p></div></div><div id="projectList" class="project-list"></div></article><article class="panel glass"><div class="panel-head"><div><h2>Sessions</h2><p id="sessionContext">Choose a project</p></div><button id="addSession" class="secondary-btn">New chat</button></div><div id="sessionList" class="session-list"></div></article></div>
     </section>
 
     <section class="view" role="tabpanel" data-view-panel="models" hidden>
-      <div class="view-head"><div><span class="kicker">Hermes brain</span><h1>Providers & models</h1></div><span class="runtime-badge">Hermes executes</span></div>
+      <div class="view-head"><div><span class="kicker">Hermes brain</span><h1>Providers & models</h1><p class="view-sub">Choose which AI model Hermes thinks with. Tools, memory and skills stay the same.</p></div><span class="runtime-badge">Hermes executes</span></div>
       <form id="modelForm" class="panel glass settings-form"><div class="form-note span2"><b>Zuzu stays the face. Hermes stays the agent.</b><br>Changing this tab passes the selected provider/model into Hermes, so computer control, tools, skills and memory stay on the same Hermes profile.</div><label>Hermes backend provider<select id="providerSelect"></select></label><label>Hermes backend model<select id="modelSelect"></select></label><label>Custom model<input id="customModel" placeholder="Optional model ID"></label><label>API base URL<input id="apiBase" inputmode="url" placeholder="Provider default"></label><label class="span2">API key<input id="apiKey" type="password" autocomplete="new-password" placeholder="Leave blank to keep the saved key"></label><div class="form-note span2" id="apiState">Keys remain on this computer and are never returned to the browser. Voice has its own model in Settings.</div><button class="primary-btn" type="submit">Apply to Hermes</button></form>
     </section>
 
     <section class="view" role="tabpanel" data-view-panel="tools" hidden>
-      <div class="view-head"><div><span class="kicker">Hermes profile</span><h1>Tools</h1></div><button id="showCommands" class="secondary-btn">Show help</button></div>
+      <div class="view-head"><div><span class="kicker">Hermes profile</span><h1>Tools</h1><p class="view-sub">Everything Hermes can do on this computer, plus one-click commands.</p></div><button id="showCommands" class="secondary-btn">Show help</button></div>
       <article class="panel glass"><div class="panel-head"><div><h2>Connected capabilities</h2><p>Loaded from your active Hermes profile</p></div><span class="live" id="live">LIVE</span></div><div id="toolsList" class="tool-grid"><div class="empty-state">Loading Hermes tools…</div></div></article>
       <article class="panel glass"><div class="panel-head"><div><h2>Quick commands</h2><p>Choose an action. Commands that need details will return you to Chat.</p></div></div>
         <div class="cmds" id="cmds">
@@ -88,34 +227,43 @@
     </section>
 
     <section class="view" role="tabpanel" data-view-panel="missions" hidden>
-      <div class="view-head"><div><span class="kicker">Work queue</span><h1>Missions</h1></div><button id="missionBtn" class="secondary-btn">Refresh queue</button></div>
+      <div class="view-head"><div><span class="kicker">Work queue</span><h1>Missions</h1><p class="view-sub">Your standing goal, task queue and work running in the background.</p></div><button id="missionBtn" class="secondary-btn">Refresh queue</button></div>
       <div class="card-grid"><button class="action-card glass" data-quick="/mission"><span>Mission queue</span><small>Review your current tasks</small></button><button class="action-card glass" data-quick="/goal status"><span>Standing goal</span><small>See the active objective</small></button><button class="action-card glass" data-quick="/status"><span>Runtime status</span><small>Check the active profile</small></button><button class="action-card glass" data-quick="/toolsets"><span>Toolsets</span><small>Ask Hermes what is enabled</small></button></div>
       <article class="panel glass mission-guide"><h2>Start background work</h2><p>Open Chat and type <code>/background</code> followed by the task. Zuzu will report back when it finishes.</p><button class="primary-btn" data-compose="/background ">Create background mission</button></article>
     </section>
 
     <section class="view" role="tabpanel" data-view-panel="memory" hidden>
-      <div class="view-head"><div><span class="kicker">Knowledge graph</span><h1>Memory brain</h1></div><button id="addMemory" class="primary-btn">Add memory</button></div>
+      <div class="view-head"><div><span class="kicker">Knowledge graph</span><h1>Memory brain</h1><p class="view-sub">Facts Zuzu remembers about you, shared with Hermes in every conversation.</p></div><button id="addMemory" class="primary-btn">Add memory</button></div>
       <div class="memory-layout"><article class="brain-panel glass"><canvas id="memoryCanvas" aria-label="Interactive memory connection graph"></canvas><div class="brain-controls"><button id="brainPrev" type="button">‹</button><button id="brainNext" type="button">›</button></div><div id="brainDetail" class="brain-detail"><b>MEMORY</b><span>Click a node to inspect it.</span></div><div class="brain-legend"><span>Profile</span><span>Projects</span><span>Memories</span><span>Skills</span></div></article><article class="panel glass"><div class="panel-head"><div><h2>Stored knowledge</h2><p>Facts Zuzu can use across conversations</p></div></div><div id="memoryList" class="memory-list"></div><div class="panel-head compact"><div><h2>Hermes memory</h2><p>Read from the active Hermes profile</p></div></div><div id="hermesMemoryList" class="memory-list"></div></article></div>
     </section>
 
+    <section class="view" role="tabpanel" data-view-panel="skills" hidden>
+      <div class="view-head"><div><span class="kicker">Brain</span><h1>Skills</h1><p class="view-sub">Teach Zuzu reusable behaviours, or find new skills and plugins for Hermes.</p></div></div>
+      <article class="panel glass sk-suggest"><div class="panel-head"><div><h2>Zuzu's suggestions</h2><p>New skills Zuzu found for you. Nothing is installed until you approve it.</p></div></div>
+        <form id="skScoutForm" class="pf-form"><div class="pf-row"><input id="skTopic" placeholder="What should Zuzu learn? e.g. WhatsApp messages, resin calculations (empty = decide from your habits)"><button class="primary-btn" type="submit">Look for skills</button></div>
+          <div class="pf-row"><label class="pf-check"><input id="skAuto" type="checkbox"> Look for new skills automatically every</label><select id="skDays" aria-label="How often"><option value="3">3 days</option><option value="7">week</option><option value="14">2 weeks</option></select></div></form>
+        <div id="skProposals" class="mk-list"></div></article>
+      <article class="panel glass skills-card"><div class="panel-head"><div><h2>Capability catalogue</h2><p>Browse skills, plugins, tools, models and installable helpers from Hermes, GitHub and Hugging Face.</p></div><button id="addSkill" class="secondary-btn">Create skill</button></div><div class="skill-search catalogue-search"><input id="skillSearch" placeholder="Search catalogue: browser automation, vision, finance, voice..."><button id="searchAllCapabilities" type="button" class="secondary-btn">Search all</button><button id="searchGithubSkills" type="button" class="secondary-btn">GitHub</button><button id="searchHuggingFaceSkills" type="button" class="secondary-btn">Hugging Face</button></div><div class="catalogue-tabs" id="catalogueTabs"><button data-catalogue-filter="all" class="active">All</button><button data-catalogue-filter="hermes">Hermes</button><button data-catalogue-filter="skill">Skills</button><button data-catalogue-filter="plugin">Plugins</button><button data-catalogue-filter="tool">Tools</button><button data-catalogue-filter="model">Models</button></div><div id="catalogueGrid" class="catalogue-grid"></div><div class="panel-head compact"><div><h2>Installed Zuzu skills</h2><p>Reusable instructions already saved in this workspace.</p></div></div><div id="skillList"></div></article>
+    </section>
+
     <section class="view" role="tabpanel" data-view-panel="studio" hidden>
-      <div class="view-head"><div><span class="kicker">Create</span><h1>Media studio</h1></div><label class="primary-btn upload-label">Upload file<input id="fileUpload" type="file" multiple hidden></label></div>
-      <div class="studio-grid"><article class="panel glass"><h2>Files & images</h2><p>Attach local material to the active project.</p><div id="uploadList" class="upload-list"></div></article><article class="panel glass"><h2>Image generation</h2><textarea id="imagePrompt" rows="4" placeholder="Describe the image you want…"></textarea><button class="primary-btn generate-btn" data-media="image">Generate image</button></article><article class="panel glass"><h2>Video generation</h2><textarea id="videoPrompt" rows="4" placeholder="Describe the video, movement and duration…"></textarea><button class="primary-btn generate-btn" data-media="video">Generate video</button></article></div>
+      <div class="view-head"><div><span class="kicker">Create</span><h1>Media studio</h1><p class="view-sub">Upload files for Zuzu to use, or ask Hermes to create images and video.</p></div><label class="primary-btn upload-label">Upload file<input id="fileUpload" type="file" multiple hidden></label></div>
+      <div class="studio-grid"><article class="panel glass"><h2>Files & images</h2><p>Attach local material to the active project.</p><div id="uploadList" class="upload-list"></div></article><article class="panel glass"><h2>Create an image</h2><textarea id="imagePrompt" rows="4" placeholder="A walnut and blue-resin river table in a sunlit Dubai apartment, photo style…"></textarea><button class="primary-btn generate-btn" data-media="image">Create image</button><p class="form-note">Takes about 10 seconds. Uses your Gemini key.</p></article><article class="panel glass"><h2>Create a video</h2><textarea id="videoPrompt" rows="4" placeholder="Slow cinematic pan over an epoxy resin pour, golden light…"></textarea><button class="primary-btn generate-btn" data-media="video">Create video</button><p class="form-note">Takes 1–5 minutes; Zuzu announces it when ready. Video generation is billed by Google.</p><div id="mediaJobs" class="mk-list"></div></article></div>
     </section>
 
     <section class="view" role="tabpanel" data-view-panel="calls" hidden>
-      <div class="view-head"><div><span class="kicker">Phone</span><h1>Calls</h1></div><button id="refreshCalls" class="secondary-btn" type="button">Refresh</button></div>
+      <div class="view-head"><div><span class="kicker">Phone</span><h1>Calls</h1><p class="view-sub">Call from your iPhone, or let Zuzu answer and make calls through Vapi.</p></div><button id="refreshCalls" class="secondary-btn" type="button">Refresh</button></div>
       <div class="workspace-grid"><article class="panel glass"><div class="panel-head"><div><h2>Call from your iPhone</h2><p>Opens your phone dialer; you confirm the call on your device.</p></div></div><div class="call-body"><label>Phone number in international format<input id="callNumber" type="tel" inputmode="tel" placeholder="+15551234567" autocomplete="tel"></label><div class="call-actions"><button id="openDialer" class="secondary-btn" type="button">Open iPhone dialer</button><button id="startAiCall" class="primary-btn" type="button">Zuzu AI call</button></div><p id="callResult" role="status"></p></div></article><article class="panel glass"><div class="panel-head"><div><h2>Zuzu phone line</h2><p>Incoming calls are answered by Zuzu when your Vapi number and Hermes model are connected.</p></div></div><div class="call-body"><p id="callReady">Checking phone connection…</p><p class="form-note">AI calls may incur Vapi and carrier charges. Outgoing calls require your confirmation. A maximum call duration must be configured on the Vapi assistant.</p></div></article></div>
       <article class="panel glass"><div class="panel-head"><div><h2>Recent AI calls</h2><p>Call status and summaries</p></div></div><div id="callHistory" class="call-history"><p class="empty-state">No calls loaded.</p></div></article>
     </section>
 
     <section class="view" role="tabpanel" data-view-panel="settings" hidden>
-      <div class="view-head"><div><span class="kicker">Personalize</span><h1>Agent settings</h1></div><div class="call-actions"><button id="signOut" class="secondary-btn" type="button">Sign out</button><button id="saveSettings" class="primary-btn">Save settings</button></div></div>
-      <div class="settings-grid"><article class="panel glass settings-form"><h2>Profile</h2><label>Name / profile<input id="profileName" placeholder="default"></label><label>Working folder<div class="inline-field"><input id="workdir" placeholder="C:\\Projects\\My project"><button id="useFolder" type="button" class="secondary-btn">Use folder</button></div></label><label>Zuzu persona<textarea id="personaText" rows="9" placeholder="How should Zuzu speak and behave?"></textarea></label></article><article class="panel glass"><h2>Device control</h2><div class="toggle-row"><div><b>Computer control</b><small>Allow Hermes browser and computer tools</small></div><input id="computerControl" type="checkbox"></div><div class="toggle-row"><div><b>Mobile control</b><small>Allow approved controls from the mobile dashboard</small></div><input id="mobileControl" type="checkbox"></div><h2 class="section-gap">Voice</h2><label>Live model<input id="liveModel" value="gemini-2.5-flash-native-audio-preview-12-2025"></label><label>Voice<select id="voiceSelect"><option>Kore</option><option>Aoede</option><option>Charon</option><option>Fenrir</option><option>Puck</option></select></label></article><article class="panel glass mobile-control-card"><h2>iPhone control</h2><p class="form-note">Maximum iPhone control from a web/PWA is Apple Shortcuts. Create one Shortcut named below, let it receive text input, then branch actions from that text: open apps, send messages you approve, set focus, start navigation, capture media, or run home automations.</p><label>Shortcut name<input id="shortcutName" value="Zuzu Control" placeholder="Zuzu Control"></label><label>Command for the Shortcut<textarea id="shortcutCommand" rows="3" placeholder="Open Maps and navigate home"></textarea></label><div class="mobile-presets"><button type="button" data-shortcut-command="Open WhatsApp">Open WhatsApp</button><button type="button" data-shortcut-command="Open Camera and take a photo">Camera action</button><button type="button" data-shortcut-command="Start navigation home">Navigate home</button><button type="button" data-shortcut-command="Run my smart home scene">Smart home</button></div><div class="mobile-control-actions"><button id="runShortcut" type="button" class="primary-btn">Run on iPhone</button><button id="installApp" type="button" class="secondary-btn">Installation help</button></div><small id="mobileCapability" class="form-note">Checking this device…</small></article><article class="panel glass skills-card"><div class="panel-head"><div><h2>Capability catalogue</h2><p>Browse skills, plugins, tools, models and installable helpers from Hermes, GitHub and Hugging Face.</p></div><button id="addSkill" class="secondary-btn">Create skill</button></div><div class="skill-search catalogue-search"><input id="skillSearch" placeholder="Search catalogue: browser automation, vision, finance, voice..."><button id="searchAllCapabilities" type="button" class="secondary-btn">Search all</button><button id="searchGithubSkills" type="button" class="secondary-btn">GitHub</button><button id="searchHuggingFaceSkills" type="button" class="secondary-btn">Hugging Face</button></div><div class="catalogue-tabs" id="catalogueTabs"><button data-catalogue-filter="all" class="active">All</button><button data-catalogue-filter="hermes">Hermes</button><button data-catalogue-filter="skill">Skills</button><button data-catalogue-filter="plugin">Plugins</button><button data-catalogue-filter="tool">Tools</button><button data-catalogue-filter="model">Models</button></div><div id="catalogueGrid" class="catalogue-grid"></div><div class="panel-head compact"><div><h2>Installed Zuzu skills</h2><p>Reusable instructions already saved in this workspace.</p></div></div><div id="skillList"></div></article></div>
+      <div class="view-head"><div><span class="kicker">Personalize</span><h1>Agent settings</h1><p class="view-sub">How Zuzu sounds, behaves and what she is allowed to control.</p></div><div class="call-actions"><button id="signOut" class="secondary-btn" type="button">Sign out</button><button id="saveSettings" class="primary-btn">Save settings</button></div></div>
+      <div class="settings-grid"><article class="panel glass settings-form"><h2>Profile</h2><label>Name / profile<input id="profileName" placeholder="default"></label><label>Working folder<div class="inline-field"><input id="workdir" placeholder="C:\\Projects\\My project"><button id="useFolder" type="button" class="secondary-btn">Use folder</button></div></label><label>Zuzu persona<textarea id="personaText" rows="9" placeholder="How should Zuzu speak and behave?"></textarea></label></article><article class="panel glass"><h2>Device control</h2><div class="toggle-row"><div><b>Computer control</b><small>Allow Hermes browser and computer tools</small></div><input id="computerControl" type="checkbox"></div><div class="toggle-row"><div><b>Mobile control</b><small>Allow approved controls from the mobile dashboard</small></div><input id="mobileControl" type="checkbox"></div><h2 class="section-gap">Voice</h2><label>Live model<input id="liveModel" value="gemini-2.5-flash-native-audio-preview-12-2025"></label><label>Voice<select id="voiceSelect"><option>Kore</option><option>Aoede</option><option>Charon</option><option>Fenrir</option><option>Puck</option></select></label></article><article class="panel glass mobile-control-card"><h2>iPhone control</h2><p class="form-note">Maximum iPhone control from a web/PWA is Apple Shortcuts. Create one Shortcut named below, let it receive text input, then branch actions from that text: open apps, send messages you approve, set focus, start navigation, capture media, or run home automations.</p><label>Shortcut name<input id="shortcutName" value="Zuzu Control" placeholder="Zuzu Control"></label><label>Command for the Shortcut<textarea id="shortcutCommand" rows="3" placeholder="Open Maps and navigate home"></textarea></label><div class="mobile-presets"><button type="button" data-shortcut-command="Open WhatsApp">Open WhatsApp</button><button type="button" data-shortcut-command="Open Camera and take a photo">Camera action</button><button type="button" data-shortcut-command="Start navigation home">Navigate home</button><button type="button" data-shortcut-command="Run my smart home scene">Smart home</button></div><div class="mobile-control-actions"><button id="runShortcut" type="button" class="primary-btn">Run on iPhone</button><button id="installApp" type="button" class="secondary-btn">Installation help</button></div><small id="mobileCapability" class="form-note">Checking this device…</small></article></div>
     </section>
 
     <section class="view" role="tabpanel" data-view-panel="activity" hidden>
-      <div class="view-head"><div><span class="kicker">System health</span><h1>Activity</h1></div><div class="call-actions"><button id="reconnectBtn" class="primary-btn" type="button">Reconnect</button><button id="clearBtn" class="secondary-btn">Clear response</button></div></div>
+      <div class="view-head"><div><span class="kicker">System health</span><h1>Activity</h1><p class="view-sub">Check that Zuzu, Hermes and voice are healthy, and see recent events.</p></div><div class="call-actions"><button id="reconnectBtn" class="primary-btn" type="button">Reconnect</button><button id="clearBtn" class="secondary-btn">Clear response</button></div></div>
       <p id="healthDetail" class="form-note" role="status">Checking dashboard, Hermes and voice…</p>
       <div class="sysgrid"><div class="sysrow glass"><span>Dashboard</span><b id="sy-gw" class="ok">Connecting</b></div><div class="sysrow glass"><span>Hermes core</span><b id="sy-hermes">Checking</b></div><div class="sysrow glass"><span>Brain</span><b id="sy-brain">—</b></div><div class="sysrow glass"><span>Voice</span><b id="sy-voice">—</b></div><div class="sysrow glass"><span>Profile</span><b id="sy-profile">default</b></div><div class="sysrow glass"><span>Uplink</span><b id="sy-clock">—</b></div></div>
       <article class="panel glass activity-panel"><div class="panel-head"><div><h2>Event stream</h2><p>Current-session activity and errors</p></div></div><div class="log" id="log"></div></article>
@@ -123,10 +271,11 @@
   </main>
 </div>
 
-<nav class="mobile-nav" role="tablist" aria-label="Mobile navigation"><button class="active" role="tab" data-view="chat" aria-selected="true">Chat</button><button role="tab" data-view="projects" aria-selected="false">Projects</button><button role="tab" data-view="models" aria-selected="false">Models</button><button role="tab" data-view="memory" aria-selected="false">Brain</button><button role="tab" data-view="calls" aria-selected="false">Calls</button><button role="tab" data-view="settings" aria-selected="false">Settings</button></nav>
+<nav class="mobile-nav" role="tablist" aria-label="Mobile navigation"><button class="active" role="tab" data-group="home" aria-selected="true">Home</button><button role="tab" data-group="day" aria-selected="false">My day</button><button role="tab" data-group="work" aria-selected="false">Work</button><button role="tab" data-group="brain" aria-selected="false">Brain</button><button role="tab" data-group="tools" aria-selected="false">Tools</button><button role="tab" data-group="settings" aria-selected="false">Settings</button></nav>
+<button id="stopBtn" class="stop-btn" type="button" title="Stop everything Zuzu is doing (Esc)" aria-label="Stop" hidden>Stop <small>Esc</small></button>
 <dialog id="editorDialog"><form method="dialog" id="editorForm"><div class="dialog-head"><h2 id="dialogTitle">Add</h2><button value="cancel" aria-label="Close">×</button></div><div id="dialogFields"></div><div class="dialog-actions"><button value="cancel" class="secondary-btn">Cancel</button><button id="dialogSave" value="default" class="primary-btn">Save</button></div></form></dialog>
-<script src="live-bridge.js?v=11"></script>
-<script src="app.js?v=36"></script>
+<script src="live-bridge.js?v=12"></script>
+<script src="app.js?v=42"></script>
 </body>
 </html>
 
