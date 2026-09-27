@@ -193,6 +193,7 @@ start.sh        local launcher
 | Shop listing: clean product photo + English/Arabic post, hashtags, price | Creative studio → Shop listing | — |
 | Music with Google Lyria (30 s loops or full songs, optionally inspired by a photo) | Creative studio → Music | "Make chill oud music" |
 | 3D models (GLB + STL for printing moulds) via Meshy; free links to TRELLIS.2 / Hunyuan3D | Creative studio → 3D model (needs `MESHY_API_KEY`) | — |
+| Calm mode (🌿 in the header): soft voice, generated relaxing music/ocean/rain, animated scenery, guided breathing (box, 4-7-8, coherent, sigh), 5-4-3-2-1 grounding, body scan, CBT reframe, journal, private mood log, UAE/Egypt help lines on crisis words. A supportive companion, not a licensed therapist | Header → Calm, or say it | "I'm stressed, I need to talk" |
 | Draw on the laptop screen: Zuzu points at things, or you draw from your phone | Laptop live → Draw | "Point at the Save button" |
 | Skill suggestions: Zuzu finds new Hermes skills; installs only after you approve | Brain → Skills | "Find skills for WhatsApp messages" |
 

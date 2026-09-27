@@ -11,13 +11,14 @@
 <title>Zuzu · Hermes</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-192.png">
-<link rel="stylesheet" href="styles.css?v=45">
+<link rel="stylesheet" href="styles.css?v=46">
 </head>
 <body>
 <div class="grid-bg"></div>
 
 <header class="app-header">
   <div class="brand"><div class="sigil" aria-hidden="true"><span></span></div><div><div class="eyebrow">Hermes Agent</div><div class="wordmark">ZUZU</div></div></div>
+  <button type="button" class="calm-open" data-calm-open title="Calm mode: soft voice, relaxing music, breathing and support">🌿 <span>Calm</span></button>
   <div class="header-status"><i></i><span id="top-gw">Zuzu connecting</span><span aria-hidden="true">·</span><span id="top-hermes">Hermes checking</span></div>
   <div class="header-meta"><span id="top-profile">Profile: default</span><span id="top-voice">Voice: loading</span></div>
 </header>
@@ -123,6 +124,7 @@
           <header><h3>Smart tools</h3><span class="cc-hint">One click</span></header>
           <div class="cc-tools">
             <button type="button" data-cc-brief><b>Daily brief</b><small>Weather, news, your day</small></button>
+            <button type="button" data-calm-open><b>🌿 Calm mode</b><small>Talk, breathe, relax</small></button>
             <button type="button" data-cc-run="Plan my day: use my standing goal, mission queue, reminders and calendar if connected. Give a prioritized list with suggested times."><b>Plan my day</b><small>Prioritized schedule</small></button>
             <button type="button" data-cc-compose="Research this and give me a short brief with sources: "><b>Research</b><small>Web brief + sources</small></button>
             <button type="button" data-cc-summarize><b>Summarize</b><small>File, link or text</small></button>
@@ -448,7 +450,70 @@
 <dialog id="editorDialog"><form method="dialog" id="editorForm"><div class="dialog-head"><h2 id="dialogTitle">Add</h2><button value="cancel" aria-label="Close">×</button></div><div id="dialogFields"></div><div class="dialog-actions"><button value="cancel" class="secondary-btn">Cancel</button><button id="dialogSave" value="default" class="primary-btn">Save</button></div></form></dialog>
 <script src="live-bridge.js?v=12"></script>
 <script src="memory-graph.js?v=1"></script>
-<script src="app.js?v=45"></script>
+<div id="calm" class="calm" hidden role="dialog" aria-modal="true" aria-label="Calm mode">
+  <canvas id="calmCanvas" aria-hidden="true"></canvas>
+  <div class="calm-top">
+    <div class="calm-brand"><b>Calm</b><span>with Zuzu</span></div>
+    <div class="calm-controls">
+      <label title="Scenery"><span>Scene</span><select id="calmScene"><option value="aurora">Aurora</option><option value="ocean">Ocean</option><option value="forest">Forest</option><option value="night">Night sky</option><option value="rain">Rain</option></select></label>
+      <label title="Background sound"><span>Sound</span><select id="calmSound"><option value="pads">Soft music</option><option value="ocean">Ocean waves</option><option value="rain">Rain</option><option value="silence">Silence</option></select></label>
+      <input type="range" id="calmVolume" min="0" max="100" value="45" aria-label="Sound volume">
+      <label title="Zuzu's voice"><span>Voice</span><select id="calmVoice"></select></label>
+      <label class="calm-remember" title="Off: nothing you say here is saved to memory"><input type="checkbox" id="calmRemember"> Remember</label>
+    </div>
+    <button type="button" id="calmExit" class="calm-exit">I feel better · Exit</button>
+  </div>
+  <div class="calm-center">
+    <div id="calmBreath" class="calm-breath" hidden><b id="calmBreathWord">Breathe in</b><small id="calmBreathCount"></small><button type="button" id="calmBreathStop">Stop</button></div>
+    <p id="calmCaption" class="calm-caption">Take a slow breath… I'm here with you.</p>
+    <p id="calmYou" class="calm-you"></p>
+    <div class="calm-talk">
+      <button type="button" id="calmMic" class="calm-mic" aria-label="Talk to Zuzu"><i></i><span>Talk</span></button>
+      <form id="calmForm"><input id="calmInput" autocomplete="off" placeholder="Or type how you feel…" aria-label="Message Zuzu"><button type="submit">Send</button></form>
+    </div>
+  </div>
+  <div class="calm-dock">
+    <div class="calm-tabs" role="tablist">
+      <button type="button" data-calm-tab="breathe" class="active">Breathe</button>
+      <button type="button" data-calm-tab="ground">Ground</button>
+      <button type="button" data-calm-tab="body">Body scan</button>
+      <button type="button" data-calm-tab="reframe">Reframe</button>
+      <button type="button" data-calm-tab="journal">Journal</button>
+      <button type="button" data-calm-tab="mood">Mood</button>
+      <button type="button" data-calm-tab="help">Help now</button>
+    </div>
+    <div class="calm-panel" data-calm-panel="breathe">
+      <button type="button" data-breathe="box"><b>Box</b><small>4-4-4-4 · steady & focus</small></button>
+      <button type="button" data-breathe="478"><b>4-7-8</b><small>for sleep & anxiety</small></button>
+      <button type="button" data-breathe="coherent"><b>Coherent</b><small>5.5 in · 5.5 out</small></button>
+      <button type="button" data-breathe="sigh"><b>Sigh</b><small>double inhale, long exhale</small></button>
+    </div>
+    <div class="calm-panel" data-calm-panel="ground" hidden><div id="calmGround" class="calm-steps"></div></div>
+    <div class="calm-panel" data-calm-panel="body" hidden><div id="calmBody" class="calm-steps"></div></div>
+    <form class="calm-panel calm-form" data-calm-panel="reframe" id="calmReframe" hidden>
+      <label>What happened?<input name="situation" placeholder="The client rejected the design again"></label>
+      <label>What went through your mind?<input name="thought" placeholder="I'm not good enough at this"></label>
+      <label>How strong is the feeling? <output id="calmFeelOut">6</output>/10<input name="feeling" type="range" min="0" max="10" value="6" oninput="calmFeelOut.value=this.value"></label>
+      <button type="submit">Help me see it differently</button>
+    </form>
+    <form class="calm-panel calm-form" data-calm-panel="journal" id="calmJournal" hidden>
+      <label>Three good things today<textarea name="good" rows="2" placeholder="Coffee with Sara, finished the BOQ, the sunset"></textarea></label>
+      <label>What's on your mind<textarea name="mind" rows="2" placeholder="Write freely — only Zuzu reads this"></textarea></label>
+      <button type="submit">Share with Zuzu</button>
+    </form>
+    <div class="calm-panel" data-calm-panel="mood" hidden>
+      <div class="calm-moods" id="calmMoods"><button type="button" data-mood="1">😞</button><button type="button" data-mood="2">🙁</button><button type="button" data-mood="3">😐</button><button type="button" data-mood="4">🙂</button><button type="button" data-mood="5">😄</button></div>
+      <div class="calm-words" id="calmWords"></div>
+      <div id="calmMoodChart" class="calm-chart" aria-label="Mood over the last two weeks"></div>
+    </div>
+    <div class="calm-panel calm-help" data-calm-panel="help" hidden><div id="calmHelp"></div></div>
+    <p class="calm-tip" id="calmTip"></p>
+  </div>
+  <div id="calmCrisis" class="calm-crisis" hidden role="alert"></div>
+  <p class="calm-note">Zuzu is a supportive companion, not a licensed therapist. In an emergency call 999 (UAE) or 123 (Egypt).</p>
+</div>
+<script src="app.js?v=46"></script>
+<script src="calm.js?v=1"></script>
 <script src="creative.js?v=1"></script>
 </body>
 </html>
