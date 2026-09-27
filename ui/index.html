@@ -11,7 +11,7 @@
 <title>Zuzu · Hermes</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-192.png">
-<link rel="stylesheet" href="styles.css?v=44">
+<link rel="stylesheet" href="styles.css?v=45">
 </head>
 <body>
 <div class="grid-bg"></div>
@@ -43,6 +43,7 @@
       <button type="button" role="tab" data-sub="day" data-view="markets">Markets</button>
       <button type="button" role="tab" data-sub="day" data-view="library">Library</button>
       <button type="button" role="tab" data-sub="work" data-view="projects">Chats &amp; projects</button>
+      <button type="button" role="tab" data-sub="work" data-view="creative">Creative studio</button>
       <button type="button" role="tab" data-sub="work" data-view="missions">Goals &amp; missions</button>
       <button type="button" role="tab" data-sub="work" data-view="studio">Files &amp; create</button>
       <button type="button" role="tab" data-sub="brain" data-view="memory">Memory</button>
@@ -277,6 +278,146 @@
       <article class="panel glass skills-card"><div class="panel-head"><div><h2>Capability catalogue</h2><p>Browse skills, plugins, tools, models and installable helpers from Hermes, GitHub and Hugging Face.</p></div><button id="addSkill" class="secondary-btn">Create skill</button></div><div class="skill-search catalogue-search"><input id="skillSearch" placeholder="Search catalogue: browser automation, vision, finance, voice..."><button id="searchAllCapabilities" type="button" class="secondary-btn">Search all</button><button id="searchGithubSkills" type="button" class="secondary-btn">GitHub</button><button id="searchHuggingFaceSkills" type="button" class="secondary-btn">Hugging Face</button></div><div class="catalogue-tabs" id="catalogueTabs"><button data-catalogue-filter="all" class="active">All</button><button data-catalogue-filter="hermes">Hermes</button><button data-catalogue-filter="skill">Skills</button><button data-catalogue-filter="plugin">Plugins</button><button data-catalogue-filter="tool">Tools</button><button data-catalogue-filter="model">Models</button></div><div id="catalogueGrid" class="catalogue-grid"></div><div class="panel-head compact"><div><h2>Installed Zuzu skills</h2><p>Reusable instructions already saved in this workspace.</p></div></div><div id="skillList"></div></article>
     </section>
 
+    <section class="view" role="tabpanel" data-view-panel="creative" hidden>
+      <div class="view-head"><div><span class="kicker">Make things</span><h1>Creative studio</h1><p class="view-sub">Edit photos, redesign rooms, price resin pieces, write listings, make music and 3D models.</p></div></div>
+      <div class="cr-tabs" role="tablist">
+        <button type="button" class="active" data-cr-tab="editor">Photo editor</button>
+        <button type="button" data-cr-tab="room">Room redesign</button>
+        <button type="button" data-cr-tab="resin">Resin &amp; wood</button>
+        <button type="button" data-cr-tab="listing">Shop listing</button>
+        <button type="button" data-cr-tab="music">Music</button>
+        <button type="button" data-cr-tab="model3d">3D model</button>
+      </div>
+
+      <div class="cr-pane" data-cr-pane="editor">
+        <div class="ed-layout">
+          <article class="ed-stage glass">
+            <div class="ed-toolbar">
+              <label class="secondary-btn ed-open">Open photo<input id="edFile" type="file" accept="image/*" hidden></label>
+              <select id="edRecent" aria-label="Recent images"><option value="">Recent images…</option></select>
+              <span class="ed-sep"></span>
+              <button type="button" id="edUndo" title="Undo (Ctrl+Z)" aria-label="Undo">↶</button>
+              <button type="button" id="edRedo" title="Redo (Ctrl+Y)" aria-label="Redo">↷</button>
+              <button type="button" id="edCompare" title="Hold to see the original" aria-label="Compare with original">◐ Before</button>
+              <span class="ed-sep"></span>
+              <button type="button" id="edSave" class="primary-btn">Save</button>
+              <button type="button" id="edDownload" class="secondary-btn">Download</button>
+            </div>
+            <div class="ed-canvas-wrap" id="edWrap"><canvas id="edCanvas" aria-label="Photo being edited"></canvas><div id="edEmpty" class="ed-empty"><b>Open a photo to start</b><span>Or drop an image here. Everything you do can be undone.</span></div><div id="edBusy" class="ed-busy" hidden><i></i><span>Zuzu is editing…</span></div></div>
+          </article>
+          <aside class="ed-panel glass">
+            <section class="ed-group">
+              <h3>AI edit</h3>
+              <textarea id="edPrompt" rows="3" placeholder="Describe the change: remove the chair, make the wall olive green, add warm evening light…"></textarea>
+              <div class="ed-chips" id="edPresets">
+                <button type="button" data-ed-preset="Remove the background and place it on a clean white studio background">White background</button>
+                <button type="button" data-ed-preset="Enhance this photo: sharper details, balanced exposure, natural vivid colours">Enhance</button>
+                <button type="button" data-ed-preset="Remove the clutter and any people, fill the gaps naturally">Remove clutter</button>
+                <button type="button" data-ed-preset="Make it golden hour with warm soft sunlight">Golden hour</button>
+                <button type="button" data-ed-preset="Stage the space with premium modern furniture and decor">Luxury staging</button>
+                <button type="button" data-ed-preset="Turn this sketch into a photorealistic render">Sketch → real</button>
+                <button type="button" data-ed-preset="Change the colour of the main object to ">Change colour…</button>
+              </div>
+              <button type="button" id="edAi" class="primary-btn">Apply AI edit</button>
+            </section>
+            <section class="ed-group">
+              <h3>Adjust</h3>
+              <label>Brightness<input type="range" id="edBright" min="-100" max="100" value="0"></label>
+              <label>Contrast<input type="range" id="edContrast" min="-100" max="100" value="0"></label>
+              <label>Saturation<input type="range" id="edSat" min="-100" max="100" value="0"></label>
+              <label>Warmth<input type="range" id="edWarm" min="-100" max="100" value="0"></label>
+              <div class="ed-chips"><button type="button" data-ed-filter="auto">Auto</button><button type="button" data-ed-filter="bw">B&amp;W</button><button type="button" data-ed-filter="warm">Warm</button><button type="button" data-ed-filter="cool">Cool</button><button type="button" data-ed-filter="vivid">Vivid</button></div>
+              <div class="ed-row"><button type="button" id="edApplyAdjust" class="secondary-btn">Apply</button><button type="button" id="edResetAdjust" class="secondary-btn">Reset</button></div>
+            </section>
+            <section class="ed-group">
+              <h3>Transform &amp; mark up</h3>
+              <div class="ed-chips"><button type="button" data-ed-op="rotl">⟲ Rotate</button><button type="button" data-ed-op="rotr">⟳ Rotate</button><button type="button" data-ed-op="fliph">⇋ Flip</button><button type="button" data-ed-op="flipv">⇵ Flip</button></div>
+              <div class="ed-chips"><button type="button" data-ed-mode="crop">✂ Crop</button><button type="button" data-ed-mode="draw">✎ Draw</button><button type="button" data-ed-mode="arrow">➚ Arrow</button><button type="button" data-ed-mode="text">T Text</button></div>
+              <div class="ed-row"><input type="color" id="edColor" value="#ffad35" aria-label="Pen colour"><input type="range" id="edSize" min="2" max="40" value="6" aria-label="Pen size"><select id="edAspect" aria-label="Crop shape"><option value="">Free crop</option><option value="1">Square 1:1</option><option value="1.25">Portrait 4:5</option><option value="0.5625">Story 9:16</option><option value="1.7778">Wide 16:9</option></select></div>
+              <div class="ed-row" id="edModeActions" hidden><button type="button" id="edModeDone" class="primary-btn">Done</button><button type="button" id="edModeCancel" class="secondary-btn">Cancel</button></div>
+            </section>
+          </aside>
+        </div>
+      </div>
+
+      <div class="cr-pane" data-cr-pane="room" hidden>
+        <div class="cr-grid">
+          <article class="panel glass cr-form">
+            <h2>Room redesign</h2><p>Photograph a room or site, pick a style, and get concept renders that keep the same room.</p>
+            <label class="cr-drop">Room photo<input type="file" id="roomFile" accept="image/*"><img id="roomPreview" alt="" hidden></label>
+            <div class="ed-chips" id="roomStyles"></div>
+            <label>Materials &amp; notes<input id="roomMaterials" placeholder="walnut, brushed brass, beige travertine, cove lighting"></label>
+            <label>How far to go<select id="roomStrength"><option value="1">Subtle refresh</option><option value="2" selected>Balanced redesign</option><option value="3">Bold makeover</option></select></label>
+            <button type="button" id="roomGo" class="primary-btn">Create concept</button>
+          </article>
+          <article class="panel glass"><div class="panel-head"><div><h2>Concepts</h2><p>Click one to keep editing it</p></div></div><div id="roomResults" class="cr-results"></div></article>
+        </div>
+      </div>
+
+      <div class="cr-pane" data-cr-pane="resin" hidden>
+        <div class="cr-grid">
+          <form id="resinForm" class="panel glass cr-form">
+            <h2>Resin &amp; wood calculator</h2><p>Materials, pour plan, cost and selling price.</p>
+            <label>Piece<select name="type" id="resinType"><option value="river">River table</option><option value="full">Full resin table / board</option><option value="coasters">Coasters set</option><option value="art">Wall art</option><option value="tray">Serving tray</option></select></label>
+            <div class="cr-3"><label>Length cm<input name="length" type="number" step="0.5" value="180"></label><label>Width cm<input name="width" type="number" step="0.5" value="90"></label><label>Resin depth cm<input name="depth" type="number" step="0.1" value="5"></label></div>
+            <div class="cr-3"><label>Shape<select name="shape"><option value="rectangle">Rectangle</option><option value="round">Round</option></select></label><label>Resin share %<input name="fillPercent" type="number" value="35"></label><label>Pieces<input name="pieces" type="number" value="1"></label></div>
+            <div class="cr-3"><label>Resin price / L<input name="resinPrice" type="number" step="0.5" value="45"></label><label>Mix ratio<input name="ratio" value="2:1"></label><label>Max pour cm<input name="maxPourCm" type="number" step="0.5" value="5"></label></div>
+            <div class="cr-3"><label>Wood cost<input name="woodCost" type="number" value="600"></label><label>Extras (legs, sealant)<input name="extrasCost" type="number" value="350"></label><label>Waste %<input name="wastePercent" type="number" value="10"></label></div>
+            <div class="cr-3"><label>Hours<input name="hours" type="number" value="20"></label><label>Rate / hour<input name="hourlyRate" type="number" value="50"></label><label>Margin %<input name="marginPercent" type="number" value="60"></label></div>
+            <label>Colours &amp; look (for concept images)<input name="look" placeholder="deep ocean blue with white waves, walnut slabs"></label>
+            <div class="ed-row"><button type="submit" class="primary-btn">Calculate</button><button type="button" id="resinConcept" class="secondary-btn">Show concept</button><button type="button" id="resinToListing" class="secondary-btn">Use for listing</button></div>
+          </form>
+          <article class="panel glass"><div class="panel-head"><div><h2>Quote</h2><p id="resinSummary">Fill the form and calculate</p></div></div><div id="resinResult" class="cr-quote"></div><div id="resinImages" class="cr-results"></div></article>
+        </div>
+      </div>
+
+      <div class="cr-pane" data-cr-pane="listing" hidden>
+        <div class="cr-grid">
+          <article class="panel glass cr-form">
+            <h2>Shop listing</h2><p>Photo of a finished piece → post in English and Arabic, hashtags and a price.</p>
+            <label class="cr-drop">Product photo<input type="file" id="listFile" accept="image/*"><img id="listPreview" alt="" hidden></label>
+            <label>Notes<input id="listNotes" placeholder="Walnut & blue epoxy coffee table, 120×60 cm, food-safe finish"></label>
+            <div class="cr-3"><label>Cost<input id="listCost" type="number" placeholder="optional"></label><label>Currency<input id="listCurrency" value="AED"></label><label>&nbsp;<button type="button" id="listPhoto" class="secondary-btn">Clean photo</button></label></div>
+            <button type="button" id="listGo" class="primary-btn">Write listing</button>
+          </article>
+          <article class="panel glass"><div class="panel-head"><div><h2>Listing</h2><p>Tap a block to copy it</p></div></div><div id="listResult" class="cr-listing"></div></article>
+        </div>
+      </div>
+
+      <div class="cr-pane" data-cr-pane="music" hidden>
+        <div class="cr-grid">
+          <article class="panel glass cr-form">
+            <h2>Music</h2><p>Zuzu composes with Google Lyria using your Gemini key. Clips take ~30 s, full songs a few minutes.</p>
+            <textarea id="musicPrompt" rows="3" placeholder="Calm oud and lo-fi beats for focused drawing work"></textarea>
+            <div class="ed-chips" id="musicMoods">
+              <button type="button" data-music="Focus lo-fi with soft piano and vinyl crackle, 80 bpm">Focus lo-fi</button>
+              <button type="button" data-music="Chill oud and percussion, modern Arabic lounge">Oud chill</button>
+              <button type="button" data-music="Upbeat workshop energy, funky guitar and drums">Workshop energy</button>
+              <button type="button" data-music="Cinematic ambient score, warm strings, slow build">Cinematic</button>
+              <button type="button" data-music="Instrumental Arabic pop, darbuka and synth, happy">Arabic pop</button>
+            </div>
+            <label class="cr-check"><input type="checkbox" id="musicFull"> Full song (a few minutes, may include vocals)</label>
+            <label class="cr-drop small">Optional photo — music inspired by it<input type="file" id="musicFile" accept="image/*"><img id="musicPreview" alt="" hidden></label>
+            <button type="button" id="musicGo" class="primary-btn">Compose</button>
+          </article>
+          <article class="panel glass"><div class="panel-head"><div><h2>Your tracks</h2><p>New tracks appear here and are announced</p></div></div><div id="musicList" class="cr-jobs"></div></article>
+        </div>
+      </div>
+
+      <div class="cr-pane" data-cr-pane="model3d" hidden>
+        <div class="cr-grid">
+          <article class="panel glass cr-form">
+            <h2>3D model</h2><p>Photo or description → 3D model (GLB for viewing, STL for 3D printing moulds).</p>
+            <div id="m3dSetup" class="form-note" hidden>Needs a Meshy API key: create one at meshy.ai → API, then add <code>MESHY_API_KEY=…</code> to the .env file and restart Zuzu. Free options (open in the browser, upload your photo, download the GLB): <a href="https://huggingface.co/spaces/microsoft/TRELLIS.2" target="_blank" rel="noopener">Microsoft TRELLIS.2</a> · <a href="https://huggingface.co/spaces/tencent/Hunyuan3D-2.1" target="_blank" rel="noopener">Hunyuan3D 2.1</a>.</div>
+            <label class="cr-drop">Photo (clear, one object, plain background)<input type="file" id="m3dFile" accept="image/*"><img id="m3dPreview" alt="" hidden></label>
+            <label>…or describe it<input id="m3dPrompt" placeholder="Hexagon coaster mould with raised honeycomb edge"></label>
+            <button type="button" id="m3dGo" class="primary-btn">Create 3D model</button>
+          </article>
+          <article class="panel glass"><div class="panel-head"><div><h2>Models</h2><p>Open STL in your slicer or Windows 3D Viewer</p></div></div><div id="m3dList" class="cr-jobs"></div></article>
+        </div>
+      </div>
+    </section>
+
     <section class="view" role="tabpanel" data-view-panel="studio" hidden>
       <div class="view-head"><div><span class="kicker">Create</span><h1>Media studio</h1><p class="view-sub">Upload files for Zuzu to use, or ask Hermes to create images and video.</p></div><label class="primary-btn upload-label">Upload file<input id="fileUpload" type="file" multiple hidden></label></div>
       <div class="studio-grid"><article class="panel glass"><h2>Files & images</h2><p>Attach local material to the active project.</p><div id="uploadList" class="upload-list"></div></article><article class="panel glass"><h2>Create an image</h2><textarea id="imagePrompt" rows="4" placeholder="A walnut and blue-resin river table in a sunlit Dubai apartment, photo style…"></textarea><button class="primary-btn generate-btn" data-media="image">Create image</button><p class="form-note">Takes about 10 seconds. Uses your Gemini key.</p></article><article class="panel glass"><h2>Create a video</h2><textarea id="videoPrompt" rows="4" placeholder="Slow cinematic pan over an epoxy resin pour, golden light…"></textarea><button class="primary-btn generate-btn" data-media="video">Create video</button><p class="form-note">Takes 1–5 minutes; Zuzu announces it when ready. Video generation is billed by Google.</p><div id="mediaJobs" class="mk-list"></div></article></div>
@@ -307,7 +448,8 @@
 <dialog id="editorDialog"><form method="dialog" id="editorForm"><div class="dialog-head"><h2 id="dialogTitle">Add</h2><button value="cancel" aria-label="Close">×</button></div><div id="dialogFields"></div><div class="dialog-actions"><button value="cancel" class="secondary-btn">Cancel</button><button id="dialogSave" value="default" class="primary-btn">Save</button></div></form></dialog>
 <script src="live-bridge.js?v=12"></script>
 <script src="memory-graph.js?v=1"></script>
-<script src="app.js?v=44"></script>
+<script src="app.js?v=45"></script>
+<script src="creative.js?v=1"></script>
 </body>
 </html>
 

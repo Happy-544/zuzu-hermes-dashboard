@@ -53,6 +53,7 @@ import media            # noqa: E402
 import screen_pointer   # noqa: E402
 import skills_scout     # noqa: E402
 import memory_auto      # noqa: E402
+import creative         # noqa: E402
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -164,6 +165,7 @@ def live_voice_persona(client_extra=""):
         "create_image and create_video to make pictures or clips; find_books to find something to read; "
         "point_at to show the user where something is on their laptop screen; find_new_skills to look for new abilities, "
         "and install_skill only after the user explicitly says yes to a specific skill. "
+        "make_music to compose music, resin_quote for resin/wood piece costs and prices, open_creative_studio to edit photos, redesign a room, write a shop listing or make a 3D model. "
         f"The current local date and time is {datetime.datetime.now().strftime('%A %Y-%m-%d %H:%M')}."
     )
     return "\n\n".join(x for x in (custom, routing, memory, client_extra) if x)
@@ -206,6 +208,14 @@ LOCAL_VOICE_TOOLS = [
           {"topic": "What the skill should help with, or empty to decide from the user's habits."}),
     _tool("install_skill", "Install a proposed skill. Only after the user clearly said yes to installing that exact skill.",
           {"name": "Name of the proposed skill.", "confirmed": "'yes' only if the user explicitly approved."}, ("name", "confirmed")),
+    _tool("make_music", "Compose original music with Lyria: a ~30 second loop, or a full song if asked.",
+          {"prompt": "Genre, mood, instruments, tempo.", "full": "'yes' only for a full-length song."}, ("prompt",)),
+    _tool("resin_quote", "Calculate resin litres, cost and selling price for a resin or river table / board / coasters.",
+          {"length": "Length in cm.", "width": "Width in cm.", "depth": "Resin depth in cm.",
+           "fill_percent": "Share of the surface that is resin, 100 for full resin, ~35 for a river table.",
+           "pieces": "Number of pieces."}, ("length", "width", "depth")),
+    _tool("open_creative_studio", "Open the creative studio: photo editor, room redesign, resin calculator, shop listing, music or 3D.",
+          {"tab": "editor, room, resin, listing, music or model3d."}),
 ]
 
 
@@ -546,6 +556,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"summary": personal.email_summary(12)})
             except (RuntimeError, OSError) as exc:
                 return self._json({"error": str(exc)[:200]}, 503)
+        if p == "/api/creative/jobs":
+            return self._json({"jobs": creative.jobs(), "meshy": bool(creative.meshy_key()),
+                               "styles": list(creative.ROOM_STYLES)})
         if p == "/api/markets":
             return self._json(markets.state())
         if p == "/api/skills/proposals":
@@ -661,7 +674,7 @@ class Handler(BaseHTTPRequestHandler):
             auth.logout(self.headers.get("Cookie"))
             return self._json({"ok": True}, headers={"Set-Cookie": "zuzu_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0"})
         ctype = self.headers.get("Content-Type", "").split(";", 1)[0].lower()
-        if p in {"/api/run", "/api/speak", "/api/live-token", "/api/workspace", "/api/new", "/api/cancel", "/api/calls/outbound", "/api/catalog/install", "/api/personal", "/api/markets", "/api/books", "/api/media", "/api/overlay", "/api/overlay/point", "/api/skills", "/api/memory/observe"} and ctype != "application/json":
+        if p in {"/api/run", "/api/speak", "/api/live-token", "/api/workspace", "/api/new", "/api/cancel", "/api/calls/outbound", "/api/catalog/install", "/api/personal", "/api/markets", "/api/books", "/api/media", "/api/overlay", "/api/overlay/point", "/api/skills", "/api/memory/observe", "/api/creative"} and ctype != "application/json":
             return self._json({"error": "application/json required"}, 415)
         if p == "/api/listen" and not ctype.startswith("audio/"):
             return self._json({"error": "audio content type required"}, 415)
@@ -766,6 +779,17 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"error": str(exc)[:200]}, 400)
             except (OSError, RuntimeError) as exc:
                 return self._json({"error": f"Could not reach a service: {type(exc).__name__}"}, 503)
+
+        if p == "/api/creative":
+            try:
+                payload = json.loads(raw or b"{}")
+                if not isinstance(payload, dict):
+                    raise ValueError("JSON object required")
+                return self._json(creative.action(payload))
+            except (ValueError, KeyError, TypeError) as exc:
+                return self._json({"error": str(exc)[:200]}, 400)
+            except (RuntimeError, OSError) as exc:
+                return self._json({"error": str(exc)[:240]}, 503)
 
         if p == "/api/memory/observe":
             try:

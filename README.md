@@ -187,6 +187,12 @@ start.sh        local launcher
 | Live PC control: laptop screen opens and each Hermes step is listed while it works | Home → Now | "Open Notepad on my computer" |
 | Memory graph (Obsidian-style): notes linked by `[[Title]]`, `#tags`, mentions and smart links; hover focus, local graph, search, backlinks | Brain → Memory | "Remember that my wife loves [[Resin art]] #family" |
 | Auto-learn: after every chat or voice turn Zuzu saves new facts about you, updates changed ones (keeps earlier versions), merges duplicates; never stores passwords or card numbers | Brain → Memory → Auto-learn | "I switched to espresso" · "Forget the old car" |
+| Photo editor: adjust, filters, crop, rotate, draw, arrows, text, undo/redo, before/after, and AI edits by description | Work → Creative studio → Photo editor | "Open the photo editor" |
+| Room redesign: restyle a room photo (majlis, Japandi, luxury…) keeping the layout | Creative studio → Room redesign | — |
+| Resin & wood calculator: litres, A/B mix, pour layers, cost, price; concept images | Creative studio → Resin & wood | "Quote a river table 180 by 90, 5 cm deep" |
+| Shop listing: clean product photo + English/Arabic post, hashtags, price | Creative studio → Shop listing | — |
+| Music with Google Lyria (30 s loops or full songs, optionally inspired by a photo) | Creative studio → Music | "Make chill oud music" |
+| 3D models (GLB + STL for printing moulds) via Meshy; free links to TRELLIS.2 / Hunyuan3D | Creative studio → 3D model (needs `MESHY_API_KEY`) | — |
 | Draw on the laptop screen: Zuzu points at things, or you draw from your phone | Laptop live → Draw | "Point at the Save button" |
 | Skill suggestions: Zuzu finds new Hermes skills; installs only after you approve | Brain → Skills | "Find skills for WhatsApp messages" |
 

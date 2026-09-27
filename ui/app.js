@@ -31,7 +31,7 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt
 
 // ── workspace navigation ──
 // Five simple sections; each holds one or more pages.
-const VIEW_GROUPS = {home:['chat'], day:['reminders','markets','library'], work:['projects','missions','studio'], brain:['memory','skills'],
+const VIEW_GROUPS = {home:['chat'], day:['reminders','markets','library'], work:['projects','creative','missions','studio'], brain:['memory','skills'],
                      tools:['tools','calls'], settings:['settings','models','activity']};
 const VIEW_NAMES = new Set(Object.values(VIEW_GROUPS).flat());
 const groupOf = name => Object.keys(VIEW_GROUPS).find(group => VIEW_GROUPS[group].includes(name)) || 'home';
@@ -2378,7 +2378,8 @@ async function pollPersonalInbox(){
     for (const item of (await r.json()).items || []){
       if (item.kind === 'memory'){ showToast(`🧠 ${item.text.slice(0, 200)}`, 'info'); log('complete', 'MEMORY', item.text.slice(0, 200)); loadWorkspace(); continue; }
       if (item.kind === 'brief'){ lastBrief = item.payload; renderToday(); renderBriefPreview(lastBrief); }
-      if (item.kind === 'media' && item.payload?.url){ showView('chat'); showVideoFile(item.payload.url); refreshMediaJobs(); loadWorkspace(); }
+      if (item.kind === 'media' && item.payload?.url && item.payload.kind === 'video'){ showView('chat'); showVideoFile(item.payload.url); refreshMediaJobs(); loadWorkspace(); }
+      else if (item.kind === 'media'){ if (typeof refreshCreativeJobs === 'function') refreshCreativeJobs(); loadWorkspace(); }
       showToast(item.text.slice(0, 220), item.kind === 'reminder' ? 'reminder' : 'info');
       log('note', item.kind.toUpperCase(), item.text.slice(0, 200));
       if (!running) await announce(item.text);
