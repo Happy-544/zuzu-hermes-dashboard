@@ -111,7 +111,7 @@
       <div class="composer glass">
         <textarea id="input" rows="2" spellcheck="false" aria-label="Message Zuzu" placeholder="Message Zuzu…"></textarea>
         <div id="chatAttachments" class="chat-attachments" hidden></div>
-        <div class="composer-actions"><span class="tip" id="tip">Enter to send · Shift+Enter for a new line</span><label class="icon-btn attach-label" title="Attach files or images">Attach<input id="chatFileUpload" type="file" multiple accept="image/*,.pdf,.txt,.md,.csv,.json,.doc,.docx,.xls,.xlsx,.ppt,.pptx" hidden></label><button id="mute" class="icon-btn on" title="Mute Zuzu speech" aria-label="Mute Zuzu speech">Sound</button><button id="run" class="send-btn">Send</button></div>
+        <div class="composer-actions"><span class="tip" id="tip">Enter to send · Shift+Enter for a new line</span><label class="icon-btn attach-label" title="Attach files or images">Attach<input id="chatFileUpload" type="file" multiple accept="image/*,.pdf,.txt,.md,.csv,.json,.doc,.docx,.xls,.xlsx,.ppt,.pptx" hidden></label><button id="mute" class="icon-btn on" title="Mute Zuzu speech" aria-label="Mute Zuzu speech">Sound</button><button id="micMute" class="icon-btn on" title="Mute microphone" aria-label="Mute microphone">Mute mic</button><button id="run" class="send-btn">Send</button></div>
       </div>
       </div>
       <aside class="cc-rail cc-right" aria-label="Tools and system">
@@ -468,7 +468,7 @@
     <p id="calmCaption" class="calm-caption">Take a slow breath… I'm here with you.</p>
     <p id="calmYou" class="calm-you"></p>
     <div class="calm-talk">
-      <button type="button" id="calmMic" class="calm-mic" aria-label="Talk to Zuzu"><i></i><span>Talk</span></button>
+      <button type="button" id="calmMic" class="calm-mic" aria-label="Talk to Zuzu"><i></i><span>Talk</span></button><button type="button" id="calmMute" class="calm-mic calm-mute" aria-label="Mute microphone" hidden>Mute</button>
       <form id="calmForm"><input id="calmInput" autocomplete="off" placeholder="Or type how you feel…" aria-label="Message Zuzu"><button type="submit">Send</button></form>
     </div>
   </div>
@@ -512,8 +512,8 @@
   <div id="calmCrisis" class="calm-crisis" hidden role="alert"></div>
   <p class="calm-note">Zuzu is a supportive companion, not a licensed therapist. In an emergency call 999 (UAE) or 123 (Egypt).</p>
 </div>
-<script src="app.js?v=46"></script>
-<script src="calm.js?v=1"></script>
+<script src="app.js?v=47"></script>
+<script src="calm.js?v=2"></script>
 <script src="creative.js?v=1"></script>
 </body>
 </html>

@@ -254,6 +254,8 @@ function calmPollTalk(){
   const live = calmLiveOpen();
   $('#calmMic').classList.toggle('on', live || (typeof convo !== 'undefined' && convo));
   $('#calmMic').querySelector('span').textContent = live ? 'Listening' : 'Talk';
+  const mute = $('#calmMute');
+  if (mute){ const muted = typeof micMuted !== 'undefined' && micMuted; mute.hidden = !live && !muted; mute.textContent = muted ? 'Unmute' : 'Mute'; mute.classList.toggle('on', muted); }
   if (live && typeof answer === 'string' && answer.trim()){ const tail = answer.trim(); calmCaption(tail.length > 260 ? '…' + tail.slice(-257) : tail); }
   const you = (typeof liveUserTurn === 'string' && liveUserTurn.trim()) || '';
   if (you && you !== CALM.lastYou){ CALM.lastYou = you; $('#calmYou').textContent = you.slice(-160); calmCheckCrisis(you); }
@@ -331,6 +333,7 @@ if ($('#calm')){
     if (calmLiveOpen()){ stopConvo(false); setTimeout(() => startGeminiLive(), 400); } };
   $('#calmRemember').onchange = e => { CALM.remember = e.target.checked; if (window.calmSession) window.calmSession.remember = CALM.remember; };
   $('#calmMic').onclick = () => { if (typeof micToggle === 'function') micToggle(); };
+  $('#calmMute').onclick = () => { if (typeof toggleMicMute === 'function') toggleMicMute(); calmPollTalk(); };
   $('#calmForm').onsubmit = e => { e.preventDefault(); const v = $('#calmInput').value; $('#calmInput').value = ''; calmSay(v); };
   $('#calmBreathStop').onclick = calmBreathStop;
   document.querySelectorAll('[data-calm-tab]').forEach(b => b.onclick = () => {

@@ -439,3 +439,4 @@ body.calm-on{overflow:hidden}
 .calm-form[hidden]{display:none!important}
 .calm-breath{top:30vh}
 @media(max-width:760px){.calm-breath{top:27vh}}
+.calm-mute{padding:12px 14px}.calm-mute.on{border-color:rgba(255,170,150,.6);background:rgba(255,140,120,.18)}
