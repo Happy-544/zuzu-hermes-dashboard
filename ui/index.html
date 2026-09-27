@@ -11,7 +11,7 @@
 <title>Zuzu · Hermes</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-192.png">
-<link rel="stylesheet" href="styles.css?v=43">
+<link rel="stylesheet" href="styles.css?v=44">
 </head>
 <body>
 <div class="grid-bg"></div>
@@ -238,6 +238,7 @@
         <aside class="mg-side glass" aria-label="Memory notes">
           <div class="mg-search"><input id="mgSearch" type="search" placeholder="Search notes, #tags…" autocomplete="off" aria-label="Search memory"></div>
           <div id="mgFilters" class="mg-filters" aria-label="Show groups"></div>
+          <label class="mg-auto" title="After each chat or voice turn Zuzu saves new facts about you and updates ones that changed"><input type="checkbox" id="mgAuto" checked><span><b>Auto-learn</b><small>Zuzu adds and updates memories from your chats</small></span></label>
           <div class="mg-switches">
             <label><input type="checkbox" id="mgTags" checked> Tags</label>
             <label><input type="checkbox" id="mgSmart" checked> Smart links</label>
@@ -306,7 +307,7 @@
 <dialog id="editorDialog"><form method="dialog" id="editorForm"><div class="dialog-head"><h2 id="dialogTitle">Add</h2><button value="cancel" aria-label="Close">×</button></div><div id="dialogFields"></div><div class="dialog-actions"><button value="cancel" class="secondary-btn">Cancel</button><button id="dialogSave" value="default" class="primary-btn">Save</button></div></form></dialog>
 <script src="live-bridge.js?v=12"></script>
 <script src="memory-graph.js?v=1"></script>
-<script src="app.js?v=43"></script>
+<script src="app.js?v=44"></script>
 </body>
 </html>
 

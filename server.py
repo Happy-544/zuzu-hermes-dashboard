@@ -52,6 +52,7 @@ import books            # noqa: E402
 import media            # noqa: E402
 import screen_pointer   # noqa: E402
 import skills_scout     # noqa: E402
+import memory_auto      # noqa: E402
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -118,18 +119,18 @@ def _client_context_prompt(ctx):
         "Use this to know whether the user is on mobile or the laptop. If the user is on mobile and asks to see laptop/browser work, show or return a URL/screenshot/live-screen update through the dashboard when possible."
     )
 
-def persona(client_extra=""):
+def persona(client_extra="", query=""):
     try:
         base = _PERSONA_FILE.read_text(encoding="utf-8").strip()
     except OSError:
         base = ""
     command_context = commands.context_block()      # profile / goal / personality / queue
     custom = workspace.load().get("settings", {}).get("persona", "")
-    relevant = workspace.agent_context()
+    relevant = workspace.agent_context(query=query)
     bridge = (
         "Zuzu-Hermes memory contract: dashboard Memory Brain is shared with Hermes through this system prompt. "
         "Use it as durable user memory. If the user asks to remember or save a fact, acknowledge that Zuzu saved it; "
-        "the dashboard auto-captures explicit remember/save requests before this run reaches Hermes."
+        "Zuzu saves remember/save requests and new lasting facts automatically after each turn; you do not need to store them yourself."
     )
     self_awareness = (
         f"Zuzu system awareness: Zuzu is this local dashboard project at {ROOT}. "
@@ -149,7 +150,7 @@ def live_voice_persona(client_extra=""):
     """A compact native-audio prompt: preserve character and route only real work."""
     settings = workspace.load().get("settings", {})
     custom = str(settings.get("persona") or "Warm, concise, capable and naturally conversational.").strip()[:1600]
-    memory = workspace.agent_context(limit=900)
+    memory = workspace.agent_context(limit=1400)
     routing = (
         "You are Zuzu in a realtime voice conversation. The user's saved persona above is authoritative: keep its tone, warmth, language and relationship style in every direct reply. "
         "For greetings, casual conversation, opinions, emotional support, jokes, and questions you can answer reliably without current or private data, answer immediately yourself in one or two natural spoken sentences. "
@@ -660,7 +661,7 @@ class Handler(BaseHTTPRequestHandler):
             auth.logout(self.headers.get("Cookie"))
             return self._json({"ok": True}, headers={"Set-Cookie": "zuzu_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0"})
         ctype = self.headers.get("Content-Type", "").split(";", 1)[0].lower()
-        if p in {"/api/run", "/api/speak", "/api/live-token", "/api/workspace", "/api/new", "/api/cancel", "/api/calls/outbound", "/api/catalog/install", "/api/personal", "/api/markets", "/api/books", "/api/media", "/api/overlay", "/api/overlay/point", "/api/skills"} and ctype != "application/json":
+        if p in {"/api/run", "/api/speak", "/api/live-token", "/api/workspace", "/api/new", "/api/cancel", "/api/calls/outbound", "/api/catalog/install", "/api/personal", "/api/markets", "/api/books", "/api/media", "/api/overlay", "/api/overlay/point", "/api/skills", "/api/memory/observe"} and ctype != "application/json":
             return self._json({"error": "application/json required"}, 415)
         if p == "/api/listen" and not ctype.startswith("audio/"):
             return self._json({"error": "audio content type required"}, 415)
@@ -766,6 +767,20 @@ class Handler(BaseHTTPRequestHandler):
             except (OSError, RuntimeError) as exc:
                 return self._json({"error": f"Could not reach a service: {type(exc).__name__}"}, 503)
 
+        if p == "/api/memory/observe":
+            try:
+                payload = json.loads(raw or b"{}")
+                if not isinstance(payload, dict):
+                    raise ValueError("JSON object required")
+                user = str(payload.get("user", ""))[:4000]
+                if not user.strip():
+                    raise ValueError("nothing to learn from")
+                memory_auto.observe_async(user, str(payload.get("assistant", ""))[:3000],
+                                          "voice" if payload.get("source") == "voice" else "chat")
+                return self._json({"ok": True, "enabled": memory_auto.enabled()})
+            except (ValueError, TypeError) as exc:
+                return self._json({"error": str(exc)[:200]}, 400)
+
         if p in {"/api/overlay", "/api/overlay/point", "/api/skills"}:
             try:
                 payload = json.loads(raw or b"{}")
@@ -862,7 +877,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"error": "JSON object required"}, 400)
         message = (payload.get("message") or "").strip()
         extra = "\n\n".join(x for x in ((payload.get("system") or "").strip(), _client_context_prompt(payload.get("client_context"))) if x)
-        system = "\n\n".join(x for x in (persona(), extra) if x) or None
+        system = "\n\n".join(x for x in (persona(query=message), extra) if x) or None
         fresh = bool(payload.get("fresh"))
         if not message:
             return self._json({"error": "empty message"}, 400)
@@ -902,7 +917,7 @@ class Handler(BaseHTTPRequestHandler):
                 emit(dict(t="complete", ms=0))
                 return
             message = cmd["message"]
-            system = "\n\n".join(x for x in (persona(), extra) if x) or None
+            system = "\n\n".join(x for x in (persona(query=message), extra) if x) or None
 
         try:
             # One agent owns both conversation and actions. Hermes decides when

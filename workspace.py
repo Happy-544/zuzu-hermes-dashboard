@@ -146,10 +146,29 @@ def bind_hermes_session(project_id, ui_session_id, hermes_id):
     return False
 
 
-def agent_context(limit=2400):
+def _words(text):
+    return {w for w in re.findall(r"[^\W_]{3,}", str(text or "").lower())}
+
+
+def pick_memories(memories, query="", budget=1600):
+    """Most relevant memories for `query` first (shared words, then recency), within a character budget."""
+    q = _words(query)
+    ranked = sorted(enumerate(memories), key=lambda im: (
+        -len(q & _words(f"{im[1].get('label')} {im[1].get('value')} {' '.join(im[1].get('tags') or [])}")),
+        -max(im[1].get("updated") or 0, im[1].get("created") or 0, im[0])))
+    picked, used = [], 0
+    for _, m in ranked:
+        cost = len(m.get("label", "")) + min(260, len(m.get("value", ""))) + 12
+        if used + cost > budget:
+            continue
+        picked.append(m); used += cost
+    return picked
+
+
+def agent_context(limit=2400, query=""):
     """Return the bounded Zuzu memory/skill context injected into Hermes and Live voice."""
     data = load(); chunks = []
-    memories = data.get("memory", [])[-10:]
+    memories = pick_memories(data.get("memory", []), query, budget=int(limit * 0.65))
     if memories:
         chunks.append(
             "Zuzu durable memory brain (authoritative saved facts to use across conversations):\n"
@@ -164,7 +183,8 @@ def agent_context(limit=2400):
     if chunks:
         chunks.append(
             "Memory sync rule: these dashboard memories are injected into every Hermes text run and Gemini Live voice setup. "
-            "When the user says remember/save/افتكري/احفظي, the dashboard stores it before forwarding the request. "
+            "Zuzu also learns automatically: after each turn she saves new lasting facts the user shares and updates changed ones, "
+            "so never tell the user you cannot remember things. "
             "Use saved memory naturally and do not claim you forgot it unless it is absent above."
         )
     return "\n\n".join(chunks)[:limit]

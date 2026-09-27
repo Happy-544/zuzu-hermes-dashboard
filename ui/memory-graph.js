@@ -81,7 +81,8 @@ function buildMemoryGraph(ws, opts = {}){
   for (const m of (ws && ws.memory) || []){
     const parsed = parseNote(m.value);
     add({id: `m:${m.id}`, group: 'memory', label: m.label || 'Memory', text: m.value || '', ref: m.id,
-         tags: [...new Set([...(m.tags || []), ...parsed.tags])], wiki: parsed.links, created: m.created, updated: m.updated});
+         tags: [...new Set([...(m.tags || []), ...parsed.tags])], wiki: parsed.links, created: m.created, updated: m.updated,
+         auto: !!m.auto, source: m.source || '', history: m.history || []});
   }
   for (const p of (ws && ws.projects) || []){
     add({id: `p:${p.id}`, group: 'project', label: p.name || 'Project', text: `Folder: ${p.folder || '—'}\nChats: ${(p.sessions || []).map(s => s.name).join(', ') || 'none'}`, ref: p.id});

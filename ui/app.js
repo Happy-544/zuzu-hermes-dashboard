@@ -166,14 +166,15 @@ async function saveMemory(label,value){
   log('complete','MEMORY',`saved: ${String(label||'Memory').slice(0,40)}`);
   return true;
 }
-async function autoRemember(message){
-  const text=String(message||'').trim();
-  const m=text.match(/(?:^|\b)(?:remember|save this|note this|افتكري|احفظي|احفظ|خلي بالك|متنسيش)\s*[:،-]?\s*(.{4,})/i);
-  if(!m) return false;
-  const value=m[1].replace(/^that\s+/i,'').trim();
-  if(!value || value.length<4) return false;
-  try{ await saveMemory('Auto memory', value); return true; }
-  catch(err){ log('error','MEMORY',String(err.message||err)); return false; }
+// Zuzu learns from every finished turn (typed or spoken): the server extracts lasting facts,
+// adds or updates memories and announces what changed. Nothing is sent for /commands.
+let lastUserTurn = '', liveUserTurn = '';
+function autoRemember(user, assistant = '', source = 'chat'){
+  const text = String(user || '').trim();
+  if (!text || text.startsWith('/')) return;
+  fetch('/api/memory/observe', {method:'POST', headers:apiHeaders({'content-type':'application/json'}),
+    body:JSON.stringify({user:text.slice(0,4000), assistant:String(assistant||'').slice(0,3000), source})})
+    .then(() => { setTimeout(pollPersonalInbox, 2500); setTimeout(pollPersonalInbox, 9000); }).catch(() => {});
 }
 function askSkillSearch(source){
   const q=($('#skillSearch')?.value||'').trim();
@@ -791,7 +792,9 @@ function mgOpen(id,{center=true}={}){
   box.innerHTML=`<div class="mg-note-head"><span class="mg-type" style="--c:${n.color}">${esc(MG_GROUP_NAMES[n.group])}</span>${date?`<small>${esc(date)}</small>`:''}</div>
     <h2 class="mg-title">${esc(n.label)}</h2>
     ${n.tags.length?`<div class="mg-tags">${n.tags.map(t=>`<button type="button" class="mg-tag" data-mg-tag="${esc(t)}">#${esc(t)}</button>`).join('')}</div>`:''}
+    ${n.group==='memory'&&(n.auto||n.history.length)?`<div class="mg-learned">🧠 ${n.auto?`Learned by Zuzu from ${n.source==='voice'?'voice':'chat'}`:'Written by you'}${n.history.length?` · updated ${n.history.length}×`:''}</div>`:''}
     <div class="mg-body">${body}</div>
+    ${n.history.length?`<details class="mg-history"><summary>Earlier versions (${n.history.length})</summary>${n.history.slice().reverse().map(h=>`<p><small>${esc(new Date(h.at*1000).toLocaleDateString())}</small>${esc(h.value)}</p>`).join('')}</details>`:''}
     ${actions?`<div class="mg-actions">${actions}<button type="button" class="secondary-btn" data-mg-ask="${esc(n.id)}">Ask Zuzu</button></div>`:`<div class="mg-actions"><button type="button" class="secondary-btn" data-mg-ask="${esc(n.id)}">Ask Zuzu</button></div>`}
     <div class="mg-section"><h3>Links <small>${out.length}</small></h3><div class="mg-refs">${chips(out)}</div></div>
     <div class="mg-section"><h3>Backlinks <small>${back.length}</small></h3><div class="mg-refs">${chips(back)}</div></div>
@@ -831,6 +834,7 @@ $('#memoryCanvas')?.closest('[data-view-panel]')?.addEventListener('click',async
 $('#mgSearch')?.addEventListener('input',e=>{ MG.query=e.target.value; mgApplySearch(); mgRenderSide(); });
 $('#mgSearch')?.addEventListener('keydown',e=>{ if(e.key==='Enter'){ const first=$('#mgList [data-mg-open]'); if(first) mgOpen(first.dataset.mgOpen); } });
 [['#mgTags','tags'],['#mgSmart','smart'],['#mgOrphans','orphans']].forEach(([sel,key])=>{ const box=$(sel); if(!box) return; box.checked=MG.opts[key]!==false; box.addEventListener('change',()=>{ MG.opts[key]=box.checked; mgRemember(); drawMemoryBrain(); }); });
+$('#mgAuto')?.addEventListener('change',e=>personalRequest({action:'save_settings',settings:{autoMemory:e.target.checked}}).then(()=>showToast(e.target.checked?'Zuzu will learn from your conversations':'Auto-learn is off','info')).catch(err=>showToast(String(err.message||err),'error')));
 if($('#mgLabels')){ $('#mgLabels').checked=MG.labels; $('#mgLabels').addEventListener('change',e=>{ MG.labels=e.target.checked; mgRemember(); if(MG.engine){ MG.engine.labels=MG.labels; MG.engine.draw(); } }); }
 $('#mgZoomIn')?.addEventListener('click',()=>MG.engine?.zoomBy(1.3));
 $('#mgZoomOut')?.addEventListener('click',()=>MG.engine?.zoomBy(1/1.3));
@@ -940,7 +944,7 @@ async function transmit(message, options = {}){
     return;
   }
   try {
-    await autoRemember(message);
+    lastUserTurn = message; liveUserTurn = message;
     pendingLiveAttachmentParts = [];
     const previewNote = maybeOpenRequestedBrowserPreview(message);
     message = await attachVisualContext(message);
@@ -1094,9 +1098,11 @@ function handle(ev){
       log('complete', 'COMPLETE', ev.ms!=null?`run completed in ${ev.ms}ms`:'run completed');
       renderAnswer(true);
       showMediaFromAnswer(answer);
+      autoRemember(lastUserTurn, answer, 'chat'); lastUserTurn = '';
       speakDone = speakThisRun ? speak(answer) : Promise.resolve();
       break;
     case 'error':
+      autoRemember(lastUserTurn, '', 'chat'); lastUserTurn = '';   // what the user said is still worth learning
       setState('error', 'FAULT', ev.message?.slice(0,40) || 'error');
       setTag('err', 'ERROR');
       log('error', 'ERROR', ev.message || 'unknown');
@@ -1327,6 +1333,7 @@ async function startGeminiLive(){
       if (!content) return;
       if (content.inputTranscription?.text){
         if (SLEEP_RE.test(content.inputTranscription.text)) setTimeout(() => { if (convo) stopConvo(); }, 1800);
+        liveUserTurn += content.inputTranscription.text;
         setUserText(content.inputTranscription.text.slice(0,90));
         sendLiveVisualFrame(content.inputTranscription.text.slice(0,80));
       }
@@ -1340,6 +1347,8 @@ async function startGeminiLive(){
       }
       if (content.turnComplete){
         liveAnswerStarted=false;
+        if (liveUserTurn.trim()) autoRemember(liveUserTurn, answer, 'voice');
+        liveUserTurn='';
         const delay = Math.max(0, (livePlayAt - liveOutputCtx.currentTime) * 1000);
         setTimeout(() => {
           if (connectedSocket !== liveWs || liveSources.size) return;
@@ -2193,6 +2202,7 @@ function fmtDue(iso){
 }
 function renderPersonal(){
   if (!PERSONAL) return;
+  if ($('#mgAuto')) $('#mgAuto').checked = PERSONAL.settings?.autoMemory !== false;
   const list = $('#reminderList');
   const items = PERSONAL.reminders || [];
   if (list) list.innerHTML = items.map(r => `<div class="pf-item ${r.done ? 'done' : ''} ${!r.done && r.due && new Date(r.due) < new Date() ? 'overdue' : ''}">
@@ -2366,6 +2376,7 @@ async function pollPersonalInbox(){
     const r = await fetch('/api/personal/inbox', {headers:apiHeaders(), cache:'no-store'});
     if (!r.ok) return;
     for (const item of (await r.json()).items || []){
+      if (item.kind === 'memory'){ showToast(`🧠 ${item.text.slice(0, 200)}`, 'info'); log('complete', 'MEMORY', item.text.slice(0, 200)); loadWorkspace(); continue; }
       if (item.kind === 'brief'){ lastBrief = item.payload; renderToday(); renderBriefPreview(lastBrief); }
       if (item.kind === 'media' && item.payload?.url){ showView('chat'); showVideoFile(item.payload.url); refreshMediaJobs(); loadWorkspace(); }
       showToast(item.text.slice(0, 220), item.kind === 'reminder' ? 'reminder' : 'info');
