@@ -11,7 +11,7 @@
 <title>Zuzu · Hermes</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-192.png">
-<link rel="stylesheet" href="styles.css?v=42">
+<link rel="stylesheet" href="styles.css?v=43">
 </head>
 <body>
 <div class="grid-bg"></div>
@@ -233,8 +233,38 @@
     </section>
 
     <section class="view" role="tabpanel" data-view-panel="memory" hidden>
-      <div class="view-head"><div><span class="kicker">Knowledge graph</span><h1>Memory brain</h1><p class="view-sub">Facts Zuzu remembers about you, shared with Hermes in every conversation.</p></div><button id="addMemory" class="primary-btn">Add memory</button></div>
-      <div class="memory-layout"><article class="brain-panel glass"><canvas id="memoryCanvas" aria-label="Interactive memory connection graph"></canvas><div class="brain-controls"><button id="brainPrev" type="button">‹</button><button id="brainNext" type="button">›</button></div><div id="brainDetail" class="brain-detail"><b>MEMORY</b><span>Click a node to inspect it.</span></div><div class="brain-legend"><span>Profile</span><span>Projects</span><span>Memories</span><span>Skills</span></div></article><article class="panel glass"><div class="panel-head"><div><h2>Stored knowledge</h2><p>Facts Zuzu can use across conversations</p></div></div><div id="memoryList" class="memory-list"></div><div class="panel-head compact"><div><h2>Hermes memory</h2><p>Read from the active Hermes profile</p></div></div><div id="hermesMemoryList" class="memory-list"></div></article></div>
+      <div class="view-head"><div><span class="kicker">Second brain</span><h1>Memory graph</h1><p class="view-sub">Everything Zuzu knows about you, linked like an Obsidian vault and shared with Hermes in every conversation.</p></div><div class="mg-head-actions"><button id="mgAsk" class="secondary-btn" type="button">Ask Zuzu to organise</button><button id="addMemory" class="primary-btn" type="button">New memory</button></div></div>
+      <div class="mg-layout">
+        <aside class="mg-side glass" aria-label="Memory notes">
+          <div class="mg-search"><input id="mgSearch" type="search" placeholder="Search notes, #tags…" autocomplete="off" aria-label="Search memory"></div>
+          <div id="mgFilters" class="mg-filters" aria-label="Show groups"></div>
+          <div class="mg-switches">
+            <label><input type="checkbox" id="mgTags" checked> Tags</label>
+            <label><input type="checkbox" id="mgSmart" checked> Smart links</label>
+            <label><input type="checkbox" id="mgOrphans" checked> Orphans</label>
+            <label><input type="checkbox" id="mgLabels" checked> Labels</label>
+          </div>
+          <div id="mgList" class="mg-list"></div>
+        </aside>
+        <article class="mg-stage glass brain-panel">
+          <canvas id="memoryCanvas" aria-label="Interactive memory graph: drag to move, scroll or pinch to zoom, click a note to open it"></canvas>
+          <div class="mg-toolbar brain-controls">
+            <button id="brainPrev" type="button" title="Previous note" aria-label="Previous note">‹</button>
+            <button id="brainNext" type="button" title="Next note" aria-label="Next note">›</button>
+            <span class="mg-sep"></span>
+            <button id="mgZoomOut" type="button" title="Zoom out" aria-label="Zoom out">−</button>
+            <button id="mgZoomIn" type="button" title="Zoom in" aria-label="Zoom in">+</button>
+            <button id="mgFit" type="button" title="Fit graph" aria-label="Fit graph">⤢</button>
+            <span class="mg-sep"></span>
+            <button id="mgLocal" type="button" class="mg-mode" aria-pressed="false" title="Show only the selected note and its neighbours">Local</button>
+            <select id="mgDepth" aria-label="Local graph depth" title="Local graph depth"><option value="1">1 hop</option><option value="2">2 hops</option><option value="3">3 hops</option></select>
+          </div>
+          <div id="mgStats" class="mg-stats"></div>
+          <div id="mgLegend" class="mg-legend"></div>
+          <div id="mgTip" class="mg-tip" hidden></div>
+        </article>
+        <aside id="brainDetail" class="mg-note glass" aria-live="polite"><div class="mg-empty">Click a note in the graph to open it.</div></aside>
+      </div>
     </section>
 
     <section class="view" role="tabpanel" data-view-panel="skills" hidden>
@@ -275,7 +305,8 @@
 <button id="stopBtn" class="stop-btn" type="button" title="Stop everything Zuzu is doing (Esc)" aria-label="Stop" hidden>Stop <small>Esc</small></button>
 <dialog id="editorDialog"><form method="dialog" id="editorForm"><div class="dialog-head"><h2 id="dialogTitle">Add</h2><button value="cancel" aria-label="Close">×</button></div><div id="dialogFields"></div><div class="dialog-actions"><button value="cancel" class="secondary-btn">Cancel</button><button id="dialogSave" value="default" class="primary-btn">Save</button></div></form></dialog>
 <script src="live-bridge.js?v=12"></script>
-<script src="app.js?v=42"></script>
+<script src="memory-graph.js?v=1"></script>
+<script src="app.js?v=43"></script>
 </body>
 </html>
 

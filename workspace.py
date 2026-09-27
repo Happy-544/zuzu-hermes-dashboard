@@ -67,6 +67,23 @@ def public_state():
             "hermesMemory": hermes_memory_snapshot()}
 
 
+def clean_tags(raw):
+    """Normalise memory tags: accepts a list or a "#work, family" string; returns up to 12 unique tags."""
+    if isinstance(raw, str):
+        raw = re.split(r"[,\s]+", raw)
+    tags = []
+    for tag in raw if isinstance(raw, list) else []:
+        tag = re.sub(r"[^\w/-]", "", str(tag).strip().lstrip("#").lower())[:40]
+        if tag and tag not in tags:
+            tags.append(tag)
+    return tags[:12]
+
+
+def _tag_suffix(memory):
+    tags = memory.get("tags") or []
+    return " [" + " ".join("#" + t for t in tags) + "]" if tags else ""
+
+
 def hermes_memory_snapshot():
     """Read Hermes' own curated memory without editing its internal storage."""
     home = pathlib.Path(os.environ.get("HERMES_HOME", pathlib.Path.home() / ".hermes"))
@@ -136,7 +153,7 @@ def agent_context(limit=2400):
     if memories:
         chunks.append(
             "Zuzu durable memory brain (authoritative saved facts to use across conversations):\n"
-            + "\n".join(f"- {m['label']}: {m['value'][:260]}" for m in memories)
+            + "\n".join(f"- {m['label']}{_tag_suffix(m)}: {m['value'][:260]}" for m in memories)
         )
     skills = [s for s in data.get("skills", []) if s.get("enabled", True)][-8:]
     if skills:
@@ -255,7 +272,8 @@ def action(payload):
         data["skills"] = [s for s in data["skills"] if s["id"] != str(payload.get("id", ""))]; save(data)
     elif kind == "add_memory":
         data["memory"].append({"id": uuid.uuid4().hex[:10], "label": str(payload.get("label", "Memory"))[:100],
-                               "value": str(payload.get("value", ""))[:4000], "created": time.time()}); save(data)
+                               "value": str(payload.get("value", ""))[:4000], "tags": clean_tags(payload.get("tags")),
+                               "created": time.time()}); save(data)
     elif kind == "delete_memory":
         data["memory"] = [m for m in data["memory"] if m["id"] != str(payload.get("id", ""))]; save(data)
     elif kind == "edit_memory":
@@ -264,6 +282,9 @@ def action(payload):
             raise ValueError("memory not found")
         found["label"] = str(payload.get("label", found["label"])).strip()[:100]
         found["value"] = str(payload.get("value", found["value"])).strip()[:4000]
+        if "tags" in payload:
+            found["tags"] = clean_tags(payload.get("tags"))
+        found["updated"] = time.time()
         if not found["label"] or not found["value"]:
             raise ValueError("memory label and value are required")
         save(data)
