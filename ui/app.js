@@ -75,7 +75,6 @@ showView(savedView, false);
 
 // ── projects, settings, skills, memory and files ──
 let WS = null;
-let brainNodes = [], brainSelectedIndex = -1, brainMotion = 0, brainAnimation = null;
 const CAPABILITY_CATALOG = [
   {type:'hermes', source:'Hermes catalogue', name:'Hermes browser automation', desc:'Open sites, inspect pages, gather evidence and report results through the active Hermes profile.', prompt:'Find and enable the best Hermes browser automation workflow for Zuzu, then explain the exact commands and safety limits.'},
   {type:'hermes', source:'Hermes catalogue', name:'Hermes computer use', desc:'Control Windows apps and show the laptop state back to the mobile dashboard.', prompt:'Inspect the active Hermes computer_use capability and show how Zuzu should use it for Windows app control and screenshots.'},
@@ -130,8 +129,6 @@ function renderWorkspace(){
   $('#shortcutName').value=settings.shortcutName||'Zuzu Control';
   $('#liveModel').value=settings.liveModel||''; $('#voiceSelect').value=settings.voice||'Kore';
   $('#skillList').innerHTML=(WS.skills||[]).map(s=>`<div class="list-card"><div><b>${esc(s.name)}</b><small>${esc(s.instructions.slice(0,120))}</small></div><button class="danger-link" data-delete-skill="${esc(s.id)}">Delete</button></div>`).join('')||'<div class="empty-state">No custom skills yet.</div>';
-  $('#memoryList').innerHTML=(WS.memory||[]).map(m=>`<div class="list-card"><div><b>${esc(m.label)}</b><small>${esc(m.value.slice(0,160))}</small></div><button class="secondary-btn" data-edit-memory="${esc(m.id)}">Edit</button><button class="danger-link" data-delete-memory="${esc(m.id)}">Delete</button></div>`).join('')||'<div class="empty-state">Add a fact, preference or relationship.</div>';
-  $('#hermesMemoryList').innerHTML=(WS.hermesMemory||[]).map(m=>`<details class="list-card"><summary>${esc(m.source)}</summary><pre>${esc(m.content)}</pre></details>`).join('')||'<div class="empty-state">Hermes has no curated memory files yet.</div>';
   $('#uploadList').innerHTML=(WS.uploads||[]).map(f=>`<div class="list-card"><div><b>${esc(f.name)}</b><small>${Math.max(1,Math.round(f.size/1024))} KB</small></div></div>`).join('')||'<div class="empty-state">No files uploaded.</div>';
   renderCapabilityCatalogue();
   drawMemoryBrain();
@@ -162,21 +159,22 @@ $('#catalogueTabs')?.addEventListener('click',e=>{
   document.querySelectorAll('[data-catalogue-filter]').forEach(x=>x.classList.toggle('active',x===b));
   renderCapabilityCatalogue(b.dataset.catalogueFilter||'all');
 });
-$('#addMemory').onclick=()=>openEditor('Add memory',[{name:'label',label:'Memory label'},{name:'value',label:'What Zuzu should remember',long:true}],v=>workspaceRequest({action:'add_memory',...v}));
+$('#addMemory').onclick=()=>mgMemoryEditor('New memory',{},v=>workspaceRequest({action:'add_memory',...v}));
 async function saveMemory(label,value){
   const clean = String(value||'').trim(); if(!clean) return false;
   await workspaceRequest({action:'add_memory',label:String(label||'Memory').slice(0,100),value:clean.slice(0,4000)});
   log('complete','MEMORY',`saved: ${String(label||'Memory').slice(0,40)}`);
   return true;
 }
-async function autoRemember(message){
-  const text=String(message||'').trim();
-  const m=text.match(/(?:^|\b)(?:remember|save this|note this|افتكري|احفظي|احفظ|خلي بالك|متنسيش)\s*[:،-]?\s*(.{4,})/i);
-  if(!m) return false;
-  const value=m[1].replace(/^that\s+/i,'').trim();
-  if(!value || value.length<4) return false;
-  try{ await saveMemory('Auto memory', value); return true; }
-  catch(err){ log('error','MEMORY',String(err.message||err)); return false; }
+// Zuzu learns from every finished turn (typed or spoken): the server extracts lasting facts,
+// adds or updates memories and announces what changed. Nothing is sent for /commands.
+let lastUserTurn = '', liveUserTurn = '';
+function autoRemember(user, assistant = '', source = 'chat'){
+  const text = String(user || '').trim();
+  if (!text || text.startsWith('/')) return;
+  fetch('/api/memory/observe', {method:'POST', headers:apiHeaders({'content-type':'application/json'}),
+    body:JSON.stringify({user:text.slice(0,4000), assistant:String(assistant||'').slice(0,3000), source})})
+    .then(() => { setTimeout(pollPersonalInbox, 2500); setTimeout(pollPersonalInbox, 9000); }).catch(() => {});
 }
 function askSkillSearch(source){
   const q=($('#skillSearch')?.value||'').trim();
@@ -244,9 +242,7 @@ document.addEventListener('click',async e=>{
     if(b.dataset.editMemory){
       const memory=(WS.memory||[]).find(m=>m.id===b.dataset.editMemory);
       if(memory){
-        openEditor('Edit memory',[{name:'label',label:'Memory label'},{name:'value',label:'What Zuzu should remember',long:true}],v=>workspaceRequest({action:'edit_memory',id:memory.id,...v}));
-        editorFields.querySelector('[name="label"]').value=memory.label;
-        editorFields.querySelector('[name="value"]').value=memory.value;
+        mgMemoryEditor('Edit memory',{label:memory.label,value:memory.value,tags:(memory.tags||[]).join(', ')},v=>workspaceRequest({action:'edit_memory',id:memory.id,...v}));
       }
       return;
     }
@@ -701,64 +697,163 @@ $('#dockBrowser')?.addEventListener('click',openBrowserPreview);
 $('#flipCamera')?.addEventListener('click',flipCamera);
 $('#stopVisual')?.addEventListener('click',stopVisualStream);
 document.querySelectorAll('.generate-btn').forEach(b=>b.onclick=async()=>{const type=b.dataset.media,prompt=$(`#${type}Prompt`).value.trim();if(!prompt)return;b.disabled=true;const label=b.textContent;b.textContent='Creating…';try{ type==='video'?await createVideo(prompt):await createImage(prompt); }catch(err){showToast(String(err.message||err),'error');}finally{b.disabled=false;b.textContent=label;}});
-function memoryItems(){
-  if(!WS) return [];
-  const settings=WS.settings||{};
-  return [
-    {type:'Profile',label:settings.profile||'Profile',value:`Workdir: ${settings.workdir||'default'}\nVoice: ${settings.voice||'default'}`,color:'#ffb02e'},
-    ...(WS.projects||[]).map(x=>({type:'Projects',label:x.name,value:x.folder||'Project workspace',color:'#5ee7ff'})),
-    ...(WS.memory||[]).map(x=>({type:'Memories',label:x.label,value:x.value,color:'#aa7cff'})),
-    ...(WS.hermesMemory||[]).flatMap(file=>file.content.split(/\r?\n/).filter(line=>/^#{1,3}\s+/.test(line)).slice(0,6).map(line=>({type:'Hermes memory',label:line.replace(/^#+\s*/,''),value:`${file.source}: ${line}`,color:'#ffb86b'}))),
-    ...(WS.skills||[]).map(x=>({type:'Skills',label:x.name,value:x.instructions,color:'#55e6a5'}))
-  ].slice(0,28);
+// ── memory graph (Obsidian-style; engine in memory-graph.js) ──
+const MG = {graph:null, engine:null, selected:'', local:false, depth:1, query:'', hidden:new Set(), opts:{tags:true, smart:true, mentions:true, orphans:true}};
+try{ const saved=JSON.parse(localStorage.getItem('zuzu-memory-graph')||'{}'); if(saved.hidden) MG.hidden=new Set(saved.hidden); Object.assign(MG.opts, saved.opts||{}); MG.labels=saved.labels!==false; }catch(_){ MG.labels=true; }
+function mgRemember(){ try{ localStorage.setItem('zuzu-memory-graph', JSON.stringify({hidden:[...MG.hidden], opts:MG.opts, labels:MG.labels})); }catch(_){} }
+function mgMatches(n, q){
+  if(!q) return true;
+  if(q.startsWith('#')) return n.tags.includes(q.slice(1)) || n.id===`t:${q.slice(1)}`;
+  return `${n.label}\n${n.text}\n${n.tags.map(t=>'#'+t).join(' ')}`.toLowerCase().includes(q);
 }
-function updateBrainDetail(item){
-  const box=$('#brainDetail'); if(!box) return;
-  if(!item){ box.innerHTML='<b>MEMORY</b><span>Click a node to inspect it.</span>'; return; }
-  box.innerHTML=`<b>${esc(item.label)}</b><em>${esc(item.type)}</em><span>${esc(String(item.value||'').slice(0,260))}</span>`;
-}
-function selectBrainNode(index){
-  if(!brainNodes.length) return;
-  brainSelectedIndex=(index+brainNodes.length)%brainNodes.length;
-  updateBrainDetail(brainNodes[brainSelectedIndex]?.item);
+function mgVisible(){
+  const g=MG.graph; if(!g) return {nodes:[], links:[]};
+  let keep=g.nodes.filter(n=>!MG.hidden.has(n.group));
+  if(MG.local && MG.selected && g.byId.has(MG.selected)){ const ids=localIds(g, MG.selected, MG.depth); keep=keep.filter(n=>ids.has(n.id)); }
+  const ids=new Set(keep.map(n=>n.id));
+  return {nodes:keep, links:g.links.filter(l=>ids.has(l.source)&&ids.has(l.target))};
 }
 function drawMemoryBrain(){
-  const canvas=$('#memoryCanvas'); if(!canvas||!WS)return;
-  const rect=canvas.getBoundingClientRect();
-  const dpr=Math.min(2,devicePixelRatio||1), cssW=Math.max(320,rect.width), cssH=Math.max(300,rect.height);
-  if(canvas.width!==Math.round(cssW*dpr)||canvas.height!==Math.round(cssH*dpr)){ canvas.width=Math.round(cssW*dpr); canvas.height=Math.round(cssH*dpr); }
-  const ctx=canvas.getContext('2d'); ctx.setTransform(dpr,0,0,dpr,0,0);
-  const w=cssW,h=cssH,cx=w/2,cy=h/2-8,items=memoryItems();
-  brainMotion+=0.012; brainNodes=[];
-  ctx.clearRect(0,0,w,h);
-  const bg=ctx.createRadialGradient(cx,cy,4,cx,cy,Math.min(w,h)*.44);
-  bg.addColorStop(0,'rgba(115,245,255,.95)'); bg.addColorStop(.16,'rgba(67,217,239,.52)'); bg.addColorStop(.58,'rgba(12,101,129,.10)'); bg.addColorStop(1,'rgba(0,0,0,0)');
-  ctx.fillStyle=bg; ctx.beginPath(); ctx.arc(cx,cy,Math.min(w,h)*.44,0,Math.PI*2); ctx.fill();
-  ctx.fillStyle='rgba(2,12,18,.95)'; ctx.font='800 20px system-ui'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('MEMORY',cx,cy);
-  const count=Math.max(items.length,1);
-  items.forEach((item,i)=>{
-    const base=(i/count)*Math.PI*2-Math.PI/2, wave=Math.sin(brainMotion+i*.7)*10, r=Math.min(w,h)*(0.23+((i%4)*0.055))+wave;
-    const a=base+brainMotion*(i%2?-.18:.14), x=cx+Math.cos(a)*r, y=cy+Math.sin(a)*r;
-    const selected=i===brainSelectedIndex;
-    brainNodes.push({x,y,r:selected?10:8,item});
-    ctx.strokeStyle=selected?'rgba(255,176,46,.72)':'rgba(75,232,255,.18)'; ctx.lineWidth=selected?2:1.2;
-    ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(x,y); ctx.stroke();
-    ctx.shadowBlur=selected?18:10; ctx.shadowColor=item.color; ctx.fillStyle=item.color;
-    ctx.beginPath(); ctx.arc(x,y,selected?8:6,0,Math.PI*2); ctx.fill(); ctx.shadowBlur=0;
-    ctx.fillStyle=selected?'#fff1bd':'rgba(220,246,255,.82)'; ctx.font=`${selected?'700':'600'} 13px system-ui`; ctx.textAlign='left';
-    ctx.fillText(item.label.slice(0,24),x+12,y+4);
-  });
-  if(brainSelectedIndex<0&&items.length) selectBrainNode(0);
-  if(!brainAnimation) brainAnimation=requestAnimationFrame(function loop(){ brainAnimation=requestAnimationFrame(loop); if(WS) drawMemoryBrain(); });
+  const canvas=$('#memoryCanvas'); if(!canvas||!WS||typeof buildMemoryGraph!=='function') return;
+  MG.graph=buildMemoryGraph(WS, MG.opts);
+  if(!MG.engine){
+    MG.engine=new ForceGraph(canvas,{
+      onSelect:n=>{ if(n) mgOpen(n.id); },
+      onOpen:n=>{ mgOpen(n.id); mgSetLocal(true); },
+      onHover:(n,x,y)=>mgTip(n,x,y)
+    });
+  }
+  MG.engine.labels=MG.labels;
+  if(MG.selected && !MG.graph.byId.has(MG.selected)) MG.selected='';
+  const view=mgVisible(); MG.engine.setData(view.nodes, view.links, {reheat:.35});
+  mgApplySearch(); mgRenderSide(); mgRenderStats(view);
+  if(!MG.selected){ const first=MG.graph.nodes.find(n=>n.group==='memory')||MG.graph.nodes[0]; if(first) mgOpen(first.id,{center:false}); }
+  else mgOpen(MG.selected,{center:false});
 }
-function brainNodeFromEvent(ev){
-  const canvas=$('#memoryCanvas'); if(!canvas) return -1;
-  const rect=canvas.getBoundingClientRect(); const x=ev.clientX-rect.left, y=ev.clientY-rect.top;
-  return brainNodes.findIndex(n=>Math.hypot(n.x-x,n.y-y)<Math.max(18,n.r+8));
+function mgApplySearch(){
+  if(!MG.engine||!MG.graph) return;
+  const q=MG.query.trim().toLowerCase();
+  MG.engine.highlight=q ? new Set(MG.graph.nodes.filter(n=>mgMatches(n,q)).map(n=>n.id)) : null;
+  MG.engine.draw();
 }
-$('#memoryCanvas')?.addEventListener('click',ev=>{ const idx=brainNodeFromEvent(ev); if(idx>=0) selectBrainNode(idx); });
-$('#brainPrev')?.addEventListener('click',()=>selectBrainNode(brainSelectedIndex-1));
-$('#brainNext')?.addEventListener('click',()=>selectBrainNode(brainSelectedIndex+1));
+function mgRenderStats(view){
+  const box=$('#mgStats'); if(!box) return;
+  const notes=view.nodes.filter(n=>n.group!=='tag'&&n.group!=='ghost').length;
+  box.textContent=`${notes} notes · ${view.links.length} links${MG.local?` · local ${MG.depth} hop${MG.depth>1?'s':''}`:''}`;
+}
+function mgRenderSide(){
+  const g=MG.graph; if(!g) return;
+  const counts={}; g.nodes.forEach(n=>counts[n.group]=(counts[n.group]||0)+1);
+  $('#mgFilters').innerHTML=Object.keys(MG_GROUP_NAMES).filter(k=>counts[k]).map(k=>`<button type="button" class="mg-chip ${MG.hidden.has(k)?'off':''}" data-mg-group="${k}" aria-pressed="${!MG.hidden.has(k)}"><i style="background:${MG_COLORS[k]}"></i>${esc(MG_GROUP_NAMES[k])}<small>${counts[k]}</small></button>`).join('');
+  $('#mgLegend').innerHTML=Object.keys(MG_GROUP_NAMES).filter(k=>counts[k]&&!MG.hidden.has(k)).map(k=>`<span><i style="background:${MG_COLORS[k]}"></i>${esc(MG_GROUP_NAMES[k])}</span>`).join('');
+  const q=MG.query.trim().toLowerCase();
+  const order=['memory','hermes','project','skill','you','ghost','tag'];
+  const groups=order.map(k=>[k,g.nodes.filter(n=>n.group===k&&mgMatches(n,q)).sort((a,b)=>(b.updated||b.created||0)-(a.updated||a.created||0)||a.label.localeCompare(b.label))]).filter(([,list])=>list.length);
+  $('#mgList').innerHTML=groups.map(([k,list])=>`<div class="mg-group"><div class="mg-group-head"><i style="background:${MG_COLORS[k]}"></i>${esc(MG_GROUP_NAMES[k])}<small>${list.length}</small></div>${list.slice(0,k==='tag'?40:120).map(n=>`<button type="button" class="mg-item ${n.id===MG.selected?'active':''}" data-mg-open="${esc(n.id)}"><b>${esc(n.label)}</b>${n.group!=='tag'&&n.text?`<small>${esc(n.text.replace(/\s+/g,' ').slice(0,90))}</small>`:''}</button>`).join('')}</div>`).join('')
+    || `<div class="empty-state">${q?'No notes match.':'No memories yet. Add your first one.'}</div>`;
+}
+function mgTip(n,x,y){
+  const tip=$('#mgTip'); if(!tip) return;
+  if(!n){ tip.hidden=true; return; }
+  tip.innerHTML=`<b>${esc(n.label)}</b><em>${esc(MG_GROUP_NAMES[n.group])} · ${n.degree} link${n.degree===1?'':'s'}</em>${n.text?`<span>${esc(n.text.replace(/\s+/g,' ').slice(0,140))}</span>`:''}`;
+  tip.hidden=false;
+  const stage=tip.parentElement.getBoundingClientRect();
+  tip.style.left=`${Math.min(x+14, stage.width-250)}px`; tip.style.top=`${Math.min(y+14, stage.height-110)}px`;
+}
+function mgNoteLinks(n){
+  const g=MG.graph, out=[], back=[], related=[];
+  for(const l of g.links){
+    if(l.kind==='home') continue;
+    const other=l.source===n.id?l.target:l.target===n.id?l.source:null; if(!other) continue;
+    const o=g.byId.get(other); if(!o||o.group==='tag') continue;
+    if(l.kind==='related') related.push(o);
+    else if(l.source===n.id) out.push(o); else back.push(o);
+  }
+  return {out, back, related};
+}
+function mgOpen(id,{center=true}={}){
+  const g=MG.graph; if(!g) return;
+  const n=g.byId.get(id); if(!n) return;
+  MG.selected=id;
+  if(MG.local){ const view=mgVisible(); MG.engine.setData(view.nodes,view.links,{reheat:.5}); mgRenderStats(view); }
+  MG.engine?.select(MG.engine.nodes.find(x=>x.id===id)||null,{center});
+  document.querySelectorAll('#mgList .mg-item').forEach(b=>b.classList.toggle('active',b.dataset.mgOpen===id));
+  const box=$('#brainDetail'); if(!box) return;
+  const {out,back,related}=mgNoteLinks(n);
+  const chips=list=>list.length?list.map(o=>`<button type="button" class="mg-ref" data-mg-open="${esc(o.id)}"><i style="background:${o.color}"></i>${esc(o.label)}</button>`).join(''):'<span class="mg-none">None yet</span>';
+  const when=n.updated||n.created; const date=when?new Date(when*1000).toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'}):'';
+  const actions=n.group==='memory'
+    ? `<button type="button" class="secondary-btn" data-edit-memory="${esc(n.ref)}">Edit</button><button type="button" class="secondary-btn" data-mg-link-new="${esc(n.label)}">+ Linked note</button><button type="button" class="danger-link" data-delete-memory="${esc(n.ref)}">Delete</button>`
+    : n.group==='ghost' ? `<button type="button" class="primary-btn" data-mg-create="${esc(n.label)}">Create this note</button>`
+    : n.group==='tag' ? `<button type="button" class="secondary-btn" data-mg-tag="${esc(n.label.slice(1))}">Show all ${esc(n.label)}</button>` : '';
+  const body=n.group==='tag'
+    ? `<p>${g.links.filter(l=>l.target===n.id||l.source===n.id).length} notes use this tag.</p>`
+    : renderNoteMarkdown(n.text, esc);
+  box.innerHTML=`<div class="mg-note-head"><span class="mg-type" style="--c:${n.color}">${esc(MG_GROUP_NAMES[n.group])}</span>${date?`<small>${esc(date)}</small>`:''}</div>
+    <h2 class="mg-title">${esc(n.label)}</h2>
+    ${n.tags.length?`<div class="mg-tags">${n.tags.map(t=>`<button type="button" class="mg-tag" data-mg-tag="${esc(t)}">#${esc(t)}</button>`).join('')}</div>`:''}
+    ${n.group==='memory'&&(n.auto||n.history.length)?`<div class="mg-learned">🧠 ${n.auto?`Learned by Zuzu from ${n.source==='voice'?'voice':'chat'}`:'Written by you'}${n.history.length?` · updated ${n.history.length}×`:''}</div>`:''}
+    <div class="mg-body">${body}</div>
+    ${n.history.length?`<details class="mg-history"><summary>Earlier versions (${n.history.length})</summary>${n.history.slice().reverse().map(h=>`<p><small>${esc(new Date(h.at*1000).toLocaleDateString())}</small>${esc(h.value)}</p>`).join('')}</details>`:''}
+    ${actions?`<div class="mg-actions">${actions}<button type="button" class="secondary-btn" data-mg-ask="${esc(n.id)}">Ask Zuzu</button></div>`:`<div class="mg-actions"><button type="button" class="secondary-btn" data-mg-ask="${esc(n.id)}">Ask Zuzu</button></div>`}
+    <div class="mg-section"><h3>Links <small>${out.length}</small></h3><div class="mg-refs">${chips(out)}</div></div>
+    <div class="mg-section"><h3>Backlinks <small>${back.length}</small></h3><div class="mg-refs">${chips(back)}</div></div>
+    ${MG.opts.smart?`<div class="mg-section"><h3>Related <small>${related.length}</small></h3><div class="mg-refs">${chips(related)}</div></div>`:''}`;
+}
+function mgSetLocal(on){
+  MG.local=!!on && !!MG.selected;
+  const b=$('#mgLocal'); if(b){ b.classList.toggle('active',MG.local); b.setAttribute('aria-pressed',String(MG.local)); }
+  const view=mgVisible(); MG.engine?.setData(view.nodes,view.links,{reheat:.6}); mgRenderStats(view);
+  if(MG.engine){ MG.engine.touched=false; MG.engine.autoFit=true; }
+}
+function selectBrainNode(index){
+  const list=(MG.engine?.nodes||[]).filter(n=>n.group!=='tag');
+  if(!list.length) return;
+  const cur=list.findIndex(n=>n.id===MG.selected);
+  const next=list[((typeof index==='number'?index:cur+1)+list.length)%list.length];
+  mgOpen(next.id);
+}
+function mgMemoryEditor(title, values={}, onSave){
+  openEditor(title,[{name:'label',label:'Title'},{name:'value',label:'Note — link other notes with [[Title]], tag with #tag',long:true},{name:'tags',label:'Tags (comma separated)',placeholder:'family, health, work'}],onSave);
+  for(const [k,v] of Object.entries(values)){ const f=editorFields.querySelector(`[name="${k}"]`); if(f) f.value=v; }
+}
+$('#memoryCanvas')?.closest('[data-view-panel]')?.addEventListener('click',async e=>{
+  const t=e.target.closest('[data-mg-open],[data-mg-open-name],[data-mg-group],[data-mg-tag],[data-mg-create],[data-mg-link-new],[data-mg-ask]'); if(!t) return;
+  if(t.dataset.mgOpen){ mgOpen(t.dataset.mgOpen); return; }
+  if(t.dataset.mgOpenName){ const n=MG.graph?.nodes.find(x=>x.label.toLowerCase()===t.dataset.mgOpenName.toLowerCase()); if(n) mgOpen(n.id); return; }
+  if(t.dataset.mgGroup){ const k=t.dataset.mgGroup; MG.hidden.has(k)?MG.hidden.delete(k):MG.hidden.add(k); mgRemember(); drawMemoryBrain(); return; }
+  if(t.dataset.mgTag){ MG.query='#'+t.dataset.mgTag; $('#mgSearch').value=MG.query; mgApplySearch(); mgRenderSide(); const tag=MG.graph?.byId.get(`t:${t.dataset.mgTag}`); if(tag) mgOpen(tag.id); return; }
+  if(t.dataset.mgCreate){ mgMemoryEditor('New memory',{label:t.dataset.mgCreate},v=>workspaceRequest({action:'add_memory',...v})); return; }
+  if(t.dataset.mgLinkNew){ mgMemoryEditor('New linked memory',{value:`Related to [[${t.dataset.mgLinkNew}]]. `},v=>workspaceRequest({action:'add_memory',...v})); return; }
+  if(t.dataset.mgAsk){
+    const n=MG.graph?.byId.get(t.dataset.mgAsk); if(!n) return;
+    showView('chat');
+    transmit(`Use my saved memory note "${n.label}" (${MG_GROUP_NAMES[n.group]}): ${n.text.slice(0,1500)}\n\nTell me what you know about this, how it connects to my other memories, and anything I should add or update.`,{speak:false});
+  }
+});
+$('#mgSearch')?.addEventListener('input',e=>{ MG.query=e.target.value; mgApplySearch(); mgRenderSide(); });
+$('#mgSearch')?.addEventListener('keydown',e=>{ if(e.key==='Enter'){ const first=$('#mgList [data-mg-open]'); if(first) mgOpen(first.dataset.mgOpen); } });
+[['#mgTags','tags'],['#mgSmart','smart'],['#mgOrphans','orphans']].forEach(([sel,key])=>{ const box=$(sel); if(!box) return; box.checked=MG.opts[key]!==false; box.addEventListener('change',()=>{ MG.opts[key]=box.checked; mgRemember(); drawMemoryBrain(); }); });
+$('#mgAuto')?.addEventListener('change',e=>personalRequest({action:'save_settings',settings:{autoMemory:e.target.checked}}).then(()=>showToast(e.target.checked?'Zuzu will learn from your conversations':'Auto-learn is off','info')).catch(err=>showToast(String(err.message||err),'error')));
+if($('#mgLabels')){ $('#mgLabels').checked=MG.labels; $('#mgLabels').addEventListener('change',e=>{ MG.labels=e.target.checked; mgRemember(); if(MG.engine){ MG.engine.labels=MG.labels; MG.engine.draw(); } }); }
+$('#mgZoomIn')?.addEventListener('click',()=>MG.engine?.zoomBy(1.3));
+$('#mgZoomOut')?.addEventListener('click',()=>MG.engine?.zoomBy(1/1.3));
+$('#mgFit')?.addEventListener('click',()=>MG.engine?.fit());
+$('#mgLocal')?.addEventListener('click',()=>mgSetLocal(!MG.local));
+$('#mgDepth')?.addEventListener('change',e=>{ MG.depth=Number(e.target.value)||1; if(MG.local) mgSetLocal(true); });
+$('#mgAsk')?.addEventListener('click',()=>{ showView('chat'); transmit('Review my Zuzu memory notes. Suggest merges for duplicates, missing [[links]] between related notes, useful #tags, and anything outdated. Show the proposed changes as a list and wait for my OK before saving.',{speak:false}); });
+$('#brainPrev')?.addEventListener('click',()=>{ const list=(MG.engine?.nodes||[]).filter(n=>n.group!=='tag'); const cur=list.findIndex(n=>n.id===MG.selected); selectBrainNode(cur-1); });
+$('#brainNext')?.addEventListener('click',()=>selectBrainNode());
+document.addEventListener('keydown',e=>{
+  if($('[data-view-panel="memory"]')?.hidden) return;
+  if(e.target.closest('input,textarea,select,dialog')) return;
+  if(e.key==='/'){ e.preventDefault(); $('#mgSearch')?.focus(); }
+  else if(e.key==='ArrowRight') $('#brainNext')?.click();
+  else if(e.key==='ArrowLeft') $('#brainPrev')?.click();
+  else if(e.key.toLowerCase()==='l') mgSetLocal(!MG.local);
+  else if(e.key.toLowerCase()==='f') MG.engine?.fit();
+});
+new MutationObserver(()=>{ if(MG.engine && !$('[data-view-panel="memory"]').hidden){ MG.engine.resize(); MG.engine.kick(.05); setTimeout(()=>MG.engine.fit(),60); } }).observe($('[data-view-panel="memory"]'),{attributes:true,attributeFilter:['hidden']});
 async function loadWorkspace(){try{const r=await fetch('/api/workspace',{headers:apiHeaders()});WS=await r.json();renderWorkspace();await loadHistory();}catch(e){log('error','WORKSPACE','could not load workspace');}}
 async function loadHistory(){
   const box=$('#chatHistory'); if(!box)return;
@@ -769,7 +864,6 @@ async function loadHistory(){
     box.scrollTop=box.scrollHeight;
   }catch(error){box.innerHTML=`<div class="empty-state">${esc(error.message||error)}</div>`;}
 }
-window.addEventListener('resize',()=>{if(WS)drawMemoryBrain();});
 
 // ── reactor state ──
 function setState(cls, word, sub){
@@ -850,7 +944,7 @@ async function transmit(message, options = {}){
     return;
   }
   try {
-    await autoRemember(message);
+    lastUserTurn = message; liveUserTurn = message;
     pendingLiveAttachmentParts = [];
     const previewNote = maybeOpenRequestedBrowserPreview(message);
     message = await attachVisualContext(message);
@@ -1004,9 +1098,11 @@ function handle(ev){
       log('complete', 'COMPLETE', ev.ms!=null?`run completed in ${ev.ms}ms`:'run completed');
       renderAnswer(true);
       showMediaFromAnswer(answer);
+      autoRemember(lastUserTurn, answer, 'chat'); lastUserTurn = '';
       speakDone = speakThisRun ? speak(answer) : Promise.resolve();
       break;
     case 'error':
+      autoRemember(lastUserTurn, '', 'chat'); lastUserTurn = '';   // what the user said is still worth learning
       setState('error', 'FAULT', ev.message?.slice(0,40) || 'error');
       setTag('err', 'ERROR');
       log('error', 'ERROR', ev.message || 'unknown');
@@ -1237,6 +1333,7 @@ async function startGeminiLive(){
       if (!content) return;
       if (content.inputTranscription?.text){
         if (SLEEP_RE.test(content.inputTranscription.text)) setTimeout(() => { if (convo) stopConvo(); }, 1800);
+        liveUserTurn += content.inputTranscription.text;
         setUserText(content.inputTranscription.text.slice(0,90));
         sendLiveVisualFrame(content.inputTranscription.text.slice(0,80));
       }
@@ -1250,6 +1347,8 @@ async function startGeminiLive(){
       }
       if (content.turnComplete){
         liveAnswerStarted=false;
+        if (liveUserTurn.trim()) autoRemember(liveUserTurn, answer, 'voice');
+        liveUserTurn='';
         const delay = Math.max(0, (livePlayAt - liveOutputCtx.currentTime) * 1000);
         setTimeout(() => {
           if (connectedSocket !== liveWs || liveSources.size) return;
@@ -2103,6 +2202,7 @@ function fmtDue(iso){
 }
 function renderPersonal(){
   if (!PERSONAL) return;
+  if ($('#mgAuto')) $('#mgAuto').checked = PERSONAL.settings?.autoMemory !== false;
   const list = $('#reminderList');
   const items = PERSONAL.reminders || [];
   if (list) list.innerHTML = items.map(r => `<div class="pf-item ${r.done ? 'done' : ''} ${!r.done && r.due && new Date(r.due) < new Date() ? 'overdue' : ''}">
@@ -2276,6 +2376,7 @@ async function pollPersonalInbox(){
     const r = await fetch('/api/personal/inbox', {headers:apiHeaders(), cache:'no-store'});
     if (!r.ok) return;
     for (const item of (await r.json()).items || []){
+      if (item.kind === 'memory'){ showToast(`🧠 ${item.text.slice(0, 200)}`, 'info'); log('complete', 'MEMORY', item.text.slice(0, 200)); loadWorkspace(); continue; }
       if (item.kind === 'brief'){ lastBrief = item.payload; renderToday(); renderBriefPreview(lastBrief); }
       if (item.kind === 'media' && item.payload?.url){ showView('chat'); showVideoFile(item.payload.url); refreshMediaJobs(); loadWorkspace(); }
       showToast(item.text.slice(0, 220), item.kind === 'reminder' ? 'reminder' : 'info');

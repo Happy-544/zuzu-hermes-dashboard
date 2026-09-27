@@ -32,6 +32,7 @@ DEFAULT_SETTINGS = {
     "wakeWord": False,
     "emailBrief": False, "emailAlerts": False, "emailAlertMinutes": 30,
     "skillScout": False, "skillScoutDays": 7,
+    "autoMemory": True,
 }
 WEATHER_CODES = {
     0: "clear sky", 1: "mainly clear", 2: "partly cloudy", 3: "overcast", 45: "fog", 48: "fog",
@@ -361,12 +362,12 @@ def brief_speech(b):
 
 
 # ── announcements ───────────────────────────────────────────
-def announce(kind, text, payload=None):
+def announce(kind, text, payload=None, telegram=True):
     with OUTBOX_LOCK:
         OUTBOX.append({"id": uuid.uuid4().hex[:8], "kind": kind, "text": text, "payload": payload or {},
                        "at": datetime.datetime.now().isoformat(timespec="seconds")})
         del OUTBOX[:-50]
-    target = load()["settings"].get("telegramTarget", "").strip()
+    target = load()["settings"].get("telegramTarget", "").strip() if telegram else ""
     if target:
         threading.Thread(target=_send_telegram, args=(target, text), daemon=True).start()
 
@@ -449,7 +450,7 @@ def save_settings(values):
             continue
         if key in {"lat", "lon"}:
             clean[key] = float(value)
-        elif key in {"briefsEnabled", "wakeWord", "emailBrief", "emailAlerts", "skillScout"}:
+        elif key in {"briefsEnabled", "wakeWord", "emailBrief", "emailAlerts", "skillScout", "autoMemory"}:
             clean[key] = bool(value)
         elif key == "emailAlertMinutes":
             clean[key] = max(10, min(240, int(value or 30)))

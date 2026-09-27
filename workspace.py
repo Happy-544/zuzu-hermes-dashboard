@@ -67,6 +67,23 @@ def public_state():
             "hermesMemory": hermes_memory_snapshot()}
 
 
+def clean_tags(raw):
+    """Normalise memory tags: accepts a list or a "#work, family" string; returns up to 12 unique tags."""
+    if isinstance(raw, str):
+        raw = re.split(r"[,\s]+", raw)
+    tags = []
+    for tag in raw if isinstance(raw, list) else []:
+        tag = re.sub(r"[^\w/-]", "", str(tag).strip().lstrip("#").lower())[:40]
+        if tag and tag not in tags:
+            tags.append(tag)
+    return tags[:12]
+
+
+def _tag_suffix(memory):
+    tags = memory.get("tags") or []
+    return " [" + " ".join("#" + t for t in tags) + "]" if tags else ""
+
+
 def hermes_memory_snapshot():
     """Read Hermes' own curated memory without editing its internal storage."""
     home = pathlib.Path(os.environ.get("HERMES_HOME", pathlib.Path.home() / ".hermes"))
@@ -129,14 +146,33 @@ def bind_hermes_session(project_id, ui_session_id, hermes_id):
     return False
 
 
-def agent_context(limit=2400):
+def _words(text):
+    return {w for w in re.findall(r"[^\W_]{3,}", str(text or "").lower())}
+
+
+def pick_memories(memories, query="", budget=1600):
+    """Most relevant memories for `query` first (shared words, then recency), within a character budget."""
+    q = _words(query)
+    ranked = sorted(enumerate(memories), key=lambda im: (
+        -len(q & _words(f"{im[1].get('label')} {im[1].get('value')} {' '.join(im[1].get('tags') or [])}")),
+        -max(im[1].get("updated") or 0, im[1].get("created") or 0, im[0])))
+    picked, used = [], 0
+    for _, m in ranked:
+        cost = len(m.get("label", "")) + min(260, len(m.get("value", ""))) + 12
+        if used + cost > budget:
+            continue
+        picked.append(m); used += cost
+    return picked
+
+
+def agent_context(limit=2400, query=""):
     """Return the bounded Zuzu memory/skill context injected into Hermes and Live voice."""
     data = load(); chunks = []
-    memories = data.get("memory", [])[-10:]
+    memories = pick_memories(data.get("memory", []), query, budget=int(limit * 0.65))
     if memories:
         chunks.append(
             "Zuzu durable memory brain (authoritative saved facts to use across conversations):\n"
-            + "\n".join(f"- {m['label']}: {m['value'][:260]}" for m in memories)
+            + "\n".join(f"- {m['label']}{_tag_suffix(m)}: {m['value'][:260]}" for m in memories)
         )
     skills = [s for s in data.get("skills", []) if s.get("enabled", True)][-8:]
     if skills:
@@ -147,7 +183,8 @@ def agent_context(limit=2400):
     if chunks:
         chunks.append(
             "Memory sync rule: these dashboard memories are injected into every Hermes text run and Gemini Live voice setup. "
-            "When the user says remember/save/افتكري/احفظي, the dashboard stores it before forwarding the request. "
+            "Zuzu also learns automatically: after each turn she saves new lasting facts the user shares and updates changed ones, "
+            "so never tell the user you cannot remember things. "
             "Use saved memory naturally and do not claim you forgot it unless it is absent above."
         )
     return "\n\n".join(chunks)[:limit]
@@ -255,7 +292,8 @@ def action(payload):
         data["skills"] = [s for s in data["skills"] if s["id"] != str(payload.get("id", ""))]; save(data)
     elif kind == "add_memory":
         data["memory"].append({"id": uuid.uuid4().hex[:10], "label": str(payload.get("label", "Memory"))[:100],
-                               "value": str(payload.get("value", ""))[:4000], "created": time.time()}); save(data)
+                               "value": str(payload.get("value", ""))[:4000], "tags": clean_tags(payload.get("tags")),
+                               "created": time.time()}); save(data)
     elif kind == "delete_memory":
         data["memory"] = [m for m in data["memory"] if m["id"] != str(payload.get("id", ""))]; save(data)
     elif kind == "edit_memory":
@@ -264,6 +302,9 @@ def action(payload):
             raise ValueError("memory not found")
         found["label"] = str(payload.get("label", found["label"])).strip()[:100]
         found["value"] = str(payload.get("value", found["value"])).strip()[:4000]
+        if "tags" in payload:
+            found["tags"] = clean_tags(payload.get("tags"))
+        found["updated"] = time.time()
         if not found["label"] or not found["value"]:
             raise ValueError("memory label and value are required")
         save(data)

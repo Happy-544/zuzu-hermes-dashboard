@@ -185,6 +185,8 @@ start.sh        local launcher
 | Switch the Hermes model | Settings → AI model, `/model claude` | "Switch to Gemini Pro" |
 | "Hey Zuzu" wake word / "Zuzu sleep mode" (Chrome/Edge on the laptop) | Reminders & brief settings | "Hey Zuzu" |
 | Live PC control: laptop screen opens and each Hermes step is listed while it works | Home → Now | "Open Notepad on my computer" |
+| Memory graph (Obsidian-style): notes linked by `[[Title]]`, `#tags`, mentions and smart links; hover focus, local graph, search, backlinks | Brain → Memory | "Remember that my wife loves [[Resin art]] #family" |
+| Auto-learn: after every chat or voice turn Zuzu saves new facts about you, updates changed ones (keeps earlier versions), merges duplicates; never stores passwords or card numbers | Brain → Memory → Auto-learn | "I switched to espresso" · "Forget the old car" |
 | Draw on the laptop screen: Zuzu points at things, or you draw from your phone | Laptop live → Draw | "Point at the Save button" |
 | Skill suggestions: Zuzu finds new Hermes skills; installs only after you approve | Brain → Skills | "Find skills for WhatsApp messages" |
 

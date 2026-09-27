@@ -239,7 +239,7 @@ class InterfaceTests(unittest.TestCase):
         self.assertIn("is waiting for task details", js)
         self.assertIn('id="top-hermes"', html)
         self.assertIn('id="sy-hermes"', html)
-        self.assertIn("app.js?v=42", html)
+        self.assertIn("app.js?v=44", html)
         self.assertIn("caches.delete(key)", worker)
         self.assertNotIn("caches.match(event.request)", worker)
 
@@ -319,6 +319,12 @@ class WorkspaceTests(unittest.TestCase):
                 self.assertEqual(state["skills"][-1]["name"], "Research")
                 state = workspace.action({"action": "add_memory", "label": "Preference", "value": "Be concise"})
                 self.assertEqual(state["memory"][-1]["value"], "Be concise")
+                state = workspace.action({"action": "add_memory", "label": "Wife", "value": "Birthday [[March]]", "tags": "#Family, family  health"})
+                memory = state["memory"][-1]
+                self.assertEqual(memory["tags"], ["family", "health"])
+                state = workspace.action({"action": "edit_memory", "id": memory["id"], "label": "Wife", "value": "Birthday 12 March", "tags": ["gifts"]})
+                self.assertEqual(state["memory"][-1]["tags"], ["gifts"])
+                self.assertIn("- Wife [#gifts]: Birthday 12 March", workspace.agent_context())
             finally:
                 workspace.FILE = old_file
 
