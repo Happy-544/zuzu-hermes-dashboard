@@ -53,6 +53,8 @@ import media            # noqa: E402
 import screen_pointer   # noqa: E402
 import skills_scout     # noqa: E402
 import memory_auto      # noqa: E402
+import creative         # noqa: E402
+import calm             # noqa: E402
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -164,6 +166,7 @@ def live_voice_persona(client_extra=""):
         "create_image and create_video to make pictures or clips; find_books to find something to read; "
         "point_at to show the user where something is on their laptop screen; find_new_skills to look for new abilities, "
         "and install_skill only after the user explicitly says yes to a specific skill. "
+        "calm_mode when the user is stressed, sad, anxious, cannot sleep or asks for the therapist; make_music to compose music, resin_quote for resin/wood piece costs and prices, open_creative_studio to edit photos, redesign a room, write a shop listing or make a 3D model. "
         f"The current local date and time is {datetime.datetime.now().strftime('%A %Y-%m-%d %H:%M')}."
     )
     return "\n\n".join(x for x in (custom, routing, memory, client_extra) if x)
@@ -206,6 +209,27 @@ LOCAL_VOICE_TOOLS = [
           {"topic": "What the skill should help with, or empty to decide from the user's habits."}),
     _tool("install_skill", "Install a proposed skill. Only after the user clearly said yes to installing that exact skill.",
           {"name": "Name of the proposed skill.", "confirmed": "'yes' only if the user explicitly approved."}, ("name", "confirmed")),
+    _tool("make_music", "Compose original music with Lyria: a ~30 second loop, or a full song if asked.",
+          {"prompt": "Genre, mood, instruments, tempo.", "full": "'yes' only for a full-length song."}, ("prompt",)),
+    _tool("resin_quote", "Calculate resin litres, cost and selling price for a resin or river table / board / coasters.",
+          {"length": "Length in cm.", "width": "Width in cm.", "depth": "Resin depth in cm.",
+           "fill_percent": "Share of the surface that is resin, 100 for full resin, ~35 for a river table.",
+           "pieces": "Number of pieces."}, ("length", "width", "depth")),
+    _tool("open_creative_studio", "Open the creative studio: photo editor, room redesign, resin calculator, shop listing, music or 3D.",
+          {"tab": "editor, room, resin, listing, music or model3d."}),
+    _tool("calm_mode", "Enter Calm mode (soft voice, relaxing music and visuals, supportive listening) when the user is stressed, "
+          "sad, anxious, can't sleep, wants to vent, or asks for the therapist / calm mode."),
+]
+CALM_TOOLS = [
+    next(t for t in LOCAL_VOICE_TOOLS if t["name"] == "add_reminder"),
+    _tool("start_breathing", "Guide a breathing exercise on screen.",
+          {"pattern": "box (4-4-4-4), 478 (4-7-8, for sleep), coherent (5.5 in / 5.5 out) or sigh (physiological sigh).",
+           "minutes": "Length in minutes, default 2."}, ("pattern",)),
+    _tool("set_calm_scene", "Change the relaxing scenery and/or background sound.",
+          {"scene": "aurora, ocean, forest, night or rain.", "sound": "pads, ocean, rain or silence."}),
+    _tool("log_mood", "Save how the user feels right now (private mood log).",
+          {"mood": "1 (very low) to 5 (very good).", "words": "Up to 3 feeling words, comma separated."}, ("mood",)),
+    _tool("leave_calm_mode", "Leave Calm mode when the user says they feel better or wants to stop (say a gentle goodbye first)."),
 ]
 
 
@@ -546,6 +570,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"summary": personal.email_summary(12)})
             except (RuntimeError, OSError) as exc:
                 return self._json({"error": str(exc)[:200]}, 503)
+        if p == "/api/calm":
+            return self._json(calm.state())
+        if p == "/api/creative/jobs":
+            return self._json({"jobs": creative.jobs(), "meshy": bool(creative.meshy_key()),
+                               "styles": list(creative.ROOM_STYLES)})
         if p == "/api/markets":
             return self._json(markets.state())
         if p == "/api/skills/proposals":
@@ -661,7 +690,7 @@ class Handler(BaseHTTPRequestHandler):
             auth.logout(self.headers.get("Cookie"))
             return self._json({"ok": True}, headers={"Set-Cookie": "zuzu_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0"})
         ctype = self.headers.get("Content-Type", "").split(";", 1)[0].lower()
-        if p in {"/api/run", "/api/speak", "/api/live-token", "/api/workspace", "/api/new", "/api/cancel", "/api/calls/outbound", "/api/catalog/install", "/api/personal", "/api/markets", "/api/books", "/api/media", "/api/overlay", "/api/overlay/point", "/api/skills", "/api/memory/observe"} and ctype != "application/json":
+        if p in {"/api/run", "/api/speak", "/api/live-token", "/api/workspace", "/api/new", "/api/cancel", "/api/calls/outbound", "/api/catalog/install", "/api/personal", "/api/markets", "/api/books", "/api/media", "/api/overlay", "/api/overlay/point", "/api/skills", "/api/memory/observe", "/api/creative", "/api/calm"} and ctype != "application/json":
             return self._json({"error": "application/json required"}, 415)
         if p == "/api/listen" and not ctype.startswith("audio/"):
             return self._json({"error": "audio content type required"}, 415)
@@ -709,9 +738,17 @@ class Handler(BaseHTTPRequestHandler):
                 if payload.get("purpose") == "speak":
                     # Read Hermes' typed replies with the same native-audio model and voice.
                     live_auth["system"] = READ_ALOUD_PROMPT
+                    if payload.get("soft"):
+                        live_auth["voice"] = calm.pick_voice(payload.get("voice"))
+                        live_auth["system"] += " Read it softly, slowly and warmly, like a calm evening voice, with gentle pauses."
                     live_auth["tools"] = []
                     return self._json(live_auth)
                 client_extra = "\n\n".join(x for x in ((payload.get("system") or "").strip(), _client_context_prompt(payload.get("client_context"))) if x)
+                if payload.get("purpose") == "calm":
+                    live_auth["voice"] = calm.pick_voice(payload.get("voice"))
+                    live_auth["system"] = calm.persona(client_extra)
+                    live_auth["tools"] = [{"functionDeclarations": CALM_TOOLS}]
+                    return self._json(live_auth)
                 live_auth["system"] = live_voice_persona(client_extra)
                 live_auth["tools"] = [{"functionDeclarations": [{
                     "name": "hermes_action",
@@ -766,6 +803,28 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"error": str(exc)[:200]}, 400)
             except (OSError, RuntimeError) as exc:
                 return self._json({"error": f"Could not reach a service: {type(exc).__name__}"}, 503)
+
+        if p == "/api/calm":
+            try:
+                payload = json.loads(raw or b"{}")
+                if not isinstance(payload, dict):
+                    raise ValueError("JSON object required")
+                return self._json(calm.action(payload))
+            except (ValueError, KeyError, TypeError) as exc:
+                return self._json({"error": str(exc)[:200]}, 400)
+            except (RuntimeError, OSError) as exc:
+                return self._json({"error": str(exc)[:240]}, 503)
+
+        if p == "/api/creative":
+            try:
+                payload = json.loads(raw or b"{}")
+                if not isinstance(payload, dict):
+                    raise ValueError("JSON object required")
+                return self._json(creative.action(payload))
+            except (ValueError, KeyError, TypeError) as exc:
+                return self._json({"error": str(exc)[:200]}, 400)
+            except (RuntimeError, OSError) as exc:
+                return self._json({"error": str(exc)[:240]}, 503)
 
         if p == "/api/memory/observe":
             try:

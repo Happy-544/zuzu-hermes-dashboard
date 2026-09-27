@@ -31,7 +31,7 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt
 
 // ── workspace navigation ──
 // Five simple sections; each holds one or more pages.
-const VIEW_GROUPS = {home:['chat'], day:['reminders','markets','library'], work:['projects','missions','studio'], brain:['memory','skills'],
+const VIEW_GROUPS = {home:['chat'], day:['reminders','markets','library'], work:['projects','creative','missions','studio'], brain:['memory','skills'],
                      tools:['tools','calls'], settings:['settings','models','activity']};
 const VIEW_NAMES = new Set(Object.values(VIEW_GROUPS).flat());
 const groupOf = name => Object.keys(VIEW_GROUPS).find(group => VIEW_GROUPS[group].includes(name)) || 'home';
@@ -170,6 +170,7 @@ async function saveMemory(label,value){
 // adds or updates memories and announces what changed. Nothing is sent for /commands.
 let lastUserTurn = '', liveUserTurn = '';
 function autoRemember(user, assistant = '', source = 'chat'){
+  if (window.calmSession && !window.calmSession.remember) return;   // Calm mode stays private unless allowed
   const text = String(user || '').trim();
   if (!text || text.startsWith('/')) return;
   fetch('/api/memory/observe', {method:'POST', headers:apiHeaders({'content-type':'application/json'}),
@@ -1193,6 +1194,13 @@ function floatToPcm16Base64(float32, inputRate){
   return btoa(binary);
 }
 
+// Calm mode: warm the voice slightly (gentle high cut, a touch quieter).
+function calmVoiceChain(ctx){
+  if (ctx._calmChain) return ctx._calmChain;
+  const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 5200; lp.Q.value = 0.5;
+  const g = ctx.createGain(); g.gain.value = 0.88; lp.connect(g); g.connect(ctx.destination);
+  return (ctx._calmChain = lp);
+}
 function playLivePcm(encoded, rate=24000){
   if (muted || !encoded || !liveOutputCtx) return;
   const raw = atob(encoded), bytes = new Uint8Array(raw.length);
@@ -1202,7 +1210,7 @@ function playLivePcm(encoded, rate=24000){
   const channel = audio.getChannelData(0);
   for (let i=0; i<pcm.length; i++) channel[i] = pcm[i] / 32768;
   const src = liveOutputCtx.createBufferSource();
-  src.buffer = audio; src.connect(liveOutputCtx.destination);
+  src.buffer = audio; src.connect(window.calmSession ? calmVoiceChain(liveOutputCtx) : liveOutputCtx.destination);
   liveSources.add(src);
   src.onended = () => liveSources.delete(src);
   const when = Math.max(liveOutputCtx.currentTime + 0.015, livePlayAt);
@@ -1266,7 +1274,7 @@ async function startGeminiLive(){
     voiceWanted = true;
     setState('running','CONNECTING','Gemini native audio…');
     const auth = await fetch('/api/live-token', {
-      method:'POST', headers:apiHeaders({'content-type':'application/json'}), body:JSON.stringify({client_context: clientDeviceContext(), system: clientContextSystemText()})
+      method:'POST', headers:apiHeaders({'content-type':'application/json'}), body:JSON.stringify({client_context: clientDeviceContext(), system: clientContextSystemText(), ...(window.calmSession ? {purpose:'calm', voice:window.calmSession.voice} : {})})
     }).then(async r => { const data=await r.json(); if(!r.ok) throw new Error(data.error||`HTTP ${r.status}`); return data; });
     micStream = await navigator.mediaDevices.getUserMedia(
       {audio:{echoCancellation:true, noiseSuppression:true, autoGainControl:true, channelCount:1}});
@@ -1379,7 +1387,7 @@ let muted = false, player = null, speakResolve = null, liveTts = null, liveTtsFa
 // Resolves true once the audio has finished playing, false if nothing was spoken.
 async function speakWithLive(text){
   const auth = await fetch('/api/live-token', {method:'POST', headers:apiHeaders({'content-type':'application/json'}),
-    body:JSON.stringify({purpose:'speak'})}).then(async r => { const d=await r.json(); if(!r.ok) throw new Error(d.error||`HTTP ${r.status}`); return d; });
+    body:JSON.stringify({purpose:'speak', ...(window.calmSession ? {soft:true, voice:window.calmSession.voice} : {})})}).then(async r => { const d=await r.json(); if(!r.ok) throw new Error(d.error||`HTTP ${r.status}`); return d; });
   return new Promise(resolve => {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
     const sources = new Set();
@@ -1794,7 +1802,7 @@ function isBusy(){
 }
 function stopEverything(){
   if (running || serverBusy){
-    fetch('/api/cancel', {method:'POST', headers:apiHeaders({'content-type':'application/json'}), body:JSON.stringify({client_context: clientDeviceContext(), system: clientContextSystemText()})}).catch(()=>{});
+    fetch('/api/cancel', {method:'POST', headers:apiHeaders({'content-type':'application/json'}), body:JSON.stringify({client_context: clientDeviceContext(), system: clientContextSystemText(), ...(window.calmSession ? {purpose:'calm', voice:window.calmSession.voice} : {})})}).catch(()=>{});
   }
   if (activeController) activeController.abort();
   stopSpeech();
@@ -2378,7 +2386,8 @@ async function pollPersonalInbox(){
     for (const item of (await r.json()).items || []){
       if (item.kind === 'memory'){ showToast(`🧠 ${item.text.slice(0, 200)}`, 'info'); log('complete', 'MEMORY', item.text.slice(0, 200)); loadWorkspace(); continue; }
       if (item.kind === 'brief'){ lastBrief = item.payload; renderToday(); renderBriefPreview(lastBrief); }
-      if (item.kind === 'media' && item.payload?.url){ showView('chat'); showVideoFile(item.payload.url); refreshMediaJobs(); loadWorkspace(); }
+      if (item.kind === 'media' && item.payload?.url && item.payload.kind === 'video'){ showView('chat'); showVideoFile(item.payload.url); refreshMediaJobs(); loadWorkspace(); }
+      else if (item.kind === 'media'){ if (typeof refreshCreativeJobs === 'function') refreshCreativeJobs(); loadWorkspace(); }
       showToast(item.text.slice(0, 220), item.kind === 'reminder' ? 'reminder' : 'info');
       log('note', item.kind.toUpperCase(), item.text.slice(0, 200));
       if (!running) await announce(item.text);
