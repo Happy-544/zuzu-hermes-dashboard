@@ -65,11 +65,14 @@ function showView(name, remember = true){
   if (remember){ try{ localStorage.setItem('jarvis-view', name); localStorage.setItem(`zuzu-page-${group}`, name); }catch(_){} }
   window.scrollTo({top:0, behavior:'auto'});
 }
-document.addEventListener('click', e => {
-  const target = e.target.closest('[data-group],[data-view]');
-  if (!target) return;
-  showView(target.dataset.view || target.dataset.group);
-});
+function bindNavigation(){
+  document.querySelectorAll('[data-group],[data-view]').forEach(button => {
+    if (button.dataset.navBound === '1') return;
+    button.dataset.navBound = '1';
+    button.addEventListener('click', () => showView(button.dataset.view || button.dataset.group));
+  });
+}
+bindNavigation();
 let savedView = 'chat'; try{ savedView = localStorage.getItem('jarvis-view') || 'chat'; }catch(_){}
 showView(savedView, false);
 
