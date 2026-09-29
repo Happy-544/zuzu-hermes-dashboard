@@ -38,7 +38,7 @@ if (-not $NoOpen) {
 
 Write-Host ''
 Write-Host 'Zuzu is ready. Launching with the configured Hermes profile.'
-Write-Host 'Dashboard: http://127.0.0.1:8730/?release=36'
+Write-Host 'Dashboard: http://127.0.0.1:8730/?release=47'
 Write-Host ''
 
 & $voicePython server.py
