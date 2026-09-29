@@ -10,6 +10,26 @@ import workspace
 
 
 class ConversationModeTests(unittest.TestCase):
+    def test_uncensored_provider_catalogue_has_live_venice_and_openrouter_ids(self):
+        self.assertIn("venice-uncensored-1-2", workspace.MODELS["venice"])
+        self.assertIn("e2ee-gemma-4-26b-a4b-uncensored-p", workspace.MODELS["venice"])
+        self.assertIn("cognitivecomputations/dolphin-mistral-24b-venice-edition", workspace.MODELS["openrouter"])
+        self.assertIn("thedrummer/cydonia-24b-v4.1", workspace.MODELS["openrouter"])
+
+    def test_venice_uses_its_openai_compatible_api(self):
+        with mock.patch.object(runtime, "PROVIDER", "venice"), \
+             mock.patch.object(runtime, "MODEL", "venice-uncensored-1-2"), \
+             mock.patch.dict("os.environ", {"VENICE_API_KEY": "private", "JARVIS_API_BASE": ""}, clear=False), \
+             mock.patch("urllib.request.urlopen") as request:
+            response = mock.MagicMock()
+            response.__enter__.return_value.read.return_value = json.dumps({"choices": [{"message": {"content": "ok"}}]}).encode()
+            request.return_value = response
+            events = list(runtime.run_provider("hello"))
+        called = request.call_args.args[0]
+        self.assertEqual(called.full_url, "https://api.venice.ai/api/v1/chat/completions")
+        self.assertEqual(called.headers["Authorization"], "Bearer private")
+        self.assertEqual(events[-1]["t"], "complete")
+
     def test_settings_persist_a_valid_mode_and_reject_direct_hermes(self):
         state = workspace.load()
         settings = {**state["settings"], "conversationMode": "hermes"}

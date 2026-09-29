@@ -18,7 +18,24 @@ MODELS = {
     "gemini": ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite"],
     "openai": ["gpt-5.4", "gpt-5.4-mini"],
     "anthropic": ["claude-sonnet-4-6", "claude-opus-4-6"],
-    "openrouter": ["openrouter/auto"],
+    "openrouter": [
+        "openrouter/auto",
+        "cognitivecomputations/dolphin-mistral-24b-venice-edition",
+        "thedrummer/cydonia-24b-v4.1",
+    ],
+    "venice": [
+        "venice-uncensored-1-2",
+        "venice-uncensored-role-play",
+        "olafangensan-glm-4.7-flash-heretic",
+        "qwen-3-8-27b",
+        "qwen-3-6-plus",
+        "gemma-4-uncensored",
+        "aion-labs-aion-3-0",
+        "aion-labs-aion-3-0-mini",
+        "aion-labs-aion-3-5",
+        "aion-labs-aion-3-5-mini",
+        "e2ee-gemma-4-26b-a4b-uncensored-p",
+    ],
     "ollama": ["llama3.2", "qwen3"],
 }
 

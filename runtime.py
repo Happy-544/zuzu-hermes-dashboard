@@ -271,6 +271,7 @@ def _provider_model():
         "openai": "gpt-5.4-mini",
         "anthropic": "claude-sonnet-4-6",
         "openrouter": "openrouter/auto",
+        "venice": "venice-uncensored-1-2",
         "ollama": "llama3.2",
     }
     return (MODEL or defaults.get(PROVIDER, "")).strip()
@@ -304,7 +305,7 @@ def run_provider(message, system=None):
     started = _mono_ms(); model = _provider_model()
     try:
         if PROVIDER == "anthropic":
-            base = os.environ.get("JARVIS_API_BASE", "https://api.anthropic.com").rstrip("/")
+            base = (os.environ.get("JARVIS_API_BASE") or "https://api.anthropic.com").rstrip("/")
             body = {"model": model, "max_tokens": 700, "messages": [{"role": "user", "content": message}]}
             if system: body["system"] = system
             req = urllib.request.Request(base + "/v1/messages", data=json.dumps(body).encode(), method="POST",
@@ -312,8 +313,8 @@ def run_provider(message, system=None):
             with urllib.request.urlopen(req, timeout=60) as response: payload = json.loads(response.read())
             text = "".join(x.get("text", "") for x in payload.get("content", []) if x.get("type") == "text").strip()
         else:
-            defaults = {"openai": "https://api.openai.com", "openrouter": "https://openrouter.ai/api", "ollama": "http://127.0.0.1:11434"}
-            base = os.environ.get("JARVIS_API_BASE", defaults[PROVIDER]).rstrip("/")
+            defaults = {"openai": "https://api.openai.com", "openrouter": "https://openrouter.ai/api", "venice": "https://api.venice.ai/api", "ollama": "http://127.0.0.1:11434"}
+            base = (os.environ.get("JARVIS_API_BASE") or defaults[PROVIDER]).rstrip("/")
             messages = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": message}]
             body = {"model": model, "messages": messages, "stream": False}
             headers = {"content-type": "application/json"}

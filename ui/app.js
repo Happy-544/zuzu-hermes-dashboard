@@ -137,7 +137,7 @@ function renderWorkspace(){
 }
 function providerLabel(provider){
   const direct=$('#conversationMode')?.value==='direct';
-  return ({hermes:'Hermes profile default', gemini:direct?'Gemini':'Gemini for Hermes', openai:direct?'OpenAI':'OpenAI for Hermes', anthropic:direct?'Anthropic':'Anthropic for Hermes', openrouter:direct?'OpenRouter':'OpenRouter for Hermes', ollama:direct?'Ollama local':'Ollama local for Hermes'}[provider] || String(provider||'Provider'));
+  return ({hermes:'Hermes profile default', gemini:direct?'Gemini':'Gemini for Hermes', openai:direct?'OpenAI':'OpenAI for Hermes', anthropic:direct?'Anthropic':'Anthropic for Hermes', openrouter:direct?'OpenRouter':'OpenRouter for Hermes', venice:direct?'Venice AI':'Venice AI for Hermes', ollama:direct?'Ollama local':'Ollama local for Hermes'}[provider] || String(provider||'Provider'));
 }
 function renderModeOptions(){
   if(!WS) return;
