@@ -11,7 +11,7 @@
 <title>Zuzu · Hermes</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-192.png">
-<link rel="stylesheet" href="styles.css?v=47">
+<link rel="stylesheet" href="styles.css?v=48">
 </head>
 <body>
 <div class="grid-bg"></div>
@@ -215,8 +215,8 @@
     </section>
 
     <section class="view" role="tabpanel" data-view-panel="models" hidden>
-      <div class="view-head"><div><span class="kicker">Hermes brain</span><h1>Providers & models</h1><p class="view-sub">Choose which AI model Hermes thinks with. Tools, memory and skills stay the same.</p></div><span class="runtime-badge">Hermes executes</span></div>
-      <form id="modelForm" class="panel glass settings-form"><div class="form-note span2"><b>Zuzu stays the face. Hermes stays the agent.</b><br>Changing this tab passes the selected provider/model into Hermes, so computer control, tools, skills and memory stay on the same Hermes profile.</div><label>Hermes backend provider<select id="providerSelect"></select></label><label>Hermes backend model<select id="modelSelect"></select></label><label>Custom model<input id="customModel" placeholder="Optional model ID"></label><label>API base URL<input id="apiBase" inputmode="url" placeholder="Provider default"></label><label class="span2">API key<input id="apiKey" type="password" autocomplete="new-password" placeholder="Leave blank to keep the saved key"></label><div class="form-note span2" id="apiState">Keys remain on this computer and are never returned to the browser. Voice has its own model in Settings.</div><button class="primary-btn" type="submit">Apply to Hermes</button></form>
+      <div class="view-head"><div><span class="kicker">Zuzu brain</span><h1>Conversation modes & models</h1><p class="view-sub">Choose who answers and whether Hermes tools are available.</p></div><span class="runtime-badge">One active route</span></div>
+      <form id="modelForm" class="panel glass settings-form"><label class="span2">Conversation mode<select id="conversationMode"><option value="hybrid">Fast Hybrid — Gemini Live talks, Hermes acts</option><option value="hermes">Hermes Only — Hermes handles every turn</option><option value="direct">Direct Model — selected model only, no Hermes tools</option></select></label><div class="form-note span2" id="modeDescription"></div><label>Provider<select id="providerSelect"></select></label><label>Model<select id="modelSelect"></select></label><label>Custom model<input id="customModel" placeholder="Optional model ID"></label><label>API base URL<input id="apiBase" inputmode="url" placeholder="Provider default"></label><label class="span2">API key<input id="apiKey" type="password" autocomplete="new-password" placeholder="Leave blank to keep the saved key"></label><div class="form-note span2" id="apiState">Keys remain on this computer and are never returned to the browser.</div><button class="primary-btn" type="submit">Apply mode</button></form>
     </section>
 
     <section class="view" role="tabpanel" data-view-panel="tools" hidden>
@@ -512,7 +512,7 @@
   <div id="calmCrisis" class="calm-crisis" hidden role="alert"></div>
   <p class="calm-note">Zuzu is a supportive companion, not a licensed therapist. In an emergency call 999 (UAE) or 123 (Egypt).</p>
 </div>
-<script src="app.js?v=47"></script>
+<script src="app.js?v=48"></script>
 <script src="calm.js?v=2"></script>
 <script src="creative.js?v=1"></script>
 </body>

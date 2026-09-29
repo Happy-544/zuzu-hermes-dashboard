@@ -23,7 +23,7 @@ MODELS = {
 }
 
 DEFAULT = {
-    "settings": {"provider": "gemini", "model": "gemini-2.5-flash", "profile": "default",
+    "settings": {"conversationMode": "hybrid", "provider": "gemini", "model": "gemini-2.5-flash", "profile": "default",
                  "workdir": "~", "computerControl": False, "mobileControl": False,
                  "liveModel": "gemini-2.5-flash-native-audio-preview-12-2025", "voice": "Kore",
                  "persona": "Warm, concise, capable and naturally conversational.",
@@ -233,10 +233,16 @@ def action(payload):
     data = load()
     if kind == "save_settings":
         src = payload.get("settings") or {}
+        conversation_mode = str(src.get("conversationMode", "hybrid")).lower()
+        if conversation_mode not in {"hybrid", "hermes", "direct"}:
+            raise ValueError("unsupported conversation mode")
         provider = str(src.get("provider", "gemini")).lower()
         if provider not in MODELS:
             raise ValueError("unsupported provider")
+        if conversation_mode == "direct" and provider == "hermes":
+            raise ValueError("Direct Model requires a configured model provider")
         clean = {
+            "conversationMode": conversation_mode,
             "provider": provider, "model": str(src.get("model", "")).strip()[:120],
             "profile": str(src.get("profile", "default")).strip()[:80] or "default",
             "workdir": str(src.get("workdir", "~")).strip()[:500] or "~",

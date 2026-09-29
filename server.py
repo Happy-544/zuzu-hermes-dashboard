@@ -172,6 +172,19 @@ def live_voice_persona(client_extra=""):
     return "\n\n".join(x for x in (custom, routing, memory, client_extra) if x)
 
 
+def direct_model_persona(client_extra="", query=""):
+    """Persona and bounded memory for a model with no Hermes connection."""
+    settings = workspace.load().get("settings", {})
+    custom = str(settings.get("persona") or "Warm, concise, capable and naturally conversational.").strip()[:2000]
+    memory = workspace.agent_context(limit=1800, query=query)
+    boundary = (
+        "You are Zuzu in Direct Model mode. Answer the user yourself using only this model. "
+        "You have no Hermes connection and no computer, browser, account, file, or external tools in this mode. "
+        "Never claim that you performed an action. If an action needs tools, tell the user to switch to Hybrid or Hermes Only."
+    )
+    return "\n\n".join(x for x in (custom, boundary, memory, client_extra) if x)
+
+
 def _tool(name, description, props=None, required=()):
     params = {"type": "OBJECT", "properties": {k: {"type": "STRING", "description": v} for k, v in (props or {}).items()}}
     if required:
@@ -525,10 +538,16 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"error": str(e)[:240]}, 503)
 
         if p == "/api/status":
+            settings = workspace.load().get("settings", {})
+            conversation_mode = settings.get("conversationMode", "hybrid")
             hermes_health = hermes_api.health() if hermes_api.configured() else runtime.hermes_health_snapshot()
-            runtime_name = "hermes" if hermes_health["connected"] else "mock"
+            runtime_name = "direct" if conversation_mode == "direct" else ("hermes" if hermes_health["connected"] else "mock")
+            live_enabled = conversation_mode == "hybrid" and voice.live_available()
+            selected_model = (f"{settings.get('provider', runtime.PROVIDER)} · {settings.get('model', runtime.MODEL)}"
+                              if conversation_mode == "direct" else runtime.active_model())
             return self._json(dict(
                 runtime=runtime_name,
+                conversation_mode=conversation_mode,
                 provider=runtime.PROVIDER,
                 hermes_connected=hermes_health["connected"],
                 hermes_pending=hermes_health["pending"],
@@ -537,7 +556,7 @@ class Handler(BaseHTTPRequestHandler):
                 profile=runtime.PROFILE,
                 source=runtime.SOURCE,
                 workdir=runtime.WORKDIR,
-                model=runtime.active_model(),
+                model=selected_model,
                 transport="api" if hermes_api.configured() else "cli",
                 tools=hermes_api.toolsets() if hermes_api.configured() and hermes_health["connected"] else runtime.hermes_tools_snapshot(),
                 tools_pending=False if hermes_api.configured() else runtime.hermes_tools_pending(),
@@ -546,9 +565,9 @@ class Handler(BaseHTTPRequestHandler):
                 voice_mode=os.environ.get("JARVIS_VOICE_MODE", voice.tts_provider()),
                 voice_id=voice.voice_id() if voice.tts_available() else "browser",
                 stt=voice.stt_provider(),
-                tts=voice.tts_provider(),
-                live_voice=voice.live_available(),
-                live_model=voice.GEMINI_LIVE_MODEL if voice.live_available() else "",
+                tts=voice.tts_provider() if conversation_mode == "hybrid" else "browser",
+                live_voice=live_enabled,
+                live_model=voice.GEMINI_LIVE_MODEL if live_enabled else "",
                 active_operation=runtime.active_operation_snapshot(),
                 session=workspace.selected_hermes_session()[2]))
         if p == "/api/jobs":
@@ -733,6 +752,10 @@ class Handler(BaseHTTPRequestHandler):
                 payload = json.loads(raw or b"{}")
                 if not isinstance(payload, dict):
                     return self._json({"error": "JSON object required"}, 400)
+                purpose = payload.get("purpose")
+                mode = workspace.load().get("settings", {}).get("conversationMode", "hybrid")
+                if mode != "hybrid" and purpose not in {"speak", "calm"}:
+                    return self._json({"error": "Gemini Live conversation is available only in Hybrid mode"}, 409)
                 live_auth = voice.create_live_token()
                 live_auth["voice"] = workspace.load()["settings"].get("voice", voice.GEMINI_TTS_VOICE)
                 if payload.get("purpose") == "speak":
@@ -936,12 +959,17 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"error": "JSON object required"}, 400)
         message = (payload.get("message") or "").strip()
         extra = "\n\n".join(x for x in ((payload.get("system") or "").strip(), _client_context_prompt(payload.get("client_context"))) if x)
-        system = "\n\n".join(x for x in (persona(query=message), extra) if x) or None
+        settings = workspace.load().get("settings", {})
+        conversation_mode = settings.get("conversationMode", "hybrid")
+        system = (direct_model_persona(extra, message) if conversation_mode == "direct"
+                  else "\n\n".join(x for x in (persona(query=message), extra) if x) or None)
         fresh = bool(payload.get("fresh"))
         if not message:
             return self._json({"error": "empty message"}, 400)
-        project_id, ui_id, hermes_id = workspace.ensure_selected_chat()
-        if fresh:
+        project_id = ui_id = hermes_id = None
+        if conversation_mode != "direct":
+            project_id, ui_id, hermes_id = workspace.ensure_selected_chat()
+        if fresh and conversation_mode != "direct":
             hermes_id = None
             workspace.bind_hermes_session(project_id, ui_id, None)
 
@@ -954,6 +982,21 @@ class Handler(BaseHTTPRequestHandler):
         def emit(ev):
             self.wfile.write((json.dumps(ev) + "\n").encode())
             self.wfile.flush()
+
+        if conversation_mode == "direct":
+            try:
+                runner = (runtime.run_gemini(message, system) if settings.get("provider") == "gemini"
+                          else runtime.run_provider(message, system))
+                for ev in runner:
+                    emit(ev)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+            except Exception as e:  # noqa: BLE001
+                try:
+                    emit(dict(t="error", message=str(e)[:300]))
+                except OSError:
+                    pass
+            return
 
         # ── the command matrix: /new /profile /goal /personality /kanban /mission /background /tools /status /browser
         cmd = commands.handle(

@@ -242,7 +242,7 @@ class InterfaceTests(unittest.TestCase):
         self.assertIn("is waiting for task details", js)
         self.assertIn('id="top-hermes"', html)
         self.assertIn('id="sy-hermes"', html)
-        self.assertIn("app.js?v=47", html)
+        self.assertIn("app.js?v=48", html)
         self.assertIn("caches.delete(key)", worker)
         self.assertNotIn("caches.match(event.request)", worker)
 

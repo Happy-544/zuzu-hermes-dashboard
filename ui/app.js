@@ -121,8 +121,9 @@ function renderWorkspace(){
   $('#sessionContext').textContent = selected ? selected.name : 'Choose a project';
   $('#sessionList').innerHTML = (selected?.sessions||[]).map(s => `<div class="session-row ${s.id===WS.selectedSession?'selected':''}"><button data-session="${esc(s.id)}">${esc(s.name)}</button><button class="danger-link" data-delete-session="${esc(s.id)}">×</button></div>`).join('') || '<div class="empty-state">Create the first chat in this project.</div>';
   const settings=WS.settings||{};
-  $('#providerSelect').innerHTML = Object.keys(WS.models||{}).map(p=>`<option value="${esc(p)}" ${p===settings.provider?'selected':''}>${esc(providerLabel(p))}</option>`).join('');
-  renderModelOptions(); $('#apiBase').value=settings.apiBase||'';
+  $('#conversationMode').value=settings.conversationMode||'hybrid';
+  renderModeOptions();
+  $('#apiBase').value=settings.apiBase||'';
   $('#apiState').textContent = settings.apiConfigured ? 'An API key is configured. Leave the field blank to keep it.' : 'No API key is configured for this provider. Hermes may still use credentials already saved in the Hermes profile.';
   $('#profileName').value=settings.profile||'default'; $('#workdir').value=settings.workdir||'~';
   $('#personaText').value=settings.persona||''; $('#computerControl').checked=!!settings.computerControl; $('#mobileControl').checked=!!settings.mobileControl;
@@ -135,7 +136,18 @@ function renderWorkspace(){
   renderCommandCenterWorkspace();
 }
 function providerLabel(provider){
-  return ({hermes:'Hermes profile default', gemini:'Gemini for Hermes', openai:'OpenAI for Hermes', anthropic:'Anthropic for Hermes', openrouter:'OpenRouter for Hermes', ollama:'Ollama local for Hermes'}[provider] || String(provider||'Provider'));
+  const direct=$('#conversationMode')?.value==='direct';
+  return ({hermes:'Hermes profile default', gemini:direct?'Gemini':'Gemini for Hermes', openai:direct?'OpenAI':'OpenAI for Hermes', anthropic:direct?'Anthropic':'Anthropic for Hermes', openrouter:direct?'OpenRouter':'OpenRouter for Hermes', ollama:direct?'Ollama local':'Ollama local for Hermes'}[provider] || String(provider||'Provider'));
+}
+function renderModeOptions(){
+  if(!WS) return;
+  const mode=$('#conversationMode').value||'hybrid';
+  const descriptions={hybrid:'Gemini Live speaks naturally and sends actions, tools, private/current data and computer work to Hermes exactly once.',hermes:'Every text or voice turn goes straight to Hermes. Gemini Live does not join the conversation; browser/local voice reads Hermes replies.',direct:'The selected model answers alone. It has no Hermes session, tools, computer control or connected accounts.'};
+  $('#modeDescription').textContent=descriptions[mode];
+  const providers=Object.keys(WS.models||{}).filter(p=>mode!=='direct'||p!=='hermes');
+  let selected=WS.settings?.provider||'gemini'; if(!providers.includes(selected)) selected='gemini';
+  $('#providerSelect').innerHTML=providers.map(p=>`<option value="${esc(p)}" ${p===selected?'selected':''}>${esc(providerLabel(p))}</option>`).join('');
+  renderModelOptions();
 }
 function renderModelOptions(){
   if(!WS) return; const provider=$('#providerSelect').value;
@@ -144,8 +156,9 @@ function renderModelOptions(){
   $('#modelSelect').innerHTML=models.map(m=>`<option ${m===current?'selected':''}>${esc(m)}</option>`).join('');
   $('#customModel').value=models.includes(current)?'':current;
 }
+$('#conversationMode').onchange=renderModeOptions;
 $('#providerSelect').onchange=renderModelOptions;
-$('#modelForm').onsubmit=async e=>{e.preventDefault(); const s=WS.settings; const provider=$('#providerSelect').value; const model=$('#customModel').value.trim()||$('#modelSelect').value; await workspaceRequest({action:'save_settings',settings:{...s,provider,model,apiBase:$('#apiBase').value.trim(),apiKey:$('#apiKey').value.trim()}}); $('#apiKey').value=''; log('complete','HERMES MODEL',`Hermes will run via ${providerLabel(provider)} · ${model}`); refreshStatus();};
+$('#modelForm').onsubmit=async e=>{e.preventDefault(); const s=WS.settings; const conversationMode=$('#conversationMode').value; const provider=$('#providerSelect').value; const model=$('#customModel').value.trim()||$('#modelSelect').value; await workspaceRequest({action:'save_settings',settings:{...s,conversationMode,provider,model,apiBase:$('#apiBase').value.trim(),apiKey:$('#apiKey').value.trim()}}); $('#apiKey').value=''; log('complete','CONVERSATION MODE',`${conversationMode} · ${providerLabel(provider)} · ${model}`); refreshStatus();};
 const addProject=()=>openEditor('New project',[{name:'name',label:'Project name'},{name:'folder',label:'Folder on this computer',placeholder:'C:\\Projects\\My project'}],v=>workspaceRequest({action:'add_project',...v}));
 $('#addProject').onclick=addProject; $('#quickProject').onclick=()=>{showView('projects');addProject();};
 $('#addSession').onclick=()=>openEditor('New chat',[{name:'name',label:'Chat name'}],v=>workspaceRequest({action:'add_session',projectId:WS.selectedProject,...v}));
@@ -1958,7 +1971,8 @@ function renderStatus(s){
   const hermesChecking = !!s.hermes_pending;
   const hermesLabel = hermesReady ? 'Connected' : (hermesChecking ? 'Checking' : 'Offline');
   const providerName = s.provider === 'gemini' ? 'Gemini' : (s.provider || 'profile model');
-  const brain = s.runtime === 'hermes' ? `Hermes · ${providerName}` : 'Core offline';
+  const modeName={hybrid:'Hybrid',hermes:'Hermes Only',direct:'Direct Model'}[s.conversation_mode]||'Hybrid';
+  const brain = s.runtime === 'direct' ? `Direct · ${providerName}` : (s.runtime === 'hermes' ? `${modeName} · ${providerName}` : 'Core offline');
   const ttsLabel = s.tts === 'gemini' ? 'Gemini TTS' : (RT.tts ? 'ElevenLabs TTS' : 'Browser TTS');
   const sttLabel = RT.live ? 'Gemini Live' : (s.stt === 'local' ? 'Local STT' : (RT.stt ? 'ElevenLabs STT' : (RT.browserStt ? 'Browser STT' : 'Text only')));
   sys('gw', 'Online', 'ok');
