@@ -1,6 +1,7 @@
 """Zuzu's local, authenticated Hermes gateway transport."""
 import json
 import os
+import queue
 import secrets
 import socket
 import threading
@@ -21,16 +22,18 @@ def cancel_active():
         _ACTIVE_STREAMS.clear()
     for stream in streams:
         stream.zuzu_cancelled = True
-        try:
-            # Wake a read blocked on the socket, then release the response.
-            stream.fp.raw._sock.shutdown(socket.SHUT_RDWR)
-        except Exception:  # noqa: BLE001
-            pass
-        try:
-            stream.close()
-        except Exception:  # noqa: BLE001
-            pass
+        # urllib reads are not reliably interruptible on Windows. Close in a
+        # daemon thread so the request handler can return immediately while
+        # the transport teardown continues in the background.
+        threading.Thread(target=_close_stream, args=(stream,), daemon=True).start()
     return bool(streams)
+
+
+def _close_stream(stream):
+    try:
+        stream.close()
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def configured():
@@ -123,11 +126,34 @@ def run_hermes(message, session_id=None, system=None, *, title="Zuzu chat", prov
     failure = ""
     response = None
     try:
-        with _request(path, body, timeout=180) as response:
-            with _ACTIVE_LOCK:
-                _ACTIVE_STREAMS.add(response)
-            event_name = ""
-            for raw in response:
+        response = _request(path, body, timeout=180)
+        with _ACTIVE_LOCK:
+            _ACTIVE_STREAMS.add(response)
+        incoming = queue.Queue()
+
+        def read_stream():
+            try:
+                for item in response:
+                    incoming.put(("line", item))
+            except BaseException as exc:  # noqa: BLE001
+                incoming.put(("error", exc))
+            finally:
+                incoming.put(("done", None))
+
+        threading.Thread(target=read_stream, daemon=True).start()
+        event_name = ""
+        while True:
+            if getattr(response, "zuzu_cancelled", False):
+                raise OSError("cancelled by user")
+            try:
+                item_type, raw = incoming.get(timeout=0.1)
+            except queue.Empty:
+                continue
+            if item_type == "done":
+                break
+            if item_type == "error":
+                raise raw
+            if item_type == "line":
                 line = raw.decode("utf-8", "replace").rstrip("\r\n")
                 if line.startswith("event:"):
                     event_name = line[6:].strip()

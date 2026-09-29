@@ -57,13 +57,14 @@ class RuntimeTests(unittest.TestCase):
                  mock.patch.object(runtime, "PROVIDER", "gemini"), \
                  mock.patch.object(runtime, "MODEL", "gemini-2.5-flash"):
                 command = runtime.build_command("Inspect the desktop", system="Be concise")
+                active = runtime.active_model()
         self.assertEqual(command[:4], ["hermes", "chat", "-Q", "-q"])
         self.assertNotIn("--profile", command)
         self.assertIn("--model", command)
         self.assertEqual(command[command.index("--model") + 1], "gemini-2.5-flash")
         self.assertEqual(command[command.index("--provider") + 1], "google")
         self.assertIn("--source", command)
-        self.assertEqual(runtime.active_model(), "Hermes via google · gemini-2.5-flash")
+        self.assertEqual(active, "Hermes via google · gemini-2.5-flash")
 
     def test_hermes_profile_default_does_not_add_backend_flags(self):
         with mock.patch.object(runtime, "_hermes_base", return_value=["hermes"]):
@@ -94,8 +95,10 @@ class RuntimeTests(unittest.TestCase):
         probe.assert_called_once()
 
     def test_gemini_fallback_does_not_switch_to_36(self):
-        self.assertEqual(runtime.GEMINI_MODEL, "gemini-2.5-flash")
-        self.assertEqual(runtime.GEMINI_FALLBACK_MODEL, "gemini-2.5-flash")
+        with mock.patch.object(runtime, "GEMINI_MODEL", "gemini-2.5-flash"), \
+             mock.patch.object(runtime, "GEMINI_FALLBACK_MODEL", "gemini-2.5-flash"):
+            self.assertEqual(runtime.GEMINI_MODEL, "gemini-2.5-flash")
+            self.assertEqual(runtime.GEMINI_FALLBACK_MODEL, "gemini-2.5-flash")
 
     def test_local_voice_uses_hermes_chat_and_local_transcription(self):
         with mock.patch.dict(os.environ, {"JARVIS_VOICE_MODE": "local", "ELEVENLABS_API_KEY": ""}), \
