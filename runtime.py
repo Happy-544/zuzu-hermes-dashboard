@@ -219,9 +219,10 @@ def runtime_kind():
     return "hermes" if ok else "mock"
 
 
-def run_gemini(message, system=None):
+def run_gemini(message, system=None, model=None):
     """Use Gemini for the spoken conversation; Hermes remains available for tools."""
     global GEMINI_MODEL
+    selected_model = (model or GEMINI_MODEL).strip()
     if not gemini_available():
         yield dict(t="error", message="Gemini is not configured for this dashboard.")
         return
@@ -234,7 +235,7 @@ def run_gemini(message, system=None):
         body["systemInstruction"] = {"parts": [{"text": system}]}
     endpoint = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
-        + urllib.parse.quote(GEMINI_MODEL, safe="-") + ":generateContent?key="
+        + urllib.parse.quote(selected_model, safe="-") + ":generateContent?key="
         + urllib.parse.quote(gemini_api_key(), safe="")
     )
     request = urllib.request.Request(
@@ -249,13 +250,13 @@ def run_gemini(message, system=None):
         text = "".join(part.get("text", "") for part in parts).strip()
         if not text:
             raise RuntimeError("Gemini returned no text")
-        yield dict(t="status", model=GEMINI_MODEL, tools=len(hermes_tools_snapshot()),
+        yield dict(t="status", model=selected_model, tools=len(hermes_tools_snapshot()),
                    mcp=[], permission=PERMISSION, profile=PROFILE, runtime="gemini", session_id=None)
         yield dict(t="latency", ms=_mono_ms() - started)
         yield dict(t="delta", text=text)
         yield dict(t="complete", session_id=None, ms=_mono_ms() - started)
     except urllib.error.HTTPError as exc:
-        if exc.code == 404 and GEMINI_MODEL == "gemini-2.5-flash" and GEMINI_FALLBACK_MODEL and GEMINI_FALLBACK_MODEL != GEMINI_MODEL:
+        if exc.code == 404 and not model and GEMINI_MODEL == "gemini-2.5-flash" and GEMINI_FALLBACK_MODEL and GEMINI_FALLBACK_MODEL != GEMINI_MODEL:
             GEMINI_MODEL = GEMINI_FALLBACK_MODEL
             yield dict(t="note", message="Google rejected Gemini 2.5 Flash for this API account; using the configured fallback.")
             yield from run_gemini(message, system)
@@ -300,13 +301,13 @@ def active_model():
     return f"Hermes via {provider} · {model}"
 
 
-def run_provider(message, system=None):
+def run_provider(message, system=None, provider=None, model=None, api_base=None):
     """Run OpenAI-compatible providers and Anthropic through their HTTP APIs."""
-    started = _mono_ms(); model = _provider_model()
+    started = _mono_ms(); selected_provider = (provider or PROVIDER).lower(); selected_model = (model or (_provider_model() if not provider else "")).strip()
     try:
-        if PROVIDER == "anthropic":
-            base = (os.environ.get("JARVIS_API_BASE") or "https://api.anthropic.com").rstrip("/")
-            body = {"model": model, "max_tokens": 700, "messages": [{"role": "user", "content": message}]}
+        if selected_provider == "anthropic":
+            base = (api_base or os.environ.get("ANTHROPIC_API_BASE") or (os.environ.get("JARVIS_API_BASE") if not provider else "") or "https://api.anthropic.com").rstrip("/")
+            body = {"model": selected_model, "max_tokens": 700, "messages": [{"role": "user", "content": message}]}
             if system: body["system"] = system
             req = urllib.request.Request(base + "/v1/messages", data=json.dumps(body).encode(), method="POST",
                 headers={"content-type": "application/json", "x-api-key": os.environ["ANTHROPIC_API_KEY"], "anthropic-version": "2023-06-01"})
@@ -314,22 +315,22 @@ def run_provider(message, system=None):
             text = "".join(x.get("text", "") for x in payload.get("content", []) if x.get("type") == "text").strip()
         else:
             defaults = {"openai": "https://api.openai.com", "openrouter": "https://openrouter.ai/api", "venice": "https://api.venice.ai/api", "ollama": "http://127.0.0.1:11434"}
-            base = (os.environ.get("JARVIS_API_BASE") or defaults[PROVIDER]).rstrip("/")
+            base = (api_base or os.environ.get(f"{selected_provider.upper()}_API_BASE") or (os.environ.get("JARVIS_API_BASE") if not provider else "") or defaults[selected_provider]).rstrip("/")
             messages = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": message}]
-            body = {"model": model, "messages": messages, "stream": False}
+            body = {"model": selected_model, "messages": messages, "stream": False}
             headers = {"content-type": "application/json"}
-            key = os.environ.get(f"{PROVIDER.upper()}_API_KEY", "")
+            key = os.environ.get(f"{selected_provider.upper()}_API_KEY", "")
             if key: headers["authorization"] = "Bearer " + key
             req = urllib.request.Request(base + "/v1/chat/completions", data=json.dumps(body).encode(), method="POST", headers=headers)
             with urllib.request.urlopen(req, timeout=60) as response: payload = json.loads(response.read())
             text = payload["choices"][0]["message"]["content"].strip()
         if not text: raise RuntimeError("provider returned no text")
-        yield dict(t="status", model=model, tools=len(hermes_tools_snapshot()), permission=PERMISSION, profile=PROFILE, runtime=PROVIDER, session_id=None)
+        yield dict(t="status", model=selected_model, tools=len(hermes_tools_snapshot()), permission=PERMISSION, profile=PROFILE, runtime=selected_provider, session_id=None)
         yield dict(t="latency", ms=_mono_ms()-started); yield dict(t="delta", text=text); yield dict(t="complete", session_id=None, ms=_mono_ms()-started)
     except urllib.error.HTTPError as exc:
-        yield dict(t="error", message=f"{PROVIDER} request failed (HTTP {exc.code}).")
+        yield dict(t="error", message=f"{selected_provider} request failed (HTTP {exc.code}).")
     except Exception as exc:
-        yield dict(t="error", message=f"{PROVIDER} request failed: {str(exc)[:180]}")
+        yield dict(t="error", message=f"{selected_provider} request failed: {str(exc)[:180]}")
 
 
 def build_command(message, session_id=None, system=None):

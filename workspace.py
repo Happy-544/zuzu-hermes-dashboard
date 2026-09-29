@@ -42,6 +42,7 @@ MODELS = {
 DEFAULT = {
     "settings": {"conversationMode": "hybrid", "provider": "gemini", "model": "gemini-2.5-flash", "profile": "default",
                  "workdir": "~", "computerControl": False, "mobileControl": False,
+                 "voiceEngine": "gemini-live", "fallbacks": [], "providerSettings": {},
                  "liveModel": "gemini-2.5-flash-native-audio-preview-12-2025", "voice": "Kore",
                  "persona": "Warm, concise, capable and naturally conversational.",
                  "shortcutName": "JARVIS Control"},
@@ -75,13 +76,57 @@ def save(data):
 
 def public_state():
     data = load()
-    settings = dict(data["settings"])
+    settings = copy.deepcopy(data["settings"])
     provider = settings.get("provider", "gemini")
     key_name = f"{provider.upper()}_API_KEY"
     settings["apiConfigured"] = bool(os.environ.get(key_name)) or (provider == "gemini" and bool(os.environ.get("GEMINI_CONFIG_PATH")))
-    settings["apiBase"] = os.environ.get("JARVIS_API_BASE", "")
+    public_providers = {}
+    saved_providers = settings.get("providerSettings") or {}
+    for name, models in MODELS.items():
+        configured = bool(os.environ.get(f"{name.upper()}_API_KEY")) or (name == "gemini" and bool(os.environ.get("GEMINI_CONFIG_PATH")))
+        saved = saved_providers.get(name) if isinstance(saved_providers.get(name), dict) else {}
+        public_providers[name] = {
+            "endpoint": str(saved.get("endpoint") or os.environ.get(f"{name.upper()}_API_BASE", ""))[:500],
+            "model": str(saved.get("model") or (models[0] if models else ""))[:120],
+            "keyConfigured": configured,
+        }
+    settings["providerSettings"] = public_providers
+    settings["apiBase"] = public_providers.get(provider, {}).get("endpoint", "")
     return {**data, "settings": settings, "models": MODELS, "uploads": uploads(),
             "hermesMemory": hermes_memory_snapshot()}
+
+
+def effective_model_settings(data=None):
+    """Return the active brain selection, including the selected project's override."""
+    data = data or load()
+    settings = data.get("settings", {})
+    provider = settings.get("provider", "gemini")
+    model = settings.get("model", "")
+    project = next((p for p in data.get("projects", []) if p.get("id") == data.get("selectedProject")), None)
+    override = (project or {}).get("modelOverride") or {}
+    if override.get("provider") in MODELS:
+        provider = override["provider"]
+        model = override.get("model") or (MODELS[provider][0] if MODELS[provider] else "")
+    provider_settings = settings.get("providerSettings") or {}
+    item = provider_settings.get(provider) if isinstance(provider_settings.get(provider), dict) else {}
+    return {"provider": provider, "model": model, "apiBase": str(item.get("endpoint") or "")[:500]}
+
+
+def model_route(data=None):
+    """Primary route followed by validated global fallback routes."""
+    data = data or load()
+    route = [effective_model_settings(data)]
+    for item in data.get("settings", {}).get("fallbacks", []):
+        if not isinstance(item, dict) or item.get("provider") not in MODELS:
+            continue
+        provider = item["provider"]
+        provider_settings = data.get("settings", {}).get("providerSettings") or {}
+        config = provider_settings.get(provider) if isinstance(provider_settings.get(provider), dict) else {}
+        candidate = {"provider": provider, "model": item.get("model") or MODELS[provider][0],
+                     "apiBase": str(config.get("endpoint") or "")[:500]}
+        if candidate not in route:
+            route.append(candidate)
+    return route[:9]
 
 
 def clean_tags(raw):
@@ -258,9 +303,31 @@ def action(payload):
             raise ValueError("unsupported provider")
         if conversation_mode == "direct" and provider == "hermes":
             raise ValueError("Direct Model requires a configured model provider")
+        provider_settings = {}
+        raw_provider_settings = src.get("providerSettings") or {}
+        for name, models in MODELS.items():
+            item = raw_provider_settings.get(name) if isinstance(raw_provider_settings.get(name), dict) else {}
+            provider_settings[name] = {
+                "endpoint": str(item.get("endpoint", "")).strip()[:500],
+                "model": str(item.get("model") or (models[0] if models else "")).strip()[:120],
+            }
+        raw_fallbacks = src.get("fallbacks") or []
+        if isinstance(raw_fallbacks, str):
+            raw_fallbacks = [line.strip() for line in raw_fallbacks.splitlines() if line.strip()]
+        fallbacks = []
+        for item in raw_fallbacks[:8] if isinstance(raw_fallbacks, list) else []:
+            if isinstance(item, str):
+                fallback_provider, _, fallback_model = item.partition(":")
+                item = {"provider": fallback_provider.strip().lower(), "model": fallback_model.strip()}
+            if isinstance(item, dict) and item.get("provider") in MODELS and item.get("provider") != "hermes":
+                fallbacks.append({"provider": item["provider"], "model": str(item.get("model") or MODELS[item["provider"]][0])[:120]})
+        voice_engine = str(src.get("voiceEngine", "gemini-live")).lower()
+        if voice_engine not in {"gemini-live", "local"}:
+            raise ValueError("unsupported voice engine")
         clean = {
             "conversationMode": conversation_mode,
             "provider": provider, "model": str(src.get("model", "")).strip()[:120],
+            "voiceEngine": voice_engine, "fallbacks": fallbacks, "providerSettings": provider_settings,
             "profile": str(src.get("profile", "default")).strip()[:80] or "default",
             "workdir": str(src.get("workdir", "~")).strip()[:500] or "~",
             "computerControl": bool(src.get("computerControl")), "mobileControl": bool(src.get("mobileControl")),
@@ -275,12 +342,33 @@ def action(payload):
                "HERMES_PROFILE": clean["profile"], "JARVIS_WORKDIR": clean["workdir"],
                "GEMINI_CHAT_MODEL": gemini_chat_model,
                "GEMINI_LIVE_MODEL": clean["liveModel"], "GEMINI_TTS_VOICE": clean["voice"],
-               "JARVIS_API_BASE": str(src.get("apiBase", "")).strip()[:500]}
+               "JARVIS_API_BASE": provider_settings.get(provider, {}).get("endpoint", ""),
+               "JARVIS_VOICE_ENGINE": voice_engine}
         api_key = str(src.get("apiKey", "")).strip()
         if api_key:
             env[f"{provider.upper()}_API_KEY"] = api_key
+        provider_keys = src.get("providerKeys") or {}
+        for name in MODELS:
+            value = str(provider_keys.get(name, "")).strip() if isinstance(provider_keys, dict) else ""
+            if value:
+                env[f"{name.upper()}_API_KEY"] = value
+            endpoint = provider_settings.get(name, {}).get("endpoint", "")
+            env[f"{name.upper()}_API_BASE"] = endpoint
         _env_update(env)
         save(data)
+    elif kind == "set_project_model":
+        project_id = str(payload.get("projectId") or data.get("selectedProject") or "")
+        provider = str(payload.get("provider") or "inherit").lower()
+        if provider != "inherit" and provider not in MODELS:
+            raise ValueError("unsupported project provider")
+        for project in data.get("projects", []):
+            if project.get("id") == project_id:
+                if provider == "inherit":
+                    project.pop("modelOverride", None)
+                else:
+                    project["modelOverride"] = {"provider": provider, "model": str(payload.get("model") or MODELS[provider][0])[:120]}
+                save(data)
+                break
     elif kind == "add_project":
         name = str(payload.get("name", "New project")).strip()[:80] or "New project"
         folder = str(payload.get("folder", "~")).strip()[:500] or "~"

@@ -44,6 +44,23 @@ class ConversationModeTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "configured model provider"):
                 workspace.action({"action": "save_settings", "settings": settings})
 
+    def test_project_override_and_fallback_route_are_ordered(self):
+        state = {
+            "settings": {"provider": "gemini", "model": "gemini-2.5-flash",
+                         "fallbacks": [{"provider": "openrouter", "model": "openrouter/auto"}],
+                         "providerSettings": {"venice": {"endpoint": "https://api.venice.ai/api"}}},
+            "selectedProject": "p1",
+            "projects": [{"id": "p1", "modelOverride": {"provider": "venice", "model": "venice-uncensored-1-2"}}],
+        }
+        route = workspace.model_route(state)
+        self.assertEqual(route[0], {"provider": "venice", "model": "venice-uncensored-1-2", "apiBase": "https://api.venice.ai/api"})
+        self.assertEqual(route[1]["provider"], "openrouter")
+
+    def test_model_console_contains_voice_fallback_project_and_provider_controls(self):
+        html = pathlib.Path(server.UI / "index.html").read_text(encoding="utf-8")
+        for control in ("voiceEngine", "fallbackChain", "projectProvider", "providerSettings"):
+            self.assertIn(f'id="{control}"', html)
+
     def test_direct_mode_calls_selected_model_without_hermes_or_commands(self):
         handler = object.__new__(server.Handler)
         handler.wfile = io.BytesIO()
@@ -65,7 +82,7 @@ class ConversationModeTests(unittest.TestCase):
 
     def test_non_hybrid_status_disables_gemini_live_and_native_tts(self):
         source = pathlib.Path(server.__file__).read_text(encoding="utf-8")
-        self.assertIn('live_enabled = conversation_mode == "hybrid" and voice.live_available()', source)
+        self.assertIn('settings.get("voiceEngine", "gemini-live") == "gemini-live" and voice.live_available()', source)
         self.assertIn('tts=voice.tts_provider() if conversation_mode == "hybrid" else "browser"', source)
         self.assertIn('Gemini Live conversation is available only in Hybrid mode', source)
 

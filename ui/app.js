@@ -122,9 +122,11 @@ function renderWorkspace(){
   $('#sessionList').innerHTML = (selected?.sessions||[]).map(s => `<div class="session-row ${s.id===WS.selectedSession?'selected':''}"><button data-session="${esc(s.id)}">${esc(s.name)}</button><button class="danger-link" data-delete-session="${esc(s.id)}">×</button></div>`).join('') || '<div class="empty-state">Create the first chat in this project.</div>';
   const settings=WS.settings||{};
   $('#conversationMode').value=settings.conversationMode||'hybrid';
+  $('#voiceEngine').value=settings.voiceEngine||'gemini-live';
+  $('#fallbackChain').value=(settings.fallbacks||[]).map(x=>`${x.provider}:${x.model}`).join('\n');
   renderModeOptions();
-  $('#apiBase').value=settings.apiBase||'';
-  $('#apiState').textContent = settings.apiConfigured ? 'An API key is configured. Leave the field blank to keep it.' : 'No API key is configured for this provider. Hermes may still use credentials already saved in the Hermes profile.';
+  renderProjectModelOptions();
+  renderProviderSettings();
   $('#profileName').value=settings.profile||'default'; $('#workdir').value=settings.workdir||'~';
   $('#personaText').value=settings.persona||''; $('#computerControl').checked=!!settings.computerControl; $('#mobileControl').checked=!!settings.mobileControl;
   $('#shortcutName').value=settings.shortcutName||'Zuzu Control';
@@ -137,7 +139,7 @@ function renderWorkspace(){
 }
 function providerLabel(provider){
   const direct=$('#conversationMode')?.value==='direct';
-  return ({hermes:'Hermes profile default', gemini:direct?'Gemini':'Gemini for Hermes', openai:direct?'OpenAI':'OpenAI for Hermes', anthropic:direct?'Anthropic':'Anthropic for Hermes', openrouter:direct?'OpenRouter':'OpenRouter for Hermes', venice:direct?'Venice AI':'Venice AI for Hermes', ollama:direct?'Ollama local':'Ollama local for Hermes'}[provider] || String(provider||'Provider'));
+  return ({hermes:'Hermes profile default', gemini:direct?'Gemini':'Gemini for Hermes', openai:direct?'OpenAI':'OpenAI for Hermes', anthropic:direct?'Anthropic':'Anthropic for Hermes', openrouter:direct?'OpenRouter':'OpenRouter for Hermes', venice:direct?'Venice (uncensored)':'Venice (uncensored) for Hermes', ollama:direct?'Ollama local':'Ollama local for Hermes'}[provider] || String(provider||'Provider'));
 }
 function renderModeOptions(){
   if(!WS) return;
@@ -156,9 +158,38 @@ function renderModelOptions(){
   $('#modelSelect').innerHTML=models.map(m=>`<option ${m===current?'selected':''}>${esc(m)}</option>`).join('');
   $('#customModel').value=models.includes(current)?'':current;
 }
+function renderProjectModelOptions(){
+  if(!WS) return;
+  const project=(WS.projects||[]).find(p=>p.id===WS.selectedProject)||{};
+  const override=project.modelOverride||{};
+  const providers=['inherit',...Object.keys(WS.models||{})];
+  $('#projectProvider').innerHTML=providers.map(p=>`<option value="${esc(p)}" ${p===(override.provider||'inherit')?'selected':''}>${p==='inherit'?'Inherit global':esc(providerLabel(p))}</option>`).join('');
+  renderProjectModels();
+}
+function renderProjectModels(){
+  const provider=$('#projectProvider').value;
+  const project=(WS.projects||[]).find(p=>p.id===WS.selectedProject)||{};
+  const current=project.modelOverride?.model||'';
+  if(provider==='inherit'){$('#projectModel').innerHTML='<option value="">Inherit global</option>'; $('#projectModel').disabled=true; return;}
+  $('#projectModel').disabled=false;
+  $('#projectModel').innerHTML=(WS.models?.[provider]||[]).map(m=>`<option value="${esc(m)}" ${m===current?'selected':''}>${esc(m)}</option>`).join('');
+}
+function renderProviderSettings(){
+  const saved=WS.settings?.providerSettings||{};
+  $('#providerSettings').innerHTML=Object.keys(WS.models||{}).filter(provider=>provider!=='hermes').map(provider=>{
+    const item=saved[provider]||{}; const state=item.keyConfigured?'key set':'no key';
+    return `<section class="provider-card" data-provider-card="${esc(provider)}"><header><b>${esc(providerLabel(provider).replace(' for Hermes',''))}</b><span class="${item.keyConfigured?'set':''}">${state}</span></header><div class="provider-fields"><label>Endpoint<input data-provider-endpoint value="${esc(item.endpoint||'')}" placeholder="Provider default"></label><label>Preferred model<input data-provider-model value="${esc(item.model||WS.models[provider]?.[0]||'')}" placeholder="default"></label><label>API key<input data-provider-key type="password" autocomplete="new-password" placeholder="${item.keyConfigured?'leave blank to keep':'add key'}"></label></div></section>`;
+  }).join('');
+}
+function collectProviderSettings(){
+  const providerSettings={},providerKeys={};
+  document.querySelectorAll('[data-provider-card]').forEach(card=>{const p=card.dataset.providerCard;providerSettings[p]={endpoint:card.querySelector('[data-provider-endpoint]').value.trim(),model:card.querySelector('[data-provider-model]').value.trim()};const key=card.querySelector('[data-provider-key]').value.trim();if(key)providerKeys[p]=key;});
+  return {providerSettings,providerKeys};
+}
 $('#conversationMode').onchange=renderModeOptions;
 $('#providerSelect').onchange=renderModelOptions;
-$('#modelForm').onsubmit=async e=>{e.preventDefault(); const s=WS.settings; const conversationMode=$('#conversationMode').value; const provider=$('#providerSelect').value; const model=$('#customModel').value.trim()||$('#modelSelect').value; await workspaceRequest({action:'save_settings',settings:{...s,conversationMode,provider,model,apiBase:$('#apiBase').value.trim(),apiKey:$('#apiKey').value.trim()}}); $('#apiKey').value=''; log('complete','CONVERSATION MODE',`${conversationMode} · ${providerLabel(provider)} · ${model}`); refreshStatus();};
+$('#projectProvider').onchange=renderProjectModels;
+$('#modelForm').onsubmit=async e=>{e.preventDefault(); const s=WS.settings; const conversationMode=$('#conversationMode').value; const provider=$('#providerSelect').value; const model=$('#customModel').value.trim()||$('#modelSelect').value; const voiceEngine=$('#voiceEngine').value; const fallbacks=$('#fallbackChain').value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean); const providers=collectProviderSettings(); const projectId=WS.selectedProject,projectProvider=$('#projectProvider').value,projectModel=$('#projectModel').value; await workspaceRequest({action:'save_settings',settings:{...s,conversationMode,voiceEngine,provider,model,fallbacks,...providers}}); await workspaceRequest({action:'set_project_model',projectId,provider:projectProvider,model:projectModel}); log('complete','MODEL ROUTING',`${conversationMode} · ${providerLabel(provider)} · ${model}`); refreshStatus();};
 const addProject=()=>openEditor('New project',[{name:'name',label:'Project name'},{name:'folder',label:'Folder on this computer',placeholder:'C:\\Projects\\My project'}],v=>workspaceRequest({action:'add_project',...v}));
 $('#addProject').onclick=addProject; $('#quickProject').onclick=()=>{showView('projects');addProject();};
 $('#addSession').onclick=()=>openEditor('New chat',[{name:'name',label:'Chat name'}],v=>workspaceRequest({action:'add_session',projectId:WS.selectedProject,...v}));

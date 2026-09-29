@@ -540,15 +540,17 @@ class Handler(BaseHTTPRequestHandler):
         if p == "/api/status":
             settings = workspace.load().get("settings", {})
             conversation_mode = settings.get("conversationMode", "hybrid")
+            effective = workspace.effective_model_settings()
             hermes_health = hermes_api.health() if hermes_api.configured() else runtime.hermes_health_snapshot()
             runtime_name = "direct" if conversation_mode == "direct" else ("hermes" if hermes_health["connected"] else "mock")
-            live_enabled = conversation_mode == "hybrid" and voice.live_available()
-            selected_model = (f"{settings.get('provider', runtime.PROVIDER)} · {settings.get('model', runtime.MODEL)}"
-                              if conversation_mode == "direct" else runtime.active_model())
+            live_enabled = conversation_mode == "hybrid" and settings.get("voiceEngine", "gemini-live") == "gemini-live" and voice.live_available()
+            selected_model = (f"{effective['provider']} · {effective['model']}" if conversation_mode == "direct" else
+                              ("Hermes profile default" if effective["provider"] == "hermes" else
+                               f"Hermes via {effective['provider']} · {effective['model']}"))
             return self._json(dict(
                 runtime=runtime_name,
                 conversation_mode=conversation_mode,
-                provider=runtime.PROVIDER,
+                provider=effective["provider"],
                 hermes_connected=hermes_health["connected"],
                 hermes_pending=hermes_health["pending"],
                 hermes_detail=hermes_health["detail"],
@@ -753,8 +755,10 @@ class Handler(BaseHTTPRequestHandler):
                 if not isinstance(payload, dict):
                     return self._json({"error": "JSON object required"}, 400)
                 purpose = payload.get("purpose")
-                mode = workspace.load().get("settings", {}).get("conversationMode", "hybrid")
-                if mode != "hybrid" and purpose not in {"speak", "calm"}:
+                voice_settings = workspace.load().get("settings", {})
+                mode = voice_settings.get("conversationMode", "hybrid")
+                voice_engine = voice_settings.get("voiceEngine", "gemini-live")
+                if (mode != "hybrid" or voice_engine != "gemini-live") and purpose not in {"speak", "calm"}:
                     return self._json({"error": "Gemini Live conversation is available only in Hybrid mode"}, 409)
                 live_auth = voice.create_live_token()
                 live_auth["voice"] = workspace.load()["settings"].get("voice", voice.GEMINI_TTS_VOICE)
@@ -985,10 +989,26 @@ class Handler(BaseHTTPRequestHandler):
 
         if conversation_mode == "direct":
             try:
-                runner = (runtime.run_gemini(message, system) if settings.get("provider") == "gemini"
-                          else runtime.run_provider(message, system))
-                for ev in runner:
-                    emit(ev)
+                route = workspace.model_route()
+                last_error = None
+                for index, candidate in enumerate(route):
+                    runner = (runtime.run_gemini(message, system, candidate["model"])
+                              if candidate["provider"] == "gemini"
+                              else runtime.run_provider(message, system, candidate["provider"], candidate["model"], candidate.get("apiBase")))
+                    events = list(runner)
+                    error = next((ev for ev in events if ev.get("t") == "error"), None)
+                    complete = any(ev.get("t") == "complete" for ev in events)
+                    if complete and not error:
+                        if index:
+                            emit(dict(t="note", message=f"Fallback answered with {candidate['provider']} · {candidate['model']}"))
+                        for ev in events:
+                            emit(ev)
+                        break
+                    last_error = error
+                    if index + 1 < len(route):
+                        emit(dict(t="note", message=f"{candidate['provider']} · {candidate['model']} unavailable; trying fallback."))
+                else:
+                    emit(last_error or dict(t="error", message="All configured models failed."))
             except (BrokenPipeError, ConnectionResetError):
                 pass
             except Exception as e:  # noqa: BLE001
@@ -1028,7 +1048,9 @@ class Handler(BaseHTTPRequestHandler):
             selected = next((s for p in workspace.load().get("projects", []) if p.get("id") == project_id
                              for s in p.get("sessions", []) if s.get("id") == ui_id), {})
             if hermes_api.configured():
-                provider, model = runtime.hermes_backend_override()
+                effective = workspace.effective_model_settings()
+                provider = None if effective["provider"] == "hermes" else ({"gemini": "google"}.get(effective["provider"], effective["provider"]))
+                model = effective["model"]
                 runner = hermes_api.run_hermes(message, hermes_id, system,
                                                title=selected.get("name", "Zuzu chat"),
                                                provider=provider, model=model if provider else None)

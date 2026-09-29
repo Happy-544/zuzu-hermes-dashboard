@@ -1,0 +1,14 @@
+.model-console{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;padding:22px;background:linear-gradient(180deg,rgba(24,15,9,.96),rgba(10,10,9,.97));border-color:rgba(255,153,42,.3)}
+.model-console h2{grid-column:1/-1;margin:12px 0 0;padding-top:8px;color:#fff1d1;font-size:17px}
+.model-console h2 small{color:var(--dim);font-size:10px;font-weight:500}
+.model-console label{display:flex;flex-direction:column;gap:8px;color:var(--muted);font-size:11px}
+.model-console textarea{resize:vertical}
+.provider-settings{display:flex;flex-direction:column;gap:8px}
+.provider-card{padding:12px;border:1px solid rgba(255,153,42,.28);border-radius:12px;background:rgba(10,9,8,.72)}
+.provider-card header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.provider-card header b{text-transform:capitalize;color:#fff1d1}
+.provider-card header span{color:var(--dim);font:9px/1 var(--mono)}
+.provider-card header span.set{color:var(--amber)}
+.provider-fields{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+.model-console>.primary-btn{width:100%}
+@media(max-width:700px){.model-console{grid-template-columns:1fr;padding:14px;gap:13px}.model-console .span2,.model-console h2{grid-column:auto}.provider-fields{grid-template-columns:1fr}.provider-card{padding:10px}}

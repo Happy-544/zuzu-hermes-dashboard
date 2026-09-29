@@ -11,7 +11,8 @@
 <title>Zuzu · Hermes</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-192.png">
-<link rel="stylesheet" href="styles.css?v=49">
+<link rel="stylesheet" href="styles.css?v=50">
+<link rel="stylesheet" href="models.css?v=1">
 </head>
 <body>
 <div class="grid-bg"></div>
@@ -215,8 +216,28 @@
     </section>
 
     <section class="view" role="tabpanel" data-view-panel="models" hidden>
-      <div class="view-head"><div><span class="kicker">Zuzu brain</span><h1>Conversation modes & models</h1><p class="view-sub">Choose who answers and whether Hermes tools are available.</p></div><span class="runtime-badge">One active route</span></div>
-      <form id="modelForm" class="panel glass settings-form"><label class="span2">Conversation mode<select id="conversationMode"><option value="hybrid">Fast Hybrid — Gemini Live talks, Hermes acts</option><option value="hermes">Hermes Only — Hermes handles every turn</option><option value="direct">Direct Model — selected model only, no Hermes tools</option></select></label><div class="form-note span2" id="modeDescription"></div><label>Provider<select id="providerSelect"></select></label><label>Model<select id="modelSelect"></select></label><label>Custom model<input id="customModel" placeholder="Optional model ID"></label><label>API base URL<input id="apiBase" inputmode="url" placeholder="Provider default"></label><label class="span2">API key<input id="apiKey" type="password" autocomplete="new-password" placeholder="Leave blank to keep the saved key"></label><div class="form-note span2" id="apiState">Keys remain on this computer and are never returned to the browser.</div><button class="primary-btn" type="submit">Apply mode</button></form>
+      <div class="view-head"><div><span class="kicker">Models</span><h1>Models</h1><p class="view-sub">Pick the conversation brain and voice engine separately — one model rarely does both tools and realtime audio well.</p></div><span class="runtime-badge">Hermes executes</span></div>
+      <form id="modelForm" class="panel glass model-console">
+        <div class="form-note span2">Brain and voice are independent. The brain decides and acts; the voice speaks. They do not have to come from the same provider.</div>
+        <h2>Conversation brain</h2>
+        <label>Provider<select id="providerSelect"></select></label><label>Model<select id="modelSelect"></select></label>
+        <label class="span2">Custom model<input id="customModel" placeholder="Optional model ID"></label>
+        <h2>Voice engine</h2>
+        <label class="span2">Engine<select id="voiceEngine"><option value="gemini-live">Gemini Live (realtime audio)</option><option value="local">Browser / local voice</option></select></label>
+        <h2>Routing mode</h2>
+        <label class="span2">Mode<select id="conversationMode"><option value="hybrid">Fast Hybrid — Gemini Live talks, Hermes acts</option><option value="hermes">Hermes Only — Hermes handles every turn</option><option value="direct">Direct Model — selected model only, no Hermes tools</option></select></label>
+        <div class="form-note span2" id="modeDescription"></div>
+        <h2>Fallback chain</h2>
+        <label class="span2">Ordered fallbacks <small>(provider:model, one per line)</small><textarea id="fallbackChain" rows="4" placeholder="venice:qwen-3-6-plus&#10;openai:gpt-5.4-mini"></textarea></label>
+        <div class="form-note span2">If the brain fails or runs out of credits, Zuzu tries these in order and shows which model answered.</div>
+        <h2>This project's model</h2>
+        <label>Project override<select id="projectProvider"></select></label><label>Project model<select id="projectModel"></select></label>
+        <div class="form-note span2">Leave on “inherit” to use the global brain. This applies only to the currently selected project.</div>
+        <h2>Provider settings <small>(keys stay on the server)</small></h2>
+        <div id="providerSettings" class="provider-settings span2"></div>
+        <div class="form-note span2">Endpoints and preferred models are saved on this computer. API keys are written server-side and are never returned to the browser or stored in the repository.</div>
+        <button class="primary-btn span2" type="submit">Apply</button>
+      </form>
     </section>
 
     <section class="view" role="tabpanel" data-view-panel="tools" hidden>
@@ -512,7 +533,7 @@
   <div id="calmCrisis" class="calm-crisis" hidden role="alert"></div>
   <p class="calm-note">Zuzu is a supportive companion, not a licensed therapist. In an emergency call 999 (UAE) or 123 (Egypt).</p>
 </div>
-<script src="app.js?v=49"></script>
+<script src="app.js?v=50"></script>
 <script src="calm.js?v=2"></script>
 <script src="creative.js?v=1"></script>
 </body>
