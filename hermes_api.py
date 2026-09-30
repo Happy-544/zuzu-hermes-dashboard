@@ -65,11 +65,16 @@ def health():
         return {"connected": False, "pending": False, "detail": "Hermes API key is not configured"}
     try:
         with _request("/v1/models", timeout=3) as response:
+            content_type = response.headers.get("Content-Type", "").lower()
+            if "json" not in content_type:
+                raise RuntimeError("Hermes API endpoint returned a web page; check HERMES_API_BASE")
             result = json.load(response)
         return {"connected": bool(result.get("data")), "pending": False, "detail": "Hermes API ready"}
     except urllib.error.HTTPError as exc:
         return {"connected": False, "pending": False, "detail": f"Hermes API HTTP {exc.code}"}
-    except (OSError, ValueError, RuntimeError) as exc:
+    except RuntimeError as exc:
+        return {"connected": False, "pending": False, "detail": str(exc)}
+    except (OSError, ValueError) as exc:
         return {"connected": False, "pending": False, "detail": f"Hermes API unavailable: {type(exc).__name__}"}
 
 

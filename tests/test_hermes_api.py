@@ -21,10 +21,27 @@ class _Response:
         return json.dumps(self.body).encode()
 
 
+class _HealthResponse(_Response):
+    def __init__(self, body, content_type="application/json"):
+        super().__init__(body)
+        self.headers = {"Content-Type": content_type}
+
+    def __iter__(self):
+        return iter([self.read()])
+
+
 class HermesApiTests(unittest.TestCase):
     def test_empty_api_base_uses_loopback_default(self):
         with mock.patch.dict(os.environ, {"HERMES_API_BASE": ""}, clear=False):
             self.assertEqual(hermes_api._base(), "http://127.0.0.1:8642")
+
+    def test_health_rejects_dashboard_html_as_api(self):
+        response = _HealthResponse("<html>dashboard</html>", "text/html; charset=utf-8")
+        with mock.patch.dict(os.environ, {"HERMES_API_KEY": "test"}), \
+             mock.patch.object(hermes_api, "_request", return_value=response):
+            result = hermes_api.health()
+        self.assertFalse(result["connected"])
+        self.assertIn("returned a web page", result["detail"])
 
     def test_failed_run_surfaces_provider_message(self):
         frames = [
