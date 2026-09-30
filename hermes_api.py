@@ -41,7 +41,7 @@ def configured():
 
 
 def _base():
-    base = os.environ.get("HERMES_API_BASE", "http://127.0.0.1:8642").rstrip("/")
+    base = (os.environ.get("HERMES_API_BASE") or "http://127.0.0.1:8642").rstrip("/")
     parsed = urllib.parse.urlparse(base)
     if parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "localhost"}:
         raise RuntimeError("Hermes API must bind to this computer's loopback address")

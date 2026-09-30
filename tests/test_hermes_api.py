@@ -22,6 +22,10 @@ class _Response:
 
 
 class HermesApiTests(unittest.TestCase):
+    def test_empty_api_base_uses_loopback_default(self):
+        with mock.patch.dict(os.environ, {"HERMES_API_BASE": ""}, clear=False):
+            self.assertEqual(hermes_api._base(), "http://127.0.0.1:8642")
+
     def test_failed_run_surfaces_provider_message(self):
         frames = [
             ("assistant.completed", {"content": "Provider credits exhausted"}),
