@@ -111,10 +111,8 @@ const workspaceRequest = async payload => {
   if(payload.action==='select_session'&&payload.sessionId){
     try{localStorage.setItem('zuzu-selected-chat',JSON.stringify({project_id:payload.projectId,chat_id:payload.sessionId}));}catch(_){}
   }
-  if (['select_session','add_session','delete_session','delete_project'].includes(payload.action)) {
-    persistLiveTurn();
-    if (convo || liveConnecting) stopConvo();
-  }
+  // Browsing is independent of the active call, which stays pinned to liveChat.
+  if (['select_session','add_session','delete_session','delete_project'].includes(payload.action)) await persistLiveTurn();
   const response = await fetch('/api/workspace', {
     method:'POST', headers:apiHeaders({'content-type':'application/json'}), body:JSON.stringify(payload)
   });
@@ -123,7 +121,8 @@ const workspaceRequest = async payload => {
   WS = data; renderWorkspace();
   if (['select_session','add_session','delete_session','delete_project'].includes(payload.action)) {
     try { localStorage.setItem('zuzu-selected-chat', JSON.stringify(chatRef())); } catch (_) {}
-    answer=''; liveUserTurn=''; setUserText(''); renderAnswer(); await loadHistory();
+    answer=(liveChat&&sameChat(liveChat))?liveAssistantTurn:'';
+    setUserText((liveChat&&sameChat(liveChat))?liveUserTurn:''); renderAnswer(); await loadHistory();
   }
   return data;
 };
@@ -135,10 +134,20 @@ function openEditor(title, fields, onSave){
     : `<input name="${esc(f.name)}" placeholder="${esc(f.placeholder||'')}">`}</label>`).join('');
   $('#editorForm').onsubmit = async e => {
     e.preventDefault();
+    if(e.submitter?.value==='cancel'){editor.close();return;}
     const values = Object.fromEntries(new FormData(e.currentTarget));
-    try { await onSave(values); editor.close(); } catch(err){ log('error','SAVE',String(err.message||err)); }
+    try { await onSave(values); editor.close(); } catch(err){ log('error','SAVE',String(err.message||err)); showToast(err.message||String(err),'error'); }
   };
   editor.showModal();
+}
+function confirmConversationDeletion(name){
+  const dialog=$('#deleteConversationDialog');
+  $('#deleteConversationText').textContent=`Delete "${name}" from Zuzu? Its Zuzu transcript will be removed. Saved memories and the original Hermes history are kept.`;
+  dialog.returnValue='cancel';
+  return new Promise(resolve=>{
+    dialog.addEventListener('close',()=>resolve(dialog.returnValue==='delete'),{once:true});
+    dialog.showModal();
+  });
 }
 function renderWorkspace(){
   if (!WS) return;
@@ -148,7 +157,8 @@ function renderWorkspace(){
   $('#sidebarProjects').innerHTML = projects.slice(0,6).map(p => `<button data-project="${esc(p.id)}">${esc(p.name)}</button>`).join('');
   const chats=projects.flatMap(p=>(p.sessions||[]).map(s=>({...s,projectId:p.id,projectName:p.name})))
     .sort((a,b)=>(b.updated||b.created||0)-(a.updated||a.created||0));
-  $('#conversationList').innerHTML=chats.map(s=>`<button type="button" data-chat-project="${esc(s.projectId)}" data-session="${esc(s.id)}" class="${s.id===WS.selectedSession&&s.projectId===WS.selectedProject?'selected':''}"><span>${esc(s.name)}</span><small>${esc(s.projectName)}</small></button>`).join('')||'<small>No conversations yet.</small>';
+  $('#conversationList').innerHTML=chats.map(s=>`<div class="conversation-item"><button type="button" class="conversation-open ${s.id===WS.selectedSession&&s.projectId===WS.selectedProject?'selected':''}" data-chat-project="${esc(s.projectId)}" data-session="${esc(s.id)}"><span>${esc(s.name)}</span><small>${esc(s.projectName)}</small></button><button type="button" class="conversation-action" data-chat-project="${esc(s.projectId)}" data-rename-session="${esc(s.id)}" title="Rename conversation" aria-label="Rename ${esc(s.name)}">✎</button><button type="button" class="conversation-action conversation-delete" data-chat-project="${esc(s.projectId)}" data-delete-session="${esc(s.id)}" title="Delete conversation" aria-label="Delete ${esc(s.name)}">×</button></div>`).join('')||'<small>No conversations yet.</small>';
+  renderVoiceConversation();
   $('#sessionContext').textContent = selected ? selected.name : 'Choose a project';
   $('#sessionList').innerHTML = (selected?.sessions||[]).map(s => `<div class="session-row ${s.id===WS.selectedSession?'selected':''}"><button data-session="${esc(s.id)}">${esc(s.name)}</button><button class="danger-link" data-delete-session="${esc(s.id)}">×</button></div>`).join('') || '<div class="empty-state">Create the first chat in this project.</div>';
   const settings=WS.settings||{};
@@ -354,7 +364,7 @@ document.addEventListener('click',async e=>{
     transmit(`${item.prompt || `Search ${item.source} for ${item.name}.`} Current catalogue query: ${($('#skillSearch')?.value||'').trim() || item.name}.`,{speak:false});
     return;
   }
-  const b=e.target.closest('[data-project],[data-session],[data-delete-project],[data-delete-session],[data-delete-skill],[data-delete-memory],[data-edit-memory]'); if(!b||!WS)return;
+  const b=e.target.closest('[data-project],[data-session],[data-rename-session],[data-delete-project],[data-delete-session],[data-delete-skill],[data-delete-memory],[data-edit-memory]'); if(!b||!WS)return;
   try{
     if(b.dataset.editMemory){
       const memory=(WS.memory||[]).find(m=>m.id===b.dataset.editMemory);
@@ -365,11 +375,30 @@ document.addEventListener('click',async e=>{
     }
     if(b.dataset.project){ await workspaceRequest({action:'select_session',projectId:b.dataset.project,sessionId:''}); await loadHistory(); }
     if(b.dataset.session){ await workspaceRequest({action:'select_session',projectId:b.dataset.chatProject||WS.selectedProject,sessionId:b.dataset.session}); showView('chat'); await loadHistory(); }
-    if(b.dataset.deleteProject) await workspaceRequest({action:'delete_project',id:b.dataset.deleteProject});
-    if(b.dataset.deleteSession) await workspaceRequest({action:'delete_session',id:b.dataset.deleteSession});
+    if(b.dataset.renameSession){
+      const projectId=b.dataset.chatProject||WS.selectedProject, id=b.dataset.renameSession;
+      const chat=WS.projects.find(p=>p.id===projectId)?.sessions.find(s=>s.id===id);
+      openEditor('Rename conversation',[{name:'name',label:'Conversation name',placeholder:chat?.name||''}],
+        values=>workspaceRequest({action:'rename_session',projectId,id,name:values.name}));
+      $('#dialogFields [name="name"]').value=chat?.name||'';
+    }
+    if(b.dataset.deleteProject){
+      if((convo||liveConnecting||voiceWanted)&&liveChat?.project_id===b.dataset.deleteProject)throw Error('End the voice call before deleting its project.');
+      await workspaceRequest({action:'delete_project',id:b.dataset.deleteProject});
+    }
+    if(b.dataset.deleteSession){
+      const projectId=b.dataset.chatProject||WS.selectedProject,id=b.dataset.deleteSession;
+      if((convo||liveConnecting||voiceWanted)&&liveChat?.project_id===projectId&&liveChat?.chat_id===id)throw Error('End the voice call before deleting its conversation.');
+      const chat=WS.projects.find(p=>p.id===projectId)?.sessions.find(s=>s.id===id);
+      // HTML dialogs keep microphone/socket callbacks running during confirmation.
+      if(!await confirmConversationDeletion(chat?.name||'this conversation'))return;
+      if((convo||liveConnecting||voiceWanted)&&liveChat?.project_id===projectId&&liveChat?.chat_id===id)throw Error('End the voice call before deleting its conversation.');
+      await workspaceRequest({action:'delete_session',projectId,id});
+      voiceResults.discardChat({project_id:projectId,chat_id:id});
+    }
     if(b.dataset.deleteSkill) await workspaceRequest({action:'delete_skill',id:b.dataset.deleteSkill});
     if(b.dataset.deleteMemory) await workspaceRequest({action:'delete_memory',id:b.dataset.deleteMemory});
-  }catch(err){log('error','WORKSPACE',String(err.message||err));}
+  }catch(err){log('error','WORKSPACE',String(err.message||err));showToast(String(err.message||err),'error');}
 });
 $('#saveSettings').onclick=async()=>{const s=WS.settings; await workspaceRequest({action:'save_settings',settings:{...s,profile:$('#profileName').value,workdir:$('#workdir').value,persona:$('#personaText').value,computerControl:$('#computerControl').checked,mobileControl:$('#mobileControl').checked,liveModel:$('#liveModel').value,voice:$('#voiceSelect').value,shortcutName:$('#shortcutName').value}}); log('complete','SETTINGS','agent settings saved'); refreshStatus();};
 $('#signOut').onclick=async()=>{await fetch('/api/logout',{method:'POST',headers:apiHeaders({'content-type':'application/json'}),body:'{}'}).catch(()=>{});location.replace('/login.html');};
@@ -973,6 +1002,23 @@ document.addEventListener('keydown',e=>{
 new MutationObserver(()=>{ if(MG.engine && !$('[data-view-panel="memory"]').hidden){ MG.engine.resize(); MG.engine.kick(.05); setTimeout(()=>MG.engine.fit(),60); } }).observe($('[data-view-panel="memory"]'),{attributes:true,attributeFilter:['hidden']});
 function chatRef(){return {project_id:WS?.selectedProject,chat_id:WS?.selectedSession};}
 function sameChat(ref){return ref.project_id===WS?.selectedProject&&ref.chat_id===WS?.selectedSession;}
+function renderVoiceConversation(){
+  const bar=$('#voiceConversation');
+  if(!bar)return;
+  bar.hidden=!(liveChat&&(convo||liveConnecting||voiceWanted));
+  if(bar.hidden)return;
+  const project=WS?.projects.find(p=>p.id===liveChat.project_id);
+  const chat=project?.sessions.find(s=>s.id===liveChat.chat_id);
+  $('#voiceConversationName').textContent=`Voice · ${chat?.name||'Original conversation'}`;
+  $('#returnToVoiceChat').hidden=sameChat(liveChat);
+}
+$('#returnToVoiceChat').onclick=async()=>{
+  if(!liveChat)return;
+  try{
+    await workspaceRequest({action:'select_session',projectId:liveChat.project_id,sessionId:liveChat.chat_id});
+    showView('chat');
+  }catch(error){showToast(error.message||String(error),'error');}
+};
 async function newConversation(){
   await workspaceRequest({action:'add_session',projectId:WS.selectedProject,name:'New chat'});
   showView('chat'); $('#input').focus();
@@ -1013,7 +1059,17 @@ async function loadHistory(){
 }
 setInterval(async()=>{
   if(document.hidden||historyLoading||!WS)return;
-  historyLoading=true;try{await loadHistory();}finally{historyLoading=false;}
+  historyLoading=true;
+  try{
+    await loadHistory();
+    // The voice outbox belongs to the call, even while another chat is visible.
+    if(liveChat&&(convo||voiceWanted)&&!sameChat(liveChat)){
+      const ref={...liveChat};
+      const r=await fetch('/api/history?'+new URLSearchParams(ref),{headers:apiHeaders(),cache:'no-store'});
+      if(r.ok)voiceResults.recover(ref,(await r.json()).runs);
+    }
+  }catch(error){log('error','VOICE HISTORY',String(error.message||error));}
+  finally{historyLoading=false;}
 },4000);
 
 // ── reactor state ──
@@ -1087,7 +1143,9 @@ async function transmit(message, options = {}){
     return;
   }
   dispatchReserved = true;
-  const originChat=chatRef();
+  const originChat=options.chat||chatRef();
+  const voiceTurn=options.voice===true;
+  let streamedAnswer='';
   try {
     if (await handleLocalCommand(message)){ dispatchReserved = false; return; }
   } catch(error) {
@@ -1097,7 +1155,8 @@ async function transmit(message, options = {}){
     return;
   }
   try {
-    lastUserTurn = message; liveUserTurn = message;
+    lastUserTurn = message;
+    if(liveReady&&liveChat&&sameChat(liveChat))liveUserTurn=message;
     pendingLiveAttachmentParts = [];
     const previewNote = maybeOpenRequestedBrowserPreview(message);
     message = await attachVisualContext(message);
@@ -1110,7 +1169,7 @@ async function transmit(message, options = {}){
   }
   // With Live connected, typed and spoken turns share the same voice session.
   // Tool requests return through hermes_action; no second TTS voice overlaps it.
-  if (liveReady && liveWs?.readyState === WebSocket.OPEN && !message.trim().startsWith('/')) {
+  if (liveReady && sameChat(liveChat) && liveWs?.readyState === WebSocket.OPEN && !message.trim().startsWith('/')) {
     setUserText(message.trim().slice(0,90));
     const parts = [{text:message}, ...pendingLiveAttachmentParts];
     pendingLiveAttachmentParts = [];
@@ -1118,17 +1177,17 @@ async function transmit(message, options = {}){
     persistLiveTurn();
     return;
   }
-  showView('chat');
-  resetSteps(message); watchPc(message);
-  running = true; answer = ''; firstDelta = false; speakThisRun = options.speak !== false;
+  if(sameChat(originChat)){showView('chat');resetSteps(message);watchPc(message);answer='';}
+  running = true; firstDelta = false;
+  speakThisRun = options.speak !== false && !liveReady && !voiceTurn && !convo;
   dispatchReserved = false;
-  setUserText(message.trim().slice(0,90));
+  if(sameChat(originChat))setUserText(message.trim().slice(0,90));
 
   const fresh = /^\/new\b/.test(message.trim());
   const id = rid();
   setState('running', 'RUNNING', id.slice(0,20) + '…');
   setTag('run', 'RUNNING');
-  $('#response').innerHTML = '<span class="cur"></span>';
+  if(sameChat(originChat))$('#response').innerHTML = '<span class="cur"></span>';
   log('run', 'RUN', `started ${id}; uplink cleared`);
 
   // visible elapsed counter — a slow answer should never look like a dead screen
@@ -1136,7 +1195,7 @@ async function transmit(message, options = {}){
   const tick = setInterval(() => {
     if (!running) return;
     const s = ((performance.now()-t0)/1000).toFixed(1);
-    if (!answer) $('#strun').textContent = `thinking… ${s}s`;
+    if (sameChat(originChat)&&!answer) $('#strun').textContent = `thinking… ${s}s`;
   }, 200);
 
   try {
@@ -1161,7 +1220,19 @@ async function transmit(message, options = {}){
       while ((nl = buf.indexOf('\n')) >= 0){
         const line = buf.slice(0, nl).trim();
         buf = buf.slice(nl + 1);
-        if (line && sameChat(originChat)) handle(JSON.parse(line));
+        if(line){
+          const ev=JSON.parse(line);
+          if(ev.t==='delta')streamedAnswer+=ev.text||'';
+          if(sameChat(originChat)){
+            if(ev.t==='delta')answer=streamedAnswer.slice(0,-(ev.text||'').length)||'';
+            if(ev.t==='complete')answer=streamedAnswer;
+            handle(ev);
+          }
+          if(voiceTurn&&convo&&liveChat?.project_id===originChat.project_id&&liveChat?.chat_id===originChat.chat_id){
+            if(ev.t==='complete')speakDone=speak(streamedAnswer);
+            if(ev.t==='error')showToast(ev.message||'Voice action failed','error');
+          }
+        }
       }
     }
   } catch (e){
@@ -1315,6 +1386,7 @@ function useVoiceFallback(reason){
     : `Gemini Live failed: ${reason || 'connection closed'}`;
   stopConvo(false);
   voiceWanted=false;
+  renderVoiceConversation();
   sessionStorage.removeItem('jarvis-voice-resume');
   // Keep the selected voice/persona. An outage must not silently switch brains
   // or start a different voice engine. The core button retries Gemini Live.
@@ -1444,11 +1516,12 @@ async function startGeminiLive(){
     liveConnecting=true;
     await voiceSaveQueue.catch(()=>{});
     if(connectEpoch!==liveConnectEpoch)return;
-    liveChat=chatRef();liveUserTurn='';liveAssistantTurn='';liveTurnId='';
+    liveChat=liveChat||chatRef();liveUserTurn='';liveAssistantTurn='';liveTurnId='';
     voiceResults.resetDelivery();
     if (player) player.pause();
     speechSynth?.cancel();
     voiceWanted = true;
+    renderVoiceConversation();
     setState('running','CONNECTING','Gemini native audio…');
     const auth = await fetch('/api/live-token', {
       method:'POST', headers:apiHeaders({'content-type':'application/json'}), body:JSON.stringify({...liveChat,client_context: clientDeviceContext(), system: clientContextSystemText(), ...(window.calmSession ? {purpose:'calm', voice:window.calmSession.voice} : {})})
@@ -1497,6 +1570,7 @@ async function startGeminiLive(){
       if (msg.setupComplete && !liveReady){
         clearTimeout(liveConnectTimer); liveConnectTimer=null; liveConnecting=false;
         liveReady = true; convo = true; suppress = false;
+        renderVoiceConversation();
         sessionStorage.setItem('jarvis-voice-resume','1');
         $('#mic').classList.add('on'); $('#mic').textContent = 'Listening';
         setState('listening','LISTENING','تفضّل، أنا سامعاك');
@@ -1533,14 +1607,15 @@ async function startGeminiLive(){
       if (!content) return;
       if (content.inputTranscription?.text){
         liveUserTurn += content.inputTranscription.text;
-        setUserText(content.inputTranscription.text.slice(0,90));
+        if(sameChat(liveChat))setUserText(content.inputTranscription.text.slice(0,90));
         sendLiveVisualFrame(content.inputTranscription.text.slice(0,80));
       }
       if (content.outputTranscription?.text){
-        if (!liveAnswerStarted) { answer=''; liveAnswerStarted=true; }
-        answer += content.outputTranscription.text;
         liveAssistantTurn += content.outputTranscription.text;
-        renderAnswer();
+        if(sameChat(liveChat)){
+          if (!liveAnswerStarted) { answer=''; liveAnswerStarted=true; }
+          answer += content.outputTranscription.text; renderAnswer();
+        }
       }
       for (const part of (content.modelTurn?.parts || [])) {
         if (part.inlineData?.data) playLivePcm(part.inlineData.data, 24000);
@@ -1550,7 +1625,7 @@ async function startGeminiLive(){
         liveReconnectAttempts=0;
         dispatchReserved=false;
         liveAnswerStarted=false;
-        if (liveUserTurn.trim()) autoRemember(liveUserTurn, answer, 'voice');
+        if (liveUserTurn.trim()) autoRemember(liveUserTurn, liveAssistantTurn, 'voice');
         persistLiveTurn(true).then(()=>loadWorkspace()).catch(()=>{});
         const delay = Math.max(0, (livePlayAt - liveOutputCtx.currentTime) * 1000);
         const finishPlayback=() => {
@@ -1744,6 +1819,7 @@ function toggleMicMute(){
 async function micToggle(){
   if (liveConnecting){ stopConvo(); return; }
   if (convo){ stopConvo(); return; }
+  liveChat=liveChat||chatRef();
   if (RT.live){ await startGeminiLive(); return; }
   // Record and transcribe on the server (ElevenLabs or local Whisper).
   // Browser speech recognition depends on the device's speech service.
@@ -1759,6 +1835,7 @@ async function micToggle(){
     actx.createMediaStreamSource(micStream).connect(analyser);
     vdata = new Uint8Array(analyser.fftSize);
     convo = true; suppress = false;
+    renderVoiceConversation();
     $('#mic').classList.add('on'); $('#mic').textContent = 'Listening';
     log('voice','VOICE','server voice transcription open · listening');
     beginTurn();
@@ -1766,6 +1843,7 @@ async function micToggle(){
   }
   if (SpeechRecognition){
     convo = true; suppress = false;
+    renderVoiceConversation();
     $('#mic').classList.add('on'); $('#mic').textContent = 'Listening';
     log('voice','VOICE','browser speech recognition open · listening');
     setState('listening','LISTENING','browser speech online');
@@ -1781,7 +1859,7 @@ function stopConvo(manual=true){
   voiceResults.resetDelivery();
   dispatchReserved=false;
   persistLiveTurn(true);
-  if (manual){ voiceWanted = false; sessionStorage.removeItem('jarvis-voice-resume'); }
+  if (manual){ voiceWanted = false; liveChat=null; sessionStorage.removeItem('jarvis-voice-resume'); }
   convo = false; suppress = false;
   liveReady = false; liveSpeaking = false;
   liveConnecting=false;
@@ -1806,6 +1884,7 @@ function stopConvo(manual=true){
   log('voice','VOICE','conversation closed');
   if (wakeWanted) setTimeout(startWakeListener, 900);
   setState('', 'READY', '');
+  renderVoiceConversation();
 }
 
 // ── browser speech turn ──
@@ -1824,7 +1903,7 @@ function startBrowserRecognition(){
       else interim += txt;
     }
     const shown = (finalText || interim || '').trim();
-    if (shown) setUserText(shown.slice(0,90));
+    if (shown && liveChat && sameChat(liveChat)) setUserText(shown.slice(0,90));
   };
   recognition.onerror = e => log('error','VOICE',`browser speech: ${e.error || 'error'}`);
   recognition.onend = async () => {
@@ -1832,11 +1911,11 @@ function startBrowserRecognition(){
     if (!convo) return;
     if (!text){ if (!suppress) setTimeout(startBrowserRecognition, 250); return; }
     log('voice','VOICE',`browser transcribed: "${text}"`);
-    const armed = $('#input').dataset.cmd || '';
+    const armed = sameChat(liveChat) ? ($('#input').dataset.cmd || '') : '';
     const full = (armed ? armed + ' ' : '') + text;
-    $('#input').value = ''; disarm();
+    if(sameChat(liveChat)){ $('#input').value = ''; disarm(); }
     log('send','SEND',`auto-sent voice: ${full}`);
-    await transmit(full);
+    await transmit(full,{chat:{...liveChat},voice:true});
     suppress = false;
     if (convo) setTimeout(startBrowserRecognition, 350);
   };
@@ -1861,7 +1940,7 @@ function beginTurn(){
 function meter(rms){
   // live input bar in the reactor subtitle, so you can SEE it hearing you
   const n = Math.max(0, Math.min(14, Math.round(rms * 90)));
-  setUserText('أنا سامعاك ' + '•'.repeat(Math.min(n,8)));
+  if(liveChat&&sameChat(liveChat))setUserText('أنا سامعاك ' + '•'.repeat(Math.min(n,8)));
 }
 
 function endTurn(reason){
@@ -1910,6 +1989,7 @@ function vtick(){
 }
 
 async function ship(){
+  const originChat=liveChat?{...liveChat}:null;
   const cancel = recorder?._cancel;
   const blob = new Blob(chunks, {type: recorder?.mimeType || 'audio/webm'}); chunks=[];
   if (cancel){ return; }
@@ -1937,11 +2017,12 @@ async function ship(){
       return;
     }
     log('voice','VOICE',`transcribed on server in ${ms}ms: "${text}"`);
-    const armed = $('#input').dataset.cmd || '';
+    if(!convo||!originChat||liveChat?.chat_id!==originChat.chat_id||liveChat?.project_id!==originChat.project_id)return;
+    const armed = sameChat(originChat) ? ($('#input').dataset.cmd || '') : '';
     const full = (armed ? armed + ' ' : '') + text;
-    $('#input').value = ''; disarm();
+    if(sameChat(originChat)){ $('#input').value = ''; disarm(); }
     log('send','SEND',`auto-sent voice: ${full}`);
-    await transmit(full);                       // runs, then speaks; both with mic deaf
+    await transmit(full,{chat:originChat,voice:true});
     // turn's done — hand the floor back and listen again
     suppress = false;
     if (convo) beginTurn();
@@ -1950,6 +2031,7 @@ async function ship(){
     log('error','VOICE',`transcription failed: ${detail}`);
     stopConvo(false);
     voiceWanted=false;
+    renderVoiceConversation();
     setState('error','VOICE ERROR',detail);
   }
 }

@@ -476,6 +476,11 @@ body.calm-on{overflow:hidden}
 /* Persistent conversation navigation. */
 .conversation-nav{margin-top:12px;min-width:0;color:var(--text)}
 .conversation-nav summary{cursor:pointer;font-weight:650;padding:10px 4px}
+.conversation-item{display:grid;grid-template-columns:minmax(0,1fr) 28px 28px;gap:2px;align-items:center}
+#conversationList .conversation-action{padding:6px 0;min-height:36px;align-items:center;justify-content:center;color:var(--muted);font-size:18px}
+#conversationList .conversation-delete:hover{color:var(--red);border-color:var(--red)}
+.voice-conversation{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;padding:10px 14px;border:1px solid var(--line);border-radius:12px;color:var(--amber);background:rgba(255,174,50,.06);font-size:13px}
+.voice-conversation[hidden]{display:none}.voice-conversation span{overflow-wrap:anywhere;min-width:0}.voice-conversation button{flex-shrink:0;border:1px solid var(--line);border-radius:8px;padding:8px;color:var(--text);background:transparent;cursor:pointer;font-size:11px}
 #newConversation{width:100%;padding:10px;border:1px solid var(--line);border-radius:10px;background:rgba(255,174,50,.1);color:var(--text);cursor:pointer}
 #conversationList{display:grid;gap:4px;margin-top:8px;max-height:46vh;overflow:auto}
 #conversationList button{display:flex;flex-direction:column;gap:5px;min-width:0;width:100%;padding:10px;border:1px solid transparent;border-radius:10px;background:transparent;color:var(--text);text-align:start;cursor:pointer}

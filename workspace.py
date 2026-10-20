@@ -412,10 +412,24 @@ def _action(payload):
         selected = next((p for p in data["projects"] if p["id"] == data["selectedProject"]), None)
         if selected and selected.get("folder"): data["settings"]["workdir"] = selected["folder"]
         save(data)
-    elif kind == "delete_session":
+    elif kind in {"rename_session", "delete_session"}:
         sid = str(payload.get("id", ""))
-        for project in data["projects"]: project["sessions"] = [s for s in project.get("sessions", []) if s["id"] != sid]
-        if data.get("selectedSession") == sid: data["selectedSession"] = ""
+        pid = str(payload.get("projectId") or data.get("selectedProject") or "")
+        project = next((p for p in data["projects"] if p["id"] == pid), None)
+        chat = next((s for s in project.get("sessions", []) if s["id"] == sid), None) if project else None
+        if chat is None:
+            raise ValueError("This conversation no longer exists.")
+        if kind == "rename_session":
+            name = str(payload.get("name", "")).strip()[:80]
+            if not name:
+                raise ValueError("Enter a conversation name.")
+            chat["name"] = name
+        else:
+            import conversations
+            conversations.delete_chat(pid, sid)
+            project["sessions"] = [s for s in project.get("sessions", []) if s["id"] != sid]
+            if data.get("selectedProject") == pid and data.get("selectedSession") == sid:
+                data["selectedSession"] = ""
         save(data)
     elif kind == "add_skill":
         data["skills"].append({"id": uuid.uuid4().hex[:10], "name": str(payload.get("name", "Skill"))[:80],

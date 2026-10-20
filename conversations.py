@@ -115,6 +115,17 @@ def runs(pid, sid):
             "SELECT * FROM runs WHERE project=? AND chat=? ORDER BY started DESC LIMIT 10", (pid, sid))]
 
 
+def delete_chat(pid, sid):
+    """Delete Zuzu history only; never remove shared memories or Hermes history."""
+    with _db() as db:
+        db.execute("BEGIN IMMEDIATE")
+        if db.execute("SELECT 1 FROM runs WHERE project=? AND chat=? AND state='running'",
+                      (pid, sid)).fetchone():
+            raise ValueError("Wait for this conversation's action to finish before deleting it.")
+        db.execute("DELETE FROM messages WHERE project=? AND chat=?", (pid, sid))
+        db.execute("DELETE FROM runs WHERE project=? AND chat=?", (pid, sid))
+
+
 def active_operation():
     with _db() as db:
         row = db.execute("SELECT * FROM runs WHERE state='running' ORDER BY started DESC LIMIT 1").fetchone()

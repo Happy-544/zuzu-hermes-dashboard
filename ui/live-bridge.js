@@ -71,5 +71,6 @@ class VoiceResultQueue {
   resetDelivery() { this.sent.clear(); }
   acknowledge(ids) { for(const id of ids)if(this.sent.has(id))this.forget(id); }
   forget(id) { this.items=this.items.filter(x=>x.id!==id);this.sent.delete(id);this.save(); }
+  discardChat(chat) { for(const item of [...this.items])if(this.matches(item,chat))this.forget(item.id); }
 }
 if (typeof module !== 'undefined') module.exports = {HermesVoiceBridge,VoiceResultQueue};

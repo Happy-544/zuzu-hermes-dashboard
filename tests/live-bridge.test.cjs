@@ -73,7 +73,7 @@ test('Live connection failure preserves selected engine instead of silently chan
   const source=script.slice(script.indexOf('function useVoiceFallback(reason){'),script.indexOf('function floatToPcm16Base64'));
   const states=[],runtime={live:true,tts:true},ctx=vm.createContext({
     stopConvo:()=>{},sessionStorage:storage(),RT:runtime,log:()=>{},setState:(...args)=>states.push(args),
-    micToggle:()=>{throw Error('Unexpected engine switch')},voiceWanted:true,liveFailedUntil:0,
+    micToggle:()=>{throw Error('Unexpected engine switch')},voiceWanted:true,liveFailedUntil:0,renderVoiceConversation:()=>{},
   });
   vm.runInContext(source,ctx);ctx.useVoiceFallback('network interrupted');
   assert.deepEqual(runtime,{live:true,tts:true});

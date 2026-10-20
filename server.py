@@ -782,14 +782,15 @@ class Handler(BaseHTTPRequestHandler):
                 if ctype != "application/json":
                     raise ValueError("JSON required")
                 payload = json.loads(raw or b"{}")
-                pid, sid, _ = conversations.resolve(payload)
                 turn_id = str(payload.get("turn_id") or "")[:100]
                 if not turn_id:
                     raise ValueError("A turn ID is required")
-                for role in ("user", "assistant"):
-                    conversations.add(pid, sid, role, str(payload.get(role) or "")[:50000],
-                                      "voice", f"{pid}:{sid}:{turn_id}:{role}")
-                workspace.touch_chat(pid, sid, str(payload.get("user") or ""))
+                with workspace.LOCK:
+                    pid, sid, _ = conversations.resolve(payload)
+                    for role in ("user", "assistant"):
+                        conversations.add(pid, sid, role, str(payload.get(role) or "")[:50000],
+                                          "voice", f"{pid}:{sid}:{turn_id}:{role}")
+                    workspace.touch_chat(pid, sid, str(payload.get("user") or ""))
                 return self._json({"ok": True})
             except (ValueError, TypeError, AttributeError) as exc:
                 return self._json({"error": str(exc)[:200]}, 400)
@@ -1033,8 +1034,15 @@ class Handler(BaseHTTPRequestHandler):
         request_id = str(payload.get("request_id") or secrets.token_hex(16))[:100]
         recent = conversations.context(project_id, ui_id, voice_only=conversation_mode != "direct")
         system = (system or "") + "\n\n" + recent
-        if not conversations.start(project_id, ui_id, request_id, message):
-            return self._json({"error": "This request was already accepted. Its result is in the conversation."}, 409)
+        # Serialize admission with chat deletion. A deleted chat must never gain
+        # a new run between resolution and admission.
+        with workspace.LOCK:
+            try:
+                conversations.resolve({"project_id": project_id, "chat_id": ui_id})
+            except ValueError as exc:
+                return self._json({"error": str(exc)}, 400)
+            if not conversations.start(project_id, ui_id, request_id, message):
+                return self._json({"error": "This request was already accepted. Its result is in the conversation."}, 409)
         self._conversation_run = request_id
         self._conversation_chat = (project_id, ui_id)
 
