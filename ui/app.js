@@ -2318,16 +2318,13 @@ function renderCommandCenterWorkspace(){
   const selected = projects.find(p => p.id === WS.selectedProject) || projects[0];
   const select = $('#ccProject');
   if (select) select.innerHTML = projects.map(p => `<option value="${esc(p.id)}" ${p.id === selected?.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('');
-  const sessions = (selected?.sessions || []).slice().sort((a,b) => (b.created||0) - (a.created||0)).slice(0, 6);
-  const list = $('#ccSessions');
-  if (list) list.innerHTML = sessions.map(x => `<button type="button" data-session="${esc(x.id)}" class="${x.id === WS.selectedSession ? 'active' : ''}"><span>${esc(x.name)}</span>${x.hermesSessionId ? '<i title="Has Hermes history"></i>' : ''}</button>`).join('') || '<div class="cc-empty">No chats yet.</div>';
+  // renderWorkspace owns the durable conversation list inside this rail.
   renderCommandCenterProfile();
 }
 $('#ccProject')?.addEventListener('change', async e => {
   try { await workspaceRequest({action:'select_session', projectId:e.target.value, sessionId:''}); await loadHistory(); }
   catch(err){ log('error','WORKSPACE',String(err.message||err)); }
 });
-$('#ccNewChat')?.addEventListener('click', () => $('#addSession').click());
 
 let ccRunStartedAt = 0;
 function renderCommandCenterNow(){

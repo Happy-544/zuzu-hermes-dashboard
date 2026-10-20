@@ -11,7 +11,7 @@
 <title>Zuzu · Hermes</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-192.png">
-<link rel="stylesheet" href="styles.css?v=57">
+<link rel="stylesheet" href="styles.css?v=58">
 <link rel="stylesheet" href="models.css?v=1">
 </head>
 <body>
@@ -35,7 +35,6 @@
       <button class="nav-item" role="tab" data-group="settings" aria-selected="false"><span>Settings</span><small>Assistant, model, health</small></button>
     </nav>
     <div class="project-peek"><div class="mini-head"><b>Projects</b><button id="quickProject" aria-label="Add project">+</button></div><div id="sidebarProjects"></div></div>
-    <details class="conversation-nav" open><summary>Conversations</summary><button id="newConversation" type="button">+ New chat</button><div id="conversationList" aria-label="Saved conversations"></div></details>
     <div class="sidebar-foot"><span class="status-dot"></span><span>Gemini + Hermes</span></div>
   </aside>
 
@@ -79,8 +78,9 @@
         <section class="cc-card">
           <header><h3>Workspace</h3><button type="button" class="cc-link" data-view="projects">Manage</button></header>
           <label class="cc-field"><span>Project</span><select id="ccProject" aria-label="Active project"></select></label>
-          <div class="cc-sessions" id="ccSessions"></div>
-          <button type="button" class="cc-ghost" id="ccNewChat">+ New chat</button>
+          <div class="cc-sessions" id="ccSessions">
+            <details class="conversation-nav" open><summary>Conversations</summary><button id="newConversation" type="button">+ New chat</button><div id="conversationList" aria-label="Saved conversations"></div></details>
+          </div>
         </section>
         <section class="cc-card">
           <header><h3>Brain</h3><button type="button" class="cc-link" data-view="models">Change</button></header>
@@ -545,7 +545,7 @@
   <div id="calmCrisis" class="calm-crisis" hidden role="alert"></div>
   <p class="calm-note">Zuzu is a supportive companion, not a licensed therapist. In an emergency call 999 (UAE) or 123 (Egypt).</p>
 </div>
-<script src="app.js?v=57"></script>
+<script src="app.js?v=58"></script>
 <script src="calm.js?v=2"></script>
 <script src="creative.js?v=1"></script>
 </body>
