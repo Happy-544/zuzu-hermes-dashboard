@@ -15,7 +15,7 @@ LOCK = threading.RLock()
 
 MODELS = {
     "hermes": ["Hermes profile default"],
-    "gemini": ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite"],
+    "gemini": ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite"],
     "openai": ["gpt-5.4", "gpt-5.4-mini"],
     "anthropic": ["claude-sonnet-4-6", "claude-opus-4-6"],
     "openrouter": [
@@ -41,7 +41,7 @@ MODELS = {
 
 DEFAULT = {
     "settings": {"conversationMode": "hybrid", "provider": "gemini", "model": "gemini-2.5-flash", "profile": "default",
-                 "workdir": "~", "computerControl": False, "mobileControl": False,
+                 "workdir": "~", "computerControl": True, "mobileControl": False,
                  "voiceEngine": "gemini-live", "fallbacks": [], "providerSettings": {},
                  "liveModel": "gemini-2.5-flash-native-audio-preview-12-2025", "voice": "Kore",
                  "persona": "Warm, concise, capable and naturally conversational.",

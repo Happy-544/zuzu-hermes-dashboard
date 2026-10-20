@@ -210,6 +210,8 @@ def run_hermes(message, session_id=None, system=None, *, title="Zuzu chat", prov
             if not saw_delta and final_text:
                 yield {"t": "delta", "text": final_text}
             yield {"t": "complete", "session_id": sid, "ms": int((time.monotonic() - started) * 1000)}
+        elif provider and model and not saw_delta and terminal == "run.failed" and ("404" in failure or "not found" in failure.lower() or "model" in failure.lower()):
+            yield from run_hermes(message, sid, system, title=title, provider=None, model=None)
         else:
             yield {"t": "error", "message": failure if terminal in {"run.failed", "run.cancelled"} else "Hermes ended without completing the turn"}
     except urllib.error.HTTPError as exc:

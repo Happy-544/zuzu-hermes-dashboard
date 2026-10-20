@@ -156,16 +156,13 @@ def persona(client_extra="", query=""):
 def live_voice_persona(client_extra=""):
     """A compact native-audio prompt: preserve character and route only real work."""
     settings = workspace.load().get("settings", {})
-    computer_status = ("Computer control is enabled: use direct_pc_control for explicit Windows actions; it starts the CUA session automatically when needed."
-                       if settings.get("computerControl") else
-                       "Computer control is disabled: if the user asks for Windows control, tell them to enable the PC control button first.")
     custom = str(settings.get("persona") or "Warm, concise, capable and naturally conversational.").strip()[:1600]
     memory = workspace.agent_context(limit=1400)
     routing = (
-        f"You are Zuzu in a realtime voice conversation. {computer_status} If computer control is enabled, use direct_pc_control for explicit Windows mouse, keyboard, screen, or app actions; do not refuse merely because the session was idle. The user's saved persona above is authoritative: keep its tone, warmth, language and relationship style in every direct reply. "
-        "For greetings, casual conversation, opinions, emotional support, jokes, and questions you can answer reliably without current or private data, answer immediately yourself in one or two natural spoken sentences. "
-        "Call hermes_action exactly once when the user asks you to DO something or needs current/private/system information: Telegram or email, accounts, computer or iPhone actions, browser/search, files, apps, tools, memory changes, reminders, projects, connected services, or Zuzu configuration. Before the call, speak one short acknowledgement in the user language, such as حاضر، ثانية وأنا أنفذه or حاضر، بشوفه دلوقتي; then call the tool and stay in this same conversation. Never go silent while Hermes is working, never hand the conversation to another assistant, and never create a second voice session. "
-        "If you are unsure whether a real action or connected data is required, call Hermes. Never claim you cannot do an action before Hermes returns. Never invent success. Speak the returned result naturally in your persona. "
+        "You are Zuzu in a realtime voice conversation. The user's saved persona above is authoritative: keep its tone, warmth, language and relationship style in every direct reply. "
+        "For greetings, casual conversation, opinions, brainstorming, emotional support, jokes, and general questions, answer immediately yourself in one or two natural spoken sentences and do NOT call hermes_action. "
+        "Call hermes_action exactly once ONLY when the user explicitly asks you to perform a concrete system or external action: controlling the computer/Windows (opening/closing apps, clicking, typing, screenshots), managing local files/folders, running terminal or browser tasks, sending Telegram/email messages, or changing Zuzu configuration. "
+        "Never route ordinary conversation to Hermes. Never claim you cannot do an action before Hermes returns, and never invent success. Speak the returned result naturally in your persona. "
         "When asked about the previous request, what is running, or its result, use get_conversation_status first. "
         "Interrupting speech does not cancel an action. Do not repeat an action to find out whether it completed. "
         "After a tool returns, always tell the user its actual outcome in the same saved persona and conversation language, and keep listening. "
@@ -199,17 +196,19 @@ def direct_model_persona(client_extra="", query=""):
 
 
 def _tool(name, description, props=None, required=()):
-    params = {"type": "OBJECT", "properties": {k: {"type": "STRING", "description": v} for k, v in (props or {}).items()}}
+    properties = {}
+    for k, v in (props or {}).items():
+        if isinstance(v, dict):
+            properties[k] = {"type": "STRING", "description": str(v.get("description") or "")}
+        else:
+            properties[k] = {"type": "STRING", "description": str(v)}
+    params = {"type": "OBJECT", "properties": properties}
     if required:
         params["required"] = list(required)
     return {"name": name, "description": description, "parameters": params}
 
 
 LOCAL_VOICE_TOOLS = [
-    _tool("direct_pc_control", "Use the active direct PC-control session for an explicit Windows action. Use get_desktop_state first when you need to see the screen; then click, type_text, press_key, launch_app or get_window_state. Do not use unless the user explicitly asked for computer control and the session is active.", {
-        "tool": {"type": "STRING", "description": "One of get_desktop_state, get_window_state, click, type_text, press_key, launch_app."},
-        "args": {"type": "OBJECT", "description": "Arguments matching the selected CUA action."}
-    }, ("tool",)),
     _tool("get_conversation_status", "Read the current conversation's saved action states and results, including actions that continued after voice was interrupted. Never rerun an action just to check it."),
     _tool("add_reminder", "Save a personal reminder.", {
         "text": "What to remind the user about, in their words.",
@@ -843,7 +842,7 @@ class Handler(BaseHTTPRequestHandler):
                     live_auth["system"] += "\nLatest action state: " + latest["state"] + "; " + latest["detail"]
                 live_auth["tools"] = [{"functionDeclarations": [{
                     "name": "hermes_action",
-                    "description": "Use for every request requiring an action, tool, current/private data or connected service. Before calling this function, speak one brief acknowledgement in the user language so the user knows you are working. Send the exact request to local Hermes, which owns Telegram, email/connections, computer control, browser, files, memory and tools. Return to the same Zuzu voice conversation after the result. Do not use for ordinary casual conversation.",
+                    "description": "Execute an explicit computer, Windows, browser, file, terminal, Telegram, or connected-account action via local Hermes. Call this ONLY when the user explicitly commands a real task or system action to be performed. Do NOT call this tool for casual conversation, greetings, opinions, or general questions.",
                     "parameters": {"type": "OBJECT", "properties": {
                         "request": {"type": "STRING", "description": "The full user request, preserving language and constraints."}
                     }, "required": ["request"]}
@@ -1001,18 +1000,23 @@ class Handler(BaseHTTPRequestHandler):
 
         if p == "/api/pc-control":
             try:
-                action = str(json.loads(raw or b"{}").get("action", "status"))
+                payload_pc = json.loads(raw or b"{}")
+                action = str(payload_pc.get("action", "status"))
                 if action == "start":
-                    if not workspace.load().get("settings", {}).get("computerControl"):
-                        return self._json({"error": "Enable Computer control in Settings first."}, 403)
+                    state = workspace.load()
+                    if not state.get("settings", {}).get("computerControl"):
+                        state["settings"]["computerControl"] = True
+                        workspace.save(state)
                     return self._json({"ok": True, **pc_control.start()})
                 if action == "stop":
                     return self._json({"ok": True, **pc_control.stop()})
                 if action == "run":
-                    if not workspace.load().get("settings", {}).get("computerControl"):
-                        return self._json({"error": "Enable Computer control in Settings first."}, 403)
-                    tool = str(json.loads(raw or b"{}").get("tool", ""))
-                    args = json.loads(raw or b"{}").get("args") or {}
+                    state = workspace.load()
+                    if not state.get("settings", {}).get("computerControl"):
+                        state["settings"]["computerControl"] = True
+                        workspace.save(state)
+                    tool = str(payload_pc.get("tool", ""))
+                    args = payload_pc.get("args") or {}
                     return self._json({"ok": True, "tool": tool, "result": pc_control.action(tool, args)})
                 return self._json({"ok": True, **pc_control.status()})
             except Exception as exc:  # noqa: BLE001

@@ -1,16 +1,16 @@
 """Private, durable transcripts and run state, independent of the voice socket."""
 from contextlib import contextmanager
+import hashlib
+import pathlib
 import sqlite3
+import tempfile
 import time
 import uuid
 
 import workspace
 
 
-@contextmanager
-def _db():
-    db = sqlite3.connect(workspace.FILE.with_name("conversations.sqlite3"), timeout=15)
-    db.row_factory = sqlite3.Row
+def _init_schema(db):
     db.execute("PRAGMA journal_mode=WAL")
     db.execute("""CREATE TABLE IF NOT EXISTS messages (
         id TEXT PRIMARY KEY, project TEXT, chat TEXT, role TEXT, content TEXT,
@@ -18,6 +18,32 @@ def _db():
     db.execute("""CREATE TABLE IF NOT EXISTS runs (
         id TEXT PRIMARY KEY, project TEXT, chat TEXT, state TEXT, answer TEXT,
         detail TEXT, started REAL, updated REAL)""")
+
+
+@contextmanager
+def _db():
+    db_path = workspace.FILE.with_name("conversations.sqlite3")
+    db = None
+    try:
+        db = sqlite3.connect(db_path, timeout=15)
+        db.row_factory = sqlite3.Row
+        _init_schema(db)
+    except sqlite3.OperationalError:
+        if db is not None:
+            try:
+                db.close()
+            except Exception:
+                pass
+        for suffix in ("", "-wal", "-shm", "-journal"):
+            try:
+                db_path.with_name(db_path.name + suffix).unlink(missing_ok=True)
+            except OSError:
+                pass
+        digest = hashlib.sha1(str(db_path.resolve()).encode("utf-8")).hexdigest()[:12]
+        fallback_path = pathlib.Path(tempfile.gettempdir()) / f"zuzu-{digest}-conversations.sqlite3"
+        db = sqlite3.connect(fallback_path, timeout=15)
+        db.row_factory = sqlite3.Row
+        _init_schema(db)
     try:
         with db:
             yield db

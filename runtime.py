@@ -256,11 +256,25 @@ def run_gemini(message, system=None, model=None):
         yield dict(t="delta", text=text)
         yield dict(t="complete", session_id=None, ms=_mono_ms() - started)
     except urllib.error.HTTPError as exc:
-        if exc.code == 404 and not model and GEMINI_MODEL == "gemini-2.5-flash" and GEMINI_FALLBACK_MODEL and GEMINI_FALLBACK_MODEL != GEMINI_MODEL:
-            GEMINI_MODEL = GEMINI_FALLBACK_MODEL
-            yield dict(t="note", message="Google rejected Gemini 2.5 Flash for this API account; using the configured fallback.")
-            yield from run_gemini(message, system)
-            return
+        if exc.code in (404, 400):
+            if not model and GEMINI_MODEL == "gemini-2.5-flash" and GEMINI_FALLBACK_MODEL and GEMINI_FALLBACK_MODEL != GEMINI_MODEL:
+                GEMINI_MODEL = GEMINI_FALLBACK_MODEL
+                yield dict(t="note", message="Google rejected Gemini 2.5 Flash for this API account; using the configured fallback.")
+                yield from run_gemini(message, system)
+                return
+            fallbacks = ["gemini-2.0-flash", "gemini-1.5-flash"]
+            if selected_model not in fallbacks:
+                next_model = fallbacks[0]
+            elif selected_model == fallbacks[0] and len(fallbacks) > 1:
+                next_model = fallbacks[1]
+            else:
+                next_model = None
+            if next_model:
+                if not model:
+                    GEMINI_MODEL = next_model
+                yield dict(t="note", message=f"Model {selected_model} returned HTTP {exc.code}; falling back to {next_model}.")
+                yield from run_gemini(message, system, model=next_model)
+                return
         yield dict(t="error", message=f"Gemini request failed (HTTP {exc.code}).")
     except (OSError, ValueError, RuntimeError) as exc:
         yield dict(t="error", message=f"Gemini request failed: {str(exc)[:180]}")
@@ -545,6 +559,9 @@ def _run_hermes_locked(message, session_id=None, system=None):
             if _CLI_NOISE.match(clean):
                 continue
             if clean.startswith("API call failed"):
+                if "--provider" in cmd and not text_seen:
+                    errbuf.append(clean)
+                    break
                 yield dict(t="error", message=clean[:600])
                 continue
             if first:
@@ -561,6 +578,29 @@ def _run_hermes_locked(message, session_id=None, system=None):
             session_match = re.match(r"^session_id:\s*(\S+)\s*$", errline.strip(), re.I)
             if session_match and valid_session(session_match.group(1)):
                 emitted_session = session_match.group(1)
+        api_failed = any(line.startswith("API call failed") for line in errbuf)
+        if (rc != 0 or api_failed) and "--provider" in cmd and not text_seen and PROVIDER != "hermes":
+            fallback_cmd = [x for i, x in enumerate(cmd)
+                            if x not in ("--provider", "--model")
+                            and (i == 0 or cmd[i - 1] not in ("--provider", "--model"))]
+            try:
+                proc2 = subprocess.run(fallback_cmd, cwd=WORKDIR, text=True,
+                                       stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                       env=child_env, timeout=IDLE_TIMEOUT,
+                                       encoding="utf-8", errors="replace")
+                out2 = _ANSI.sub("", proc2.stdout or "").strip()
+                if proc2.returncode == 0 and out2 and not out2.startswith("API call failed"):
+                    yield dict(t="latency", ms=_mono_ms() - started)
+                    yield dict(t="delta", text=out2 + "\n")
+                    yield dict(t="complete", session_id=emitted_session or session_id,
+                               ms=_mono_ms() - started)
+                    return
+            except Exception:
+                pass
+        if api_failed and not text_seen:
+            err = " | ".join(list(errbuf)[-4:])
+            yield dict(t="error", message=err[:600])
+            return
         if rc != 0:
             err = " | ".join(list(errbuf)[-6:])
             yield dict(t="error", message=(err or f"Hermes exited with code {rc}")[:500])

@@ -6,6 +6,7 @@ import pathlib
 import subprocess
 import sys
 import threading
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -65,11 +66,22 @@ def locate(jpeg, description):
     body = {"contents": [{"role": "user", "parts": [
                 {"inlineData": {"mimeType": "image/jpeg", "data": base64.b64encode(jpeg).decode()}}, {"text": prompt}]}],
             "generationConfig": {"responseMimeType": "application/json", "temperature": 0}}
-    req = urllib.request.Request(
-        "https://generativelanguage.googleapis.com/v1beta/models/" + urllib.parse.quote(VISION_MODEL, safe="-.") + ":generateContent",
-        data=json.dumps(body).encode(), method="POST", headers={"content-type": "application/json", "x-goog-api-key": key})
-    with urllib.request.urlopen(req, timeout=40) as response:
-        payload = json.loads(response.read())
+    payload = None
+    last_err = None
+    for candidate_model in dict.fromkeys([VISION_MODEL, "gemini-2.0-flash", "gemini-1.5-flash"]):
+        req = urllib.request.Request(
+            "https://generativelanguage.googleapis.com/v1beta/models/" + urllib.parse.quote(candidate_model, safe="-.") + ":generateContent",
+            data=json.dumps(body).encode(), method="POST", headers={"content-type": "application/json", "x-goog-api-key": key})
+        try:
+            with urllib.request.urlopen(req, timeout=40) as response:
+                payload = json.loads(response.read())
+            break
+        except urllib.error.HTTPError as exc:
+            last_err = exc
+            if exc.code not in (404, 400):
+                raise
+    if payload is None and last_err is not None:
+        raise last_err
     parts = (payload.get("candidates") or [{}])[0].get("content", {}).get("parts", [])
     answer = json.loads("".join(p.get("text", "") for p in parts) or "{}")
     if isinstance(answer, list):

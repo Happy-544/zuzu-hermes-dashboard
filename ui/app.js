@@ -835,10 +835,7 @@ async function sendLiveVisualFrame(reason='current voice question'){
     reader.onload=()=>{
       const base64=String(reader.result||'').split(',')[1]||'';
       if(!base64 || liveWs?.readyState !== WebSocket.OPEN) return;
-      liveWs.send(JSON.stringify({clientContent:{turns:[{role:'user',parts:[
-        {text:`Visual context from my open ${visualKind||'camera'} for ${reason}. Use it when answering my current voice/chat question.`},
-        {inlineData:{mimeType:'image/jpeg',data:base64}}
-      ]}],turnComplete:true}}));
+      liveWs.send(JSON.stringify({realtimeInput:{mediaChunks:[{mimeType:'image/jpeg',data:base64}]}}));
       log('send','VISION','sent live visual frame');
     };
     reader.readAsDataURL(blob);
@@ -1521,6 +1518,8 @@ async function executeLiveAction(request, signal){
     answer=result;renderAnswer();showMediaFromAnswer(result);
   }
   const outcome={run_id:requestId,result:result.slice(0,12000),instruction:'Report this outcome faithfully in your saved persona and conversation language, then keep listening. Do not infer success if it reports refusal, missing tools or failure.'};
+  const tracked=voiceResults.items?.find(x=>x.id===requestId);
+  if(tracked)tracked.turnSeq=voiceTurnSeq;
   voiceResults.complete(requestId,outcome);
   return outcome;
   }catch(e){
@@ -1594,6 +1593,7 @@ async function startGeminiLive(){
       if(connectedSocket!==liveWs)return;
       if (msg.setupComplete && !liveReady){
         clearTimeout(liveConnectTimer); liveConnectTimer=null; liveConnecting=false;
+        liveReconnectAttempts = 0;
         liveReady = true; convo = true; suppress = false;
         renderVoiceConversation();
         sessionStorage.setItem('jarvis-voice-resume','1');
@@ -1609,10 +1609,10 @@ async function startGeminiLive(){
           let energy = 0;
           for (let i=0; i<samples.length; i++) energy += samples[i] * samples[i];
           const rms = Math.sqrt(energy / samples.length);
-          if(rms>0.055)liveUserAudioAt=Date.now();
+          if(rms>(liveSpeaking ? 0.14 : 0.065))liveUserAudioAt=Date.now();
           if (liveSpeaking){
-            bargeFrames = rms > 0.055 ? bargeFrames + 1 : 0;
-            if (bargeFrames >= 2){
+            bargeFrames = rms > 0.14 ? bargeFrames + 1 : 0;
+            if (bargeFrames >= 5){
               liveResponseEpoch++;
               voiceResults.resetDelivery();
               stopLivePlayback();
@@ -1676,11 +1676,11 @@ async function startGeminiLive(){
     liveWs.onerror = () => log('error','VOICE','Gemini Live connection error');
     liveWs.onclose = event => {
       if (connectedSocket !== liveWs) return;
-      if(voiceWanted&&liveReady&&liveReconnectAttempts<2){
+      if(voiceWanted&&liveReconnectAttempts<5){
         liveReconnectAttempts++;
         stopConvo(false);
         setState('running','RECONNECTING','Your conversation and actions are saved');
-        setTimeout(()=>{if(voiceWanted&&!document.hidden)startGeminiLive();},1000*liveReconnectAttempts);
+        setTimeout(()=>{if(voiceWanted&&!document.hidden)startGeminiLive();},Math.min(4000,1000*liveReconnectAttempts));
       }
       else if (voiceWanted) useVoiceFallback(event.reason || `connection closed (${event.code})`);
       else stopConvo(false);
