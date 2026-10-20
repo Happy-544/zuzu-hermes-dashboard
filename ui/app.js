@@ -169,7 +169,7 @@ function renderWorkspace(){
   renderProjectModelOptions();
   renderProviderSettings();
   $('#profileName').value=settings.profile||'default'; $('#workdir').value=settings.workdir||'~';
-  $('#personaText').value=settings.persona||''; $('#computerControl').checked=!!settings.computerControl; $('#mobileControl').checked=!!settings.mobileControl;
+  $('#personaText').value=settings.persona||''; $('#computerControl').checked=!!settings.computerControl; $('#mobileControl').checked=!!settings.mobileControl; renderPcControlToggle();
   $('#shortcutName').value=settings.shortcutName||'Zuzu Control';
   $('#liveModel').value=settings.liveModel||''; $('#voiceSelect').value=settings.voice||'Kore';
   $('#skillList').innerHTML=(WS.skills||[]).map(s=>`<div class="list-card"><div><b>${esc(s.name)}</b><small>${esc(s.instructions.slice(0,120))}</small></div><button class="danger-link" data-delete-skill="${esc(s.id)}">Delete</button></div>`).join('')||'<div class="empty-state">No custom skills yet.</div>';
@@ -400,6 +400,10 @@ document.addEventListener('click',async e=>{
     if(b.dataset.deleteMemory) await workspaceRequest({action:'delete_memory',id:b.dataset.deleteMemory});
   }catch(err){log('error','WORKSPACE',String(err.message||err));showToast(String(err.message||err),'error');}
 });
+
+function renderPcControlToggle(){ const b=document.querySelector('[data-cc-toggle-pc]'); if(!b)return; const on=!!WS?.settings?.computerControl; b.classList.toggle('active',on); b.querySelector('b').textContent=`PC control: ${on?'On':'Off'}`; b.querySelector('small').textContent=on?'Hermes may control the Windows screen after your request':'Press to allow Hermes computer tools'; }
+async function togglePcControl(){ const current=!!WS?.settings?.computerControl; const next=!current; if(next&&!confirm('Allow Hermes to control this Windows computer when you explicitly ask?'))return; try{ const settings={...(WS.settings||{}),computerControl:next}; await workspaceRequest({action:'save_settings',settings}); WS.settings={...(WS.settings||{}),computerControl:next}; $('#computerControl').checked=next; renderPcControlToggle(); log('complete','PC CONTROL',next?'enabled — ask Zuzu to open or control an app':'disabled'); refreshStatus(); }catch(e){ log('error','PC CONTROL',String(e.message||e)); } }
+document.addEventListener('click',e=>{ if(e.target.closest('[data-cc-toggle-pc]')) togglePcControl(); });
 $('#saveSettings').onclick=async()=>{const s=WS.settings; await workspaceRequest({action:'save_settings',settings:{...s,profile:$('#profileName').value,workdir:$('#workdir').value,persona:$('#personaText').value,computerControl:$('#computerControl').checked,mobileControl:$('#mobileControl').checked,liveModel:$('#liveModel').value,voice:$('#voiceSelect').value,shortcutName:$('#shortcutName').value}}); log('complete','SETTINGS','agent settings saved'); refreshStatus();};
 $('#signOut').onclick=async()=>{await fetch('/api/logout',{method:'POST',headers:apiHeaders({'content-type':'application/json'}),body:'{}'}).catch(()=>{});location.replace('/login.html');};
 $('#useFolder').onclick=()=>{$('#workdir').focus(); $('#workdir').select();};

@@ -490,3 +490,5 @@ body.calm-on{overflow:hidden}
 .chat-run{padding:14px;border:1px solid var(--line);border-radius:10px;color:var(--cyan);font-size:13px}.chat-run.error{color:var(--red)}
 .history-message{white-space:pre-wrap;overflow-wrap:anywhere}.chat-history{max-height:60vh!important;overflow-y:auto}
 @media(max-width:980px){.conversation-nav{margin:0}.conversation-nav summary{padding:8px;font-size:12px}#conversationList{max-height:28vh}.conversation-nav[open]{padding-bottom:10px}}
+
+.cc-tools [data-cc-toggle-pc].active{border-color:rgba(69,224,164,.65);box-shadow:0 0 0 1px rgba(69,224,164,.18) inset}.cc-tools [data-cc-toggle-pc].active b{color:#69e0a4}
