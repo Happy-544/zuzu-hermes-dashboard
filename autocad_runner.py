@@ -7,7 +7,9 @@ from __future__ import annotations
 import asyncio, json, os, pathlib, sys
 
 MCP_ROOT = pathlib.Path(os.environ.get("ZUZU_AUTOCAD_MCP_ROOT", r"C:\Users\DELL\Documents\Codex\2026-09-24\i-want-you-to-install-configure\work\autocad-mcp"))
-os.environ.setdefault("AUTOCAD_MCP_BACKEND", "file_ipc")
+# Prefer the live AutoCAD window, but use the installed ezdxf headless backend
+# when LT is unavailable or its license prevents the UI from opening.
+os.environ.setdefault("AUTOCAD_MCP_BACKEND", "auto")
 os.environ.setdefault("AUTOCAD_MCP_IPC_DIR", str(MCP_ROOT / ".ipc"))
 sys.path.insert(0, str(MCP_ROOT / "src"))
 

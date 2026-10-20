@@ -45,7 +45,7 @@ def _autocad_windows():
 
 def _live_probe():
     script = '''import asyncio, json\nfrom autocad_mcp.client import get_backend\nasync def main():\n b=await get_backend(); init=await b.initialize(); out={"backend":b.name,"connected":bool(init.ok),"detail":init.to_dict()}\n if init.ok:\n  out["drawing"]=(await b.drawing_info()).to_dict(); out["entities"]=(await b.entity_count()).to_dict()\n print(json.dumps(out,ensure_ascii=False))\nasyncio.run(main())'''
-    env=os.environ.copy(); env.update({"AUTOCAD_MCP_BACKEND":"file_ipc","AUTOCAD_MCP_IPC_DIR":str(IPC_DIR)})
+    env=os.environ.copy(); env.update({"AUTOCAD_MCP_BACKEND":"auto","AUTOCAD_MCP_IPC_DIR":str(IPC_DIR)})
     run=subprocess.run([str(PYTHON),"-c",script],cwd=MCP_ROOT,env=env,capture_output=True,text=True,timeout=18,check=False)
     lines=[line for line in run.stdout.splitlines() if line.strip().startswith("{")]
     if not lines: return {"connected":False,"error":(run.stderr or "AutoCAD MCP did not return status")[-400:]}
@@ -54,6 +54,6 @@ def _live_probe():
 
 def status(live=False):
     windows=_autocad_windows()
-    result={"installed":PYTHON.is_file() and LISP.is_file(),"autocad_open":bool(windows),"window":windows[0] if windows else "","backend":"file_ipc","ipc_ready":IPC_DIR.is_dir(),"dispatcher_file":LISP.is_file(),"connected":False,"checked_live":bool(live)}
+    result={"installed":PYTHON.is_file() and LISP.is_file(),"autocad_open":bool(windows),"window":windows[0] if windows else "","backend":"auto","ipc_ready":IPC_DIR.is_dir(),"dispatcher_file":LISP.is_file(),"connected":False,"checked_live":bool(live)}
     if live and result["installed"] and result["autocad_open"]: result.update(_live_probe())
     return result
