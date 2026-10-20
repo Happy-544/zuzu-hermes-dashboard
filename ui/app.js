@@ -36,7 +36,10 @@ const VIEW_GROUPS = {home:['chat'], day:['reminders','markets','library'], work:
 const VIEW_NAMES = new Set(Object.values(VIEW_GROUPS).flat());
 const groupOf = name => Object.keys(VIEW_GROUPS).find(group => VIEW_GROUPS[group].includes(name)) || 'home';
 function showView(name, remember = true){
-  if (VIEW_GROUPS[name]){
+  // A page named "settings" shares the group name. Prefer the exact page
+  // when a sub-tab requests it; otherwise the group click kept restoring the
+  // previously selected page (often System health).
+  if (VIEW_GROUPS[name] && !VIEW_NAMES.has(name)){
     let last = ''; try{ last = localStorage.getItem(`zuzu-page-${name}`) || ''; }catch(_){}
     name = VIEW_GROUPS[name].includes(last) ? last : VIEW_GROUPS[name][0];
   }
