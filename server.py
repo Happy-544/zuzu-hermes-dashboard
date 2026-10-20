@@ -160,7 +160,7 @@ def live_voice_persona(client_extra=""):
     custom = str(settings.get("persona") or "Warm, concise, capable and naturally conversational.").strip()[:1600]
     memory = workspace.agent_context(limit=1400)
     routing = (
-        f"You are Zuzu in a realtime voice conversation. {computer_status} The user's saved persona above is authoritative: keep its tone, warmth, language and relationship style in every direct reply. "
+        f"You are Zuzu in a realtime voice conversation. {computer_status} If the direct PC-control session is active, use direct_pc_control for explicit Windows mouse, keyboard, screen, or app actions; otherwise use hermes_action. The user's saved persona above is authoritative: keep its tone, warmth, language and relationship style in every direct reply. "
         "For greetings, casual conversation, opinions, emotional support, jokes, and questions you can answer reliably without current or private data, answer immediately yourself in one or two natural spoken sentences. "
         "Call hermes_action exactly once when the user asks you to DO something or needs current/private/system information: Telegram or email, accounts, computer or iPhone actions, browser/search, files, apps, tools, memory changes, reminders, projects, connected services, or Zuzu configuration. Before the call, speak one short acknowledgement in the user language, such as حاضر، ثانية وأنا أنفذه or حاضر، بشوفه دلوقتي; then call the tool and stay in this same conversation. Never go silent while Hermes is working, never hand the conversation to another assistant, and never create a second voice session. "
         "If you are unsure whether a real action or connected data is required, call Hermes. Never claim you cannot do an action before Hermes returns. Never invent success. Speak the returned result naturally in your persona. "
@@ -204,6 +204,10 @@ def _tool(name, description, props=None, required=()):
 
 
 LOCAL_VOICE_TOOLS = [
+    _tool("direct_pc_control", "Use the active direct PC-control session for an explicit Windows action. Use get_desktop_state first when you need to see the screen; then click, type_text, press_key, launch_app or get_window_state. Do not use unless the user explicitly asked for computer control and the session is active.", {
+        "tool": {"type": "STRING", "description": "One of get_desktop_state, get_window_state, click, type_text, press_key, launch_app."},
+        "args": {"type": "OBJECT", "description": "Arguments matching the selected CUA action."}
+    }, ("tool",)),
     _tool("get_conversation_status", "Read the current conversation's saved action states and results, including actions that continued after voice was interrupted. Never rerun an action just to check it."),
     _tool("add_reminder", "Save a personal reminder.", {
         "text": "What to remind the user about, in their words.",
@@ -1002,6 +1006,12 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json({"ok": True, **pc_control.start()})
                 if action == "stop":
                     return self._json({"ok": True, **pc_control.stop()})
+                if action == "run":
+                    if not workspace.load().get("settings", {}).get("computerControl"):
+                        return self._json({"error": "Enable Computer control in Settings first."}, 403)
+                    tool = str(json.loads(raw or b"{}").get("tool", ""))
+                    args = json.loads(raw or b"{}").get("args") or {}
+                    return self._json({"ok": True, "tool": tool, "result": pc_control.action(tool, args)})
                 return self._json({"ok": True, **pc_control.status()})
             except Exception as exc:  # noqa: BLE001
                 return self._json({"ok": False, "state": "offline", "error": str(exc)[:240]}, 503)

@@ -2648,6 +2648,12 @@ async function addReminderFromText(text, due = '', repeat = ''){
 }
 
 const LOCAL_TOOLS = {
+  direct_pc_control: async (a) => {
+    const r = await fetch('/api/pc-control', {method:'POST', headers:apiHeaders({'content-type':'application/json'}), body:JSON.stringify({action:'run', tool:a.tool, args:a.args||{}})});
+    const data = await r.json();
+    if(!r.ok) throw Error(data.error || `PC control HTTP ${r.status}`);
+    return {ok:true, tool:data.tool, result:data.result};
+  },
   get_conversation_status: async () => {
     const r=await fetch('/api/history?'+new URLSearchParams(liveChat||chatRef()),{headers:apiHeaders(),cache:'no-store'});
     const data=await r.json();

@@ -43,3 +43,17 @@ def status():
 def stop():
     with _LOCK:
         return _call("end_session", {"session": _SESSION})
+
+
+def action(tool, args=None):
+    """Run one allow-listed CUA action in the named persistent session."""
+    allowed = {"get_desktop_state", "get_window_state", "click", "type_text", "press_key", "launch_app"}
+    if tool not in allowed:
+        raise ValueError("unsupported CUA action")
+    payload = dict(args or {})
+    payload["session"] = _SESSION
+    with _LOCK:
+        state = _call("get_session", {"session": _SESSION})
+        if state.get("state") != "active":
+            raise RuntimeError("Direct PC control is not active")
+        return _call(tool, payload)
