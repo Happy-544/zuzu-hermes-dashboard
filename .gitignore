@@ -14,3 +14,4 @@ markets.json
 books.json
 books/
 calm.json
+conversations.sqlite3*

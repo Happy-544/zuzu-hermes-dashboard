@@ -64,7 +64,7 @@ function buildMemoryGraph(ws, opts = {}){
   const o = {tags: true, smart: true, mentions: true, orphans: true, ...opts};
   const nodes = [], links = [], byId = new Map(), byName = new Map(), seen = new Set();
   const add = n => {
-    n.color = MG_COLORS[n.group]; n.text = n.text || ''; n.tags = n.tags || [];
+    n.color = MG_COLORS[n.group]; n.text = n.text || ''; n.tags = n.tags || []; n.history = n.history || [];
     nodes.push(n); byId.set(n.id, n);
     const key = mgNorm(n.label); if (key && !byName.has(key)) byName.set(key, n);
     return n;

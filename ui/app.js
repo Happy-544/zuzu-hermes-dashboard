@@ -108,12 +108,24 @@ async function refreshCad(live=false){
 }
 function cadTaskPrompt(request){return `AUTO CAD TASK — use Zuzu's installed AutoCAD MCP runner through your terminal tool. Its exact command and supported tool groups are in your system context.\nRequest: ${request}\nRequired workflow: (1) call drawing info and entity count before editing; (2) explain the exact change plan; (3) execute only the requested changes through the runner; (4) call drawing save; (5) reread drawing info/entity count and request a screenshot or preview before reporting completion. Do not change AutoCAD or Windows security settings and do not execute arbitrary AutoLISP. If AutoCAD or mcp_dispatch.lsp is unavailable, report the exact failed step and recovery instruction.`;}
 const workspaceRequest = async payload => {
+  if(payload.action==='select_session'&&payload.sessionId){
+    try{localStorage.setItem('zuzu-selected-chat',JSON.stringify({project_id:payload.projectId,chat_id:payload.sessionId}));}catch(_){}
+  }
+  if (['select_session','add_session','delete_session','delete_project'].includes(payload.action)) {
+    persistLiveTurn();
+    if (convo || liveConnecting) stopConvo();
+  }
   const response = await fetch('/api/workspace', {
     method:'POST', headers:apiHeaders({'content-type':'application/json'}), body:JSON.stringify(payload)
   });
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
-  WS = data; renderWorkspace(); return data;
+  WS = data; renderWorkspace();
+  if (['select_session','add_session','delete_session','delete_project'].includes(payload.action)) {
+    try { localStorage.setItem('zuzu-selected-chat', JSON.stringify(chatRef())); } catch (_) {}
+    answer=''; liveUserTurn=''; setUserText(''); renderAnswer(); await loadHistory();
+  }
+  return data;
 };
 const editor = $('#editorDialog'), editorFields = $('#dialogFields');
 function openEditor(title, fields, onSave){
@@ -134,6 +146,9 @@ function renderWorkspace(){
   const projectHtml = projects.map(p => `<div class="project-row ${p.id===WS.selectedProject?'selected':''}"><button data-project="${esc(p.id)}"><b>${esc(p.name)}</b><small>${esc(p.folder)}</small></button><button class="danger-link" data-delete-project="${esc(p.id)}" aria-label="Delete ${esc(p.name)}">×</button></div>`).join('');
   $('#projectList').innerHTML = projectHtml || '<div class="empty-state">No projects yet.</div>';
   $('#sidebarProjects').innerHTML = projects.slice(0,6).map(p => `<button data-project="${esc(p.id)}">${esc(p.name)}</button>`).join('');
+  const chats=projects.flatMap(p=>(p.sessions||[]).map(s=>({...s,projectId:p.id,projectName:p.name})))
+    .sort((a,b)=>(b.updated||b.created||0)-(a.updated||a.created||0));
+  $('#conversationList').innerHTML=chats.map(s=>`<button type="button" data-chat-project="${esc(s.projectId)}" data-session="${esc(s.id)}" class="${s.id===WS.selectedSession&&s.projectId===WS.selectedProject?'selected':''}"><span>${esc(s.name)}</span><small>${esc(s.projectName)}</small></button>`).join('')||'<small>No conversations yet.</small>';
   $('#sessionContext').textContent = selected ? selected.name : 'Choose a project';
   $('#sessionList').innerHTML = (selected?.sessions||[]).map(s => `<div class="session-row ${s.id===WS.selectedSession?'selected':''}"><button data-session="${esc(s.id)}">${esc(s.name)}</button><button class="danger-link" data-delete-session="${esc(s.id)}">×</button></div>`).join('') || '<div class="empty-state">Create the first chat in this project.</div>';
   const settings=WS.settings||{};
@@ -229,6 +244,34 @@ async function saveMemory(label,value){
 // Zuzu learns from every finished turn (typed or spoken): the server extracts lasting facts,
 // adds or updates memories and announces what changed. Nothing is sent for /commands.
 let lastUserTurn = '', liveUserTurn = '';
+let liveAssistantTurn='', liveTurnId='', liveChat=null, voiceSaveQueue=Promise.resolve();
+let lastVoiceSave='', liveReconnectAttempts=0;
+function persistLiveTurn(finish=false){
+  if(!liveChat||(!liveUserTurn.trim()&&!liveAssistantTurn.trim()))return voiceSaveQueue;
+  if(!liveTurnId)liveTurnId=rid();
+  const payload={...liveChat,turn_id:liveTurnId,user:liveUserTurn,assistant:liveAssistantTurn};
+  const encoded=JSON.stringify(payload);
+  if(finish){liveUserTurn='';liveAssistantTurn='';liveTurnId='';}
+  if(encoded===lastVoiceSave)return voiceSaveQueue;
+  lastVoiceSave=encoded;
+  voiceSaveQueue=voiceSaveQueue.catch(()=>{}).then(async()=>{
+    for(let attempt=0;attempt<3;attempt++){
+      try{
+        const r=await fetch('/api/conversation/turn',{method:'POST',headers:apiHeaders({'content-type':'application/json'}),body:encoded,keepalive:true});
+        if(!r.ok)throw Error(`History save failed (${r.status})`);
+        return;
+      }catch(e){
+        if(attempt===2){if(lastVoiceSave===encoded)lastVoiceSave='';log('error','SAVE','Voice transcript could not be saved. Keep this page open and reconnect.');throw e;}
+        await new Promise(resolve=>setTimeout(resolve,700));
+      }
+    }
+  });
+  // Attach a rejection handler even when called from a socket callback.
+  voiceSaveQueue.catch(()=>{});
+  return voiceSaveQueue;
+}
+setInterval(()=>{if(liveReady)persistLiveTurn();},2000);
+document.addEventListener('visibilitychange',()=>{if(document.hidden)persistLiveTurn();});
 function autoRemember(user, assistant = '', source = 'chat'){
   if (window.calmSession && !window.calmSession.remember) return;   // Calm mode stays private unless allowed
   const text = String(user || '').trim();
@@ -308,7 +351,7 @@ document.addEventListener('click',async e=>{
       return;
     }
     if(b.dataset.project){ await workspaceRequest({action:'select_session',projectId:b.dataset.project,sessionId:''}); await loadHistory(); }
-    if(b.dataset.session){ await workspaceRequest({action:'select_session',projectId:WS.selectedProject,sessionId:b.dataset.session}); await loadHistory(); }
+    if(b.dataset.session){ await workspaceRequest({action:'select_session',projectId:b.dataset.chatProject||WS.selectedProject,sessionId:b.dataset.session}); showView('chat'); await loadHistory(); }
     if(b.dataset.deleteProject) await workspaceRequest({action:'delete_project',id:b.dataset.deleteProject});
     if(b.dataset.deleteSession) await workspaceRequest({action:'delete_session',id:b.dataset.deleteSession});
     if(b.dataset.deleteSkill) await workspaceRequest({action:'delete_skill',id:b.dataset.deleteSkill});
@@ -915,16 +958,49 @@ document.addEventListener('keydown',e=>{
   else if(e.key.toLowerCase()==='f') MG.engine?.fit();
 });
 new MutationObserver(()=>{ if(MG.engine && !$('[data-view-panel="memory"]').hidden){ MG.engine.resize(); MG.engine.kick(.05); setTimeout(()=>MG.engine.fit(),60); } }).observe($('[data-view-panel="memory"]'),{attributes:true,attributeFilter:['hidden']});
-async function loadWorkspace(){try{const r=await fetch('/api/workspace',{headers:apiHeaders()});WS=await r.json();renderWorkspace();await loadHistory();}catch(e){log('error','WORKSPACE','could not load workspace');}}
-async function loadHistory(){
-  const box=$('#chatHistory'); if(!box)return;
-  try{
-    const r=await fetch('/api/history',{headers:apiHeaders(),cache:'no-store'});
-    const data=await r.json(); if(!r.ok) throw new Error(data.error||`HTTP ${r.status}`);
-    box.innerHTML=(data.messages||[]).map(m=>`<div class="history-message ${m.role==='user'?'user':'assistant'}"><b>${m.role==='user'?'You':'Zuzu'}</b>${esc(typeof m.content==='string'?m.content:'[media or tool content]')}</div>`).join('')||'<div class="empty-state">This chat has no Hermes messages yet.</div>';
-    box.scrollTop=box.scrollHeight;
-  }catch(error){box.innerHTML=`<div class="empty-state">${esc(error.message||error)}</div>`;}
+function chatRef(){return {project_id:WS?.selectedProject,chat_id:WS?.selectedSession};}
+function sameChat(ref){return ref.project_id===WS?.selectedProject&&ref.chat_id===WS?.selectedSession;}
+async function newConversation(){
+  await workspaceRequest({action:'add_session',projectId:WS.selectedProject,name:'New chat'});
+  showView('chat'); $('#input').focus();
 }
+$('#newConversation').onclick=()=>newConversation().catch(e=>showToast(e.message,'error'));
+if(matchMedia('(max-width:980px)').matches)$('.conversation-nav').open=false;
+async function loadWorkspace(){
+  try{
+    const r=await fetch('/api/workspace',{headers:apiHeaders()}); const data=await r.json();
+    if(!r.ok)throw Error(data.error||`HTTP ${r.status}`);
+    let remembered=WS?chatRef():null;
+    if(!remembered){try{remembered=JSON.parse(localStorage.getItem('zuzu-selected-chat'));}catch(_){}}
+    if(data.projects.some(p=>p.id===remembered?.project_id&&p.sessions?.some(s=>s.id===remembered.chat_id))){
+      data.selectedProject=remembered.project_id; data.selectedSession=remembered.chat_id;
+    }
+    WS=data; renderWorkspace(); await loadHistory();
+  }catch(e){log('error','WORKSPACE',`Could not load workspace: ${e.message||e}`);}
+}
+let historyLoading=false, recoveredRun='';
+async function loadHistory(){
+  const box=$('#chatHistory'); if(!box||!WS)return;
+  const ref=chatRef();
+  try{
+    const r=await fetch('/api/history?'+new URLSearchParams(ref),{headers:apiHeaders(),cache:'no-store'});
+    const data=await r.json(); if(!r.ok) throw new Error(data.error||`HTTP ${r.status}`);
+    if(!sameChat(ref))return;
+    const follow=box.scrollHeight-box.scrollTop-box.clientHeight<70;
+    const latest=data.runs?.[0], active=latest?.state==='running';
+    box.innerHTML=(data.messages||[]).map(m=>`<div dir="auto" class="history-message ${m.role==='user'?'user':'assistant'}"><b>${m.role==='user'?'You':'Zuzu'}</b>${esc(typeof m.content==='string'?m.content:'[media or tool content]')}</div>`).join('')||'<div class="empty-state">Start a conversation. Text, voice and action results are saved here.</div>';
+    if(latest && latest.state!=='complete')box.innerHTML+=`<div class="chat-run ${esc(latest.state)}" role="status">${active?'Working':'Action stopped'} · ${esc(latest.detail)}${active?' · '+Math.floor(Date.now()/1000-latest.started)+'s':''}${active&&latest.answer?'<p dir="auto">'+esc(latest.answer)+'</p>':''}</div>`;
+    if(data.warning)box.innerHTML+=`<div class="empty-state">${esc(data.warning)}</div>`;
+    if(follow)box.scrollTop=box.scrollHeight;
+    if(!running&&!liveReady&&latest?.state==='complete'&&recoveredRun!==latest.id){
+      recoveredRun=latest.id; answer=latest.answer||'';renderAnswer();
+    }
+  }catch(error){if(sameChat(ref))log('error','HISTORY',String(error.message||error));}
+}
+setInterval(async()=>{
+  if(document.hidden||historyLoading||!WS)return;
+  historyLoading=true;try{await loadHistory();}finally{historyLoading=false;}
+},4000);
 
 // ── reactor state ──
 function setState(cls, word, sub){
@@ -989,6 +1065,7 @@ function maybeOpenRequestedBrowserPreview(message){
 let dispatchReserved = false;
 async function transmit(message, options = {}){
   if (!message.trim()) return;
+  if(/^\/new\s*$/.test(message.trim())){await newConversation();return;}
   // Claim the user action before memory, attachments or preview can await.
   // Enter+click, voice+click, and re-entrant UI events then share one request.
   if (dispatchReserved || running){
@@ -996,6 +1073,7 @@ async function transmit(message, options = {}){
     return;
   }
   dispatchReserved = true;
+  const originChat=chatRef();
   try {
     if (await handleLocalCommand(message)){ dispatchReserved = false; return; }
   } catch(error) {
@@ -1022,8 +1100,8 @@ async function transmit(message, options = {}){
     setUserText(message.trim().slice(0,90));
     const parts = [{text:message}, ...pendingLiveAttachmentParts];
     pendingLiveAttachmentParts = [];
-    dispatchReserved = false;
     liveWs.send(JSON.stringify({clientContent:{turns:[{role:'user',parts}],turnComplete:true}}));
+    persistLiveTurn();
     return;
   }
   showView('chat');
@@ -1051,7 +1129,7 @@ async function transmit(message, options = {}){
     activeController = new AbortController();
     const res = await fetch('/api/run', {
       method:'POST', headers:apiHeaders({'content-type':'application/json'}),
-      body: JSON.stringify({message, fresh, client_context: clientDeviceContext(), system: clientContextSystemText()}), signal:activeController.signal
+      body: JSON.stringify({message, fresh, ...originChat, request_id:id, client_context: clientDeviceContext(), system: clientContextSystemText()}), signal:activeController.signal
     });
     if (!res.ok){
       const data=await res.json().catch(()=>({}));
@@ -1069,7 +1147,7 @@ async function transmit(message, options = {}){
       while ((nl = buf.indexOf('\n')) >= 0){
         const line = buf.slice(0, nl).trim();
         buf = buf.slice(nl + 1);
-        if (line) handle(JSON.parse(line));
+        if (line && sameChat(originChat)) handle(JSON.parse(line));
       }
     }
   } catch (e){
@@ -1088,7 +1166,7 @@ async function transmit(message, options = {}){
   clearInterval(tick);
   finishSteps();
   scheduleJobPoll(1500);
-  loadHistory();
+  loadWorkspace();
   await speakDone;                 // don't return until Zuzu has finished talking
 }
 
@@ -1293,11 +1371,20 @@ async function holdScreenAwake(){
 }
 
 async function executeLiveAction(request, signal){
+  const originChat=liveChat?{...liveChat}:chatRef();
+  await persistLiveTurn().catch(()=>{});
   log('tool', 'HERMES', 'Executing voice action');
   resetSteps(request); watchPc(request);
+  setState('running','WORKING','Hermes is handling your request');
+  const started=Date.now();
+  serverBusy=true;
+  const tick=setInterval(()=>{
+    if(sameChat(originChat)&&!liveSpeaking)$('#strun').textContent=`Hermes working · ${Math.floor((Date.now()-started)/1000)}s`;
+  },1000);
+  try{
   const response = await fetch('/api/run', {
     method:'POST', headers:apiHeaders({'content-type':'application/json'}),
-    body:JSON.stringify({message:request, client_context: clientDeviceContext(), system: clientContextSystemText()}), signal
+    body:JSON.stringify({message:request, ...originChat, request_id:rid(), client_context: clientDeviceContext(), system: clientContextSystemText()}), signal
   });
   if (!response.ok){
     const data=await response.json().catch(()=>({}));
@@ -1311,7 +1398,7 @@ async function executeLiveAction(request, signal){
     if(ev.t==='delta') result+=ev.text || '';
     if(ev.t==='error') failure=ev.message || 'Hermes action failed';
     if(ev.t==='complete') completed=true;
-    if(ev.t==='tool'){ log('tool','HERMES',ev.name || 'Tool activity'); pushStep(ev); }
+    if(ev.t==='tool'&&sameChat(originChat)){ log('tool','HERMES',ev.name || 'Tool activity'); pushStep(ev); }
   };
   while(true){
     const {value,done}=await reader.read();
@@ -1322,19 +1409,29 @@ async function executeLiveAction(request, signal){
   }
   if(failure || !completed) throw new Error(failure || 'Connection ended before the action completed. Do not report success.');
   log('tool','HERMES','Action response received');
+  if(sameChat(originChat)){
+    answer=result;renderAnswer();showMediaFromAnswer(result);
+  }
   return {result:result.slice(0,12000),instruction:'Report this outcome faithfully; do not infer success if it reports refusal, missing tools or failure.'};
+  }finally{
+    serverBusy=false;
+    clearInterval(tick);
+    if(sameChat(originChat)){loadWorkspace();if(!liveSpeaking)setState(convo?'listening':'',''+(convo?'LISTENING':'READY'),'');}
+  }
 }
 
 async function startGeminiLive(){
   try{
     if (liveConnecting || liveReady) return;
     liveConnecting=true;
+    await voiceSaveQueue.catch(()=>{});
+    liveChat=chatRef();liveUserTurn='';liveAssistantTurn='';liveTurnId='';
     if (player) player.pause();
     speechSynth?.cancel();
     voiceWanted = true;
     setState('running','CONNECTING','Gemini native audio…');
     const auth = await fetch('/api/live-token', {
-      method:'POST', headers:apiHeaders({'content-type':'application/json'}), body:JSON.stringify({client_context: clientDeviceContext(), system: clientContextSystemText(), ...(window.calmSession ? {purpose:'calm', voice:window.calmSession.voice} : {})})
+      method:'POST', headers:apiHeaders({'content-type':'application/json'}), body:JSON.stringify({...liveChat,client_context: clientDeviceContext(), system: clientContextSystemText(), ...(window.calmSession ? {purpose:'calm', voice:window.calmSession.voice} : {})})
     }).then(async r => { const data=await r.json(); if(!r.ok) throw new Error(data.error||`HTTP ${r.status}`); return data; });
     micStream = await navigator.mediaDevices.getUserMedia(
       {audio:{echoCancellation:true, noiseSuppression:true, autoGainControl:true, channelCount:1}});
@@ -1366,6 +1463,7 @@ async function startGeminiLive(){
       if (payload instanceof Blob) payload = await payload.text();
       else if (payload instanceof ArrayBuffer) payload = new TextDecoder().decode(payload);
       const msg = JSON.parse(payload);
+      if(connectedSocket!==liveWs)return;
       if (msg.setupComplete && !liveReady){
         clearTimeout(liveConnectTimer); liveConnectTimer=null; liveConnecting=false;
         liveReady = true; convo = true; suppress = false;
@@ -1409,15 +1507,18 @@ async function startGeminiLive(){
       if (content.outputTranscription?.text){
         if (!liveAnswerStarted) { answer=''; liveAnswerStarted=true; }
         answer += content.outputTranscription.text;
+        liveAssistantTurn += content.outputTranscription.text;
         renderAnswer();
       }
       for (const part of (content.modelTurn?.parts || [])) {
         if (part.inlineData?.data) playLivePcm(part.inlineData.data, 24000);
       }
       if (content.turnComplete){
+        liveReconnectAttempts=0;
+        dispatchReserved=false;
         liveAnswerStarted=false;
         if (liveUserTurn.trim()) autoRemember(liveUserTurn, answer, 'voice');
-        liveUserTurn='';
+        persistLiveTurn(true).then(()=>loadWorkspace()).catch(()=>{});
         const delay = Math.max(0, (livePlayAt - liveOutputCtx.currentTime) * 1000);
         setTimeout(() => {
           if (connectedSocket !== liveWs || liveSources.size) return;
@@ -1426,6 +1527,9 @@ async function startGeminiLive(){
         }, delay + 30);
       }
       if (content.interrupted){
+        dispatchReserved=false;
+        liveAnswerStarted=false;
+        persistLiveTurn(true);
         stopLivePlayback();
         if(convo) setState('listening','LISTENING','interrupted · speak now');
       }
@@ -1433,7 +1537,13 @@ async function startGeminiLive(){
     liveWs.onerror = () => log('error','VOICE','Gemini Live connection error');
     liveWs.onclose = event => {
       if (connectedSocket !== liveWs) return;
-      if (voiceWanted) useVoiceFallback(event.reason || `connection closed (${event.code})`);
+      if(voiceWanted&&liveReady&&liveReconnectAttempts<2){
+        liveReconnectAttempts++;
+        stopConvo(false);
+        setState('running','RECONNECTING','Your conversation and actions are saved');
+        setTimeout(()=>{if(voiceWanted&&!document.hidden)startGeminiLive();},1000*liveReconnectAttempts);
+      }
+      else if (voiceWanted) useVoiceFallback(event.reason || `connection closed (${event.code})`);
       else stopConvo(false);
     };
   }catch(e){
@@ -1628,6 +1738,8 @@ async function micToggle(){
 }
 
 function stopConvo(manual=true){
+  dispatchReserved=false;
+  persistLiveTurn(true);
   if (manual){ voiceWanted = false; sessionStorage.removeItem('jarvis-voice-resume'); }
   convo = false; suppress = false;
   liveReady = false; liveSpeaking = false;
@@ -2399,6 +2511,13 @@ async function addReminderFromText(text, due = '', repeat = ''){
 }
 
 const LOCAL_TOOLS = {
+  get_conversation_status: async () => {
+    const r=await fetch('/api/history?'+new URLSearchParams(liveChat||chatRef()),{headers:apiHeaders(),cache:'no-store'});
+    const data=await r.json();
+    if(!r.ok)throw Error(data.error||'Could not read the conversation');
+    return {actions:(data.runs||[]).slice(0,4).map(run=>({state:run.state,detail:run.detail,result:run.answer.slice(-8000)})),
+      instruction:'Report these saved outcomes accurately. A running request is still in progress; do not dispatch it again.'};
+  },
   add_reminder: async a => { const it = await addReminderFromText(a.text, a.due || '', a.repeat || ''); return {saved:true, text:it.text, due:it.due || 'no time set'}; },
   get_daily_brief: async a => { const b = await fetchBrief(a.kind); return {brief:b.speech, date:b.date, weather:b.weather, events:b.events, reminders:b.reminders, headlines:b.news.map(n => n.title)}; },
   play_music: async a => playMusic(a.query),

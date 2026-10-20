@@ -46,6 +46,7 @@ import vapi_proxy       # noqa: E402
 import runtime          # noqa: E402
 import voice            # noqa: E402
 import workspace        # noqa: E402
+import conversations    # noqa: E402
 import ngrok_setup      # noqa: E402
 import personal         # noqa: E402
 import markets          # noqa: E402
@@ -161,6 +162,8 @@ def live_voice_persona(client_extra=""):
         "For greetings, casual conversation, opinions, emotional support, jokes, and questions you can answer reliably without current or private data, answer immediately yourself in one or two natural spoken sentences. "
         "Call hermes_action exactly once when the user asks you to DO something or needs current/private/system information: Telegram or email, accounts, computer or iPhone actions, browser/search, files, apps, tools, memory changes, reminders, projects, connected services, or Zuzu configuration. "
         "If you are unsure whether a real action or connected data is required, call Hermes. Never claim you cannot do an action before Hermes returns. Never invent success. Speak the returned result naturally in your persona. "
+        "When asked about the previous request, what is running, or its result, use get_conversation_status first. "
+        "Interrupting speech does not cancel an action. Do not repeat an action to find out whether it completed. "
         "Fast local tools (use these instead of Hermes when they fit): add_reminder for any 'remind me' request (convert the time to an ISO local datetime); "
         "get_daily_brief when asked about the day, date, weather, news, schedule or reminders; play_music to play songs or playlists; "
         "play_video to show a YouTube video about something; switch_model when asked to change the AI model or provider; "
@@ -196,6 +199,7 @@ def _tool(name, description, props=None, required=()):
 
 
 LOCAL_VOICE_TOOLS = [
+    _tool("get_conversation_status", "Read the current conversation's saved action states and results, including actions that continued after voice was interrupted. Never rerun an action just to check it."),
     _tool("add_reminder", "Save a personal reminder.", {
         "text": "What to remind the user about, in their words.",
         "due": "Local date-time in ISO format YYYY-MM-DDTHH:MM, or empty if no time was given.",
@@ -575,7 +579,7 @@ class Handler(BaseHTTPRequestHandler):
                 tts=voice.tts_provider() if conversation_mode == "hybrid" else "browser",
                 live_voice=live_enabled,
                 live_model=voice.GEMINI_LIVE_MODEL if live_enabled else "",
-                active_operation=runtime.active_operation_snapshot(),
+                active_operation=conversations.active_operation() or runtime.active_operation_snapshot(),
                 session=workspace.selected_hermes_session()[2]))
         if p == "/api/autocad/status":
             live = urllib.parse.parse_qs(urlparse(self.path).query).get("live", ["0"])[0] == "1"
@@ -635,11 +639,21 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"error": "unauthorized"}, 401)
             return self._json(workspace.public_state())
         if p == "/api/history":
-            _, _, session_id = workspace.selected_hermes_session()
-            if not hermes_api.configured() or not session_id:
-                return self._json({"messages": []})
             try:
-                return self._json({"messages": hermes_api.messages(session_id)})
+                query = urllib.parse.parse_qs(urlparse(self.path).query)
+                pid, sid, session_id = conversations.resolve({k: v[0] for k, v in query.items()})
+                messages = conversations.history(pid, sid)
+                warning = ""
+                if not messages and session_id and hermes_api.configured():
+                    try:
+                        for index, item in enumerate(hermes_api.messages(session_id)):
+                            conversations.add(pid, sid, item["role"], item["content"], "hermes",
+                                              f"import:{session_id}:{index}")
+                        messages = conversations.history(pid, sid)
+                    except (OSError, ValueError, RuntimeError):
+                        warning = "Older Hermes history is temporarily unavailable. Your saved chats are safe."
+                return self._json({"messages": messages, "runs": conversations.runs(pid, sid),
+                                   "project_id": pid, "chat_id": sid, "warning": warning})
             except (OSError, ValueError, RuntimeError) as exc:
                 return self._json({"error": f"Hermes history unavailable: {type(exc).__name__}"}, 503)
         if p == "/api/calls/status":
@@ -760,6 +774,23 @@ class Handler(BaseHTTPRequestHandler):
             except (RuntimeError, OSError) as exc:
                 return self._json({"error": str(exc)[:400]}, 503)
 
+        if p == "/api/conversation/turn":
+            try:
+                if ctype != "application/json":
+                    raise ValueError("JSON required")
+                payload = json.loads(raw or b"{}")
+                pid, sid, _ = conversations.resolve(payload)
+                turn_id = str(payload.get("turn_id") or "")[:100]
+                if not turn_id:
+                    raise ValueError("A turn ID is required")
+                for role in ("user", "assistant"):
+                    conversations.add(pid, sid, role, str(payload.get(role) or "")[:50000],
+                                      "voice", f"{pid}:{sid}:{turn_id}:{role}")
+                workspace.touch_chat(pid, sid, str(payload.get("user") or ""))
+                return self._json({"ok": True})
+            except (ValueError, TypeError, AttributeError) as exc:
+                return self._json({"error": str(exc)[:200]}, 400)
+
         if p == "/api/live-token":
             try:
                 payload = json.loads(raw or b"{}")
@@ -787,7 +818,12 @@ class Handler(BaseHTTPRequestHandler):
                     live_auth["system"] = calm.persona(client_extra)
                     live_auth["tools"] = [{"functionDeclarations": CALM_TOOLS}]
                     return self._json(live_auth)
-                live_auth["system"] = live_voice_persona(client_extra)
+                pid, sid, _ = conversations.resolve(payload)
+                live_auth["system"] = live_voice_persona(client_extra) + "\n\n" + conversations.context(pid, sid)
+                recent_runs = conversations.runs(pid, sid)
+                if recent_runs:
+                    latest = recent_runs[0]
+                    live_auth["system"] += "\nLatest action state: " + latest["state"] + "; " + latest["detail"]
                 live_auth["tools"] = [{"functionDeclarations": [{
                     "name": "hermes_action",
                     "description": "Use for every request requiring an action, tool, current/private data or connected service. Send the exact request to local Hermes, which owns Telegram, email/connections, computer control, browser, files, memory and tools. Do not use for ordinary casual conversation.",
@@ -938,16 +974,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"error": str(e)[:300], "text": ""}, 503)
 
         if p == "/api/new":
-            runtime.cancel_active()
-            project_id, ui_id, _ = workspace.selected_hermes_session()
-            workspace.bind_hermes_session(project_id, ui_id, None)
-            return self._json({"ok": True})
+            project_id, _, _ = workspace.selected_hermes_session()
+            return self._json(workspace.action({"action": "add_session", "projectId": project_id, "name": "New chat"}))
 
         if p == "/api/cancel":
             stopped = runtime.cancel_active()
             stopped = hermes_api.cancel_active() or stopped
-            project_id, ui_id, _ = workspace.selected_hermes_session()
-            workspace.bind_hermes_session(project_id, ui_id, None)
             return self._json({"ok": True, "stopped": stopped})
 
         if p == "/api/run":
@@ -960,7 +992,15 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 return self._stream_run(raw)
             finally:
-                RUN_LOCK.release()
+                try:
+                    request_id = getattr(self, "_conversation_run", None)
+                    if request_id:
+                        for run in conversations.runs(*self._conversation_chat):
+                            if run["id"] == request_id and run["state"] == "running":
+                                conversations.event(request_id, {"t": "error", "message":
+                                    "The response ended before completion. Check the action before retrying."})
+                finally:
+                    RUN_LOCK.release()
 
         return self._json({"error": "no such endpoint"}, 404)
 
@@ -981,12 +1021,19 @@ class Handler(BaseHTTPRequestHandler):
         fresh = bool(payload.get("fresh"))
         if not message:
             return self._json({"error": "empty message"}, 400)
-        project_id = ui_id = hermes_id = None
-        if conversation_mode != "direct":
-            project_id, ui_id, hermes_id = workspace.ensure_selected_chat()
-        if fresh and conversation_mode != "direct":
-            hermes_id = None
-            workspace.bind_hermes_session(project_id, ui_id, None)
+        try:
+            project_id, ui_id, hermes_id = conversations.resolve(payload)
+        except ValueError as exc:
+            return self._json({"error": str(exc)}, 400)
+        if fresh:
+            return self._json({"error": "Use New chat to start a separate conversation."}, 400)
+        request_id = str(payload.get("request_id") or secrets.token_hex(16))[:100]
+        recent = conversations.context(project_id, ui_id, voice_only=conversation_mode != "direct")
+        system = (system or "") + "\n\n" + recent
+        if not conversations.start(project_id, ui_id, request_id, message):
+            return self._json({"error": "This request was already accepted. Its result is in the conversation."}, 409)
+        self._conversation_run = request_id
+        self._conversation_chat = (project_id, ui_id)
 
         self.send_response(200)
         self.send_header("Content-Type", "application/x-ndjson")
@@ -994,13 +1041,24 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Connection", "close")
         self.end_headers()
 
+        disconnected = False
         def emit(ev):
-            self.wfile.write((json.dumps(ev) + "\n").encode())
-            self.wfile.flush()
+            nonlocal disconnected
+            conversations.event(request_id, ev)
+            if disconnected:
+                return
+            try:
+                self.wfile.write((json.dumps(ev) + "\n").encode())
+                self.wfile.flush()
+            except OSError:
+                # Losing the mobile/voice connection is not an agent cancel.
+                disconnected = True
 
         if conversation_mode == "direct":
             try:
-                route = workspace.model_route()
+                routing_state = workspace.load()
+                routing_state["selectedProject"] = project_id
+                route = workspace.model_route(routing_state)
                 last_error = None
                 for index, candidate in enumerate(route):
                     runner = (runtime.run_gemini(message, system, candidate["model"])
@@ -1059,7 +1117,9 @@ class Handler(BaseHTTPRequestHandler):
             selected = next((s for p in workspace.load().get("projects", []) if p.get("id") == project_id
                              for s in p.get("sessions", []) if s.get("id") == ui_id), {})
             if hermes_api.configured():
-                effective = workspace.effective_model_settings()
+                routing_state = workspace.load()
+                routing_state["selectedProject"] = project_id
+                effective = workspace.effective_model_settings(routing_state)
                 provider = None if effective["provider"] == "hermes" else ({"gemini": "google"}.get(effective["provider"], effective["provider"]))
                 model = effective["model"]
                 runner = hermes_api.run_hermes(message, hermes_id, system,
@@ -1070,13 +1130,11 @@ class Handler(BaseHTTPRequestHandler):
             for ev in runner:
                 # Only remember a real Hermes session, never demo/mock identifiers.
                 sid = ev.get("session_id")
-                # Only remember a session that actually COMPLETED. Storing it from
-                # `status` (which fires at init) means one broken run poisons every
-                # run after it with --resume <half-born session>.
-                if ev.get("t") == "complete" and runtime.valid_session(sid):
+                # API status follows successful session creation; keep that ID
+                # across provider errors, interruption and client disconnect.
+                if (ev.get("t") == "complete" or
+                        (ev.get("t") == "status" and ev.get("runtime") == "hermes-api")) and runtime.valid_session(sid):
                     workspace.bind_hermes_session(project_id, ui_id, sid)
-                if ev.get("t") == "error":
-                    workspace.bind_hermes_session(project_id, ui_id, None)
                 emit(ev)
         except (BrokenPipeError, ConnectionResetError):
             pass                                          # client navigated away
@@ -1088,6 +1146,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
+    conversations.recover()
     settings = workspace.load()["settings"]
     runtime.PROVIDER = settings["provider"]
     runtime.MODEL = settings["model"]

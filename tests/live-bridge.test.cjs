@@ -17,10 +17,11 @@ test('failure goes back as an error, never success',async()=>{
   assert.match(sent[0].toolResponse.functionResponses[0].response.error,/denied/);
 });
 test('cancelled or disconnected requests cannot speak late results',async()=>{
-  let finish;const sent=[];
-  const bridge=new HermesVoiceBridge(()=>new Promise(r=>finish=r),m=>sent.push(m));
+  let finish,signal;const sent=[];
+  const bridge=new HermesVoiceBridge((_,s)=>{signal=s;return new Promise(r=>finish=r)},m=>sent.push(m));
   const promise=bridge.handle({id:'a',name:'hermes_action',args:{request:'Open Paint'}});
   await Promise.resolve();bridge.cancel(['a']);finish({result:'done'});await promise;
+  assert.equal(signal.aborted,false,'Barge-in must not abort an accepted action');
   assert.equal(sent.length,0);bridge.close();
   await bridge.handle({id:'b',name:'hermes_action',args:{request:'Open Paint'}});
   assert.equal(sent.length,0);
@@ -43,6 +44,7 @@ test('memory graph links notes by [[links]], #tags, mentions and ghosts',()=>{
             {id:'c',label:'Gym',value:'Train Mon/Wed [[Coach Sam]]'}],
     skills:[],hermesMemory:[{source:'MEMORY.md',content:'Prefers Arabic replies§Works in Dubai fit-out'}]};
   const g=MG.buildMemoryGraph(ws);
+  assert.ok(g.nodes.every(n=>Array.isArray(n.history)),'Every selectable node supports the details panel');
   const has=(a,b,kind)=>g.links.some(l=>((l.source===a&&l.target===b)||(l.source===b&&l.target===a))&&(!kind||l.kind===kind));
   assert.ok(has('m:a','m:b','link'));
   assert.ok(has('m:a','t:family','tag')); assert.ok(has('m:b','t:hobby','tag')); assert.ok(has('m:b','t:craft','tag'));

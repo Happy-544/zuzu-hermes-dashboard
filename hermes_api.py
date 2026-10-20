@@ -91,12 +91,18 @@ def toolsets():
 def messages(session_id):
     if not session_id:
         return []
-    path = "/api/sessions/" + urllib.parse.quote(session_id, safe="") + "/messages?limit=30&order=latest"
-    with _request(path, timeout=6) as response:
-        data = json.load(response).get("data", [])
-    return [{"role": item.get("role"), "content": item.get("content", ""),
-             "timestamp": item.get("timestamp")}
-            for item in data if item.get("role") in {"user", "assistant"}]
+    result, offset = [], 0
+    while True:
+        path = ("/api/sessions/" + urllib.parse.quote(session_id, safe="")
+                + f"/messages?limit=500&order=oldest&offset={offset}")
+        with _request(path, timeout=6) as response:
+            data = json.load(response).get("data", [])
+        result.extend({"role": item.get("role"), "content": item.get("content", ""),
+                       "timestamp": item.get("timestamp")}
+                      for item in data if item.get("role") in {"user", "assistant"})
+        if len(data) < 500:
+            return result
+        offset += len(data)
 
 
 def create_session(title, system):
@@ -147,12 +153,18 @@ def run_hermes(message, session_id=None, system=None, *, title="Zuzu chat", prov
 
         threading.Thread(target=read_stream, daemon=True).start()
         event_name = ""
+        last_heartbeat = time.monotonic()
         while True:
+            if time.monotonic() - started > 900:
+                raise RuntimeError("Hermes response exceeded 15 minutes; check the action before retrying")
             if getattr(response, "zuzu_cancelled", False):
                 raise OSError("cancelled by user")
             try:
                 item_type, raw = incoming.get(timeout=0.1)
             except queue.Empty:
+                if time.monotonic() - last_heartbeat >= 5:
+                    last_heartbeat = time.monotonic()
+                    yield {"t": "heartbeat", "ms": int((last_heartbeat - started) * 1000)}
                 continue
             if item_type == "done":
                 break
@@ -190,6 +202,8 @@ def run_hermes(message, session_id=None, system=None, *, title="Zuzu chat", prov
                     elif kind == "error":
                         terminal = "run.failed"
                         failure = str(event.get("message") or "Hermes run failed")[:300]
+                    if terminal:
+                        break
                 elif not line:
                     event_name = ""
         if terminal == "run.completed":
@@ -214,3 +228,5 @@ def run_hermes(message, session_id=None, system=None, *, title="Zuzu chat", prov
     finally:
         with _ACTIVE_LOCK:
             _ACTIVE_STREAMS.discard(response)
+        if response is not None:
+            threading.Thread(target=_close_stream, args=(response,), daemon=True).start()

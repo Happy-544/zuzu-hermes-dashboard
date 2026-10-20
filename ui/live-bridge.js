@@ -8,7 +8,8 @@ class HermesVoiceBridge {
   cancel(ids) {
     for (const id of ids) {
       this.cancelled.add(id);
-      this.controllers.get(id)?.abort();
+      // Barge-in cancels speech, not an already dispatched action. Its result
+      // remains in the saved chat even when the Live socket has gone away.
     }
   }
   close() {

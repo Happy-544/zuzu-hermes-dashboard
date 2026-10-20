@@ -75,6 +75,7 @@ def save(data):
 
 
 def public_state():
+    ensure_selected_chat()
     data = load()
     settings = copy.deepcopy(data["settings"])
     provider = settings.get("provider", "gemini")
@@ -208,6 +209,21 @@ def bind_hermes_session(project_id, ui_session_id, hermes_id):
     return False
 
 
+def touch_chat(project_id, session_id, first_message=""):
+    with LOCK:
+        data = _load()
+        for project in data["projects"]:
+            if project["id"] != project_id:
+                continue
+            for session in project.get("sessions", []):
+                if session["id"] == session_id:
+                    if not session.get("updated") and session.get("name") in {"General", "New chat"}:
+                        session["name"] = " ".join(first_message.split())[:60] or session["name"]
+                    session["updated"] = time.time()
+                    save(data)
+                    return
+
+
 def _words(text):
     return {w for w in re.findall(r"[^\W_]{3,}", str(text or "").lower())}
 
@@ -291,6 +307,11 @@ def _env_update(values):
 
 
 def action(payload):
+    with LOCK:
+        return _action(payload)
+
+
+def _action(payload):
     kind = str(payload.get("action", ""))
     data = load()
     if kind == "save_settings":

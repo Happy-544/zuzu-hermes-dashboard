@@ -2,6 +2,7 @@ import io
 import json
 import pathlib
 import unittest
+import tempfile
 from unittest import mock
 
 import runtime
@@ -10,6 +11,12 @@ import workspace
 
 
 class ConversationModeTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        patch = mock.patch.object(workspace, "FILE", pathlib.Path(self.temp.name) / "workspace.json")
+        patch.start()
+        self.addCleanup(patch.stop)
     def test_uncensored_provider_catalogue_has_live_venice_and_openrouter_ids(self):
         self.assertIn("venice-uncensored-1-2", workspace.MODELS["venice"])
         self.assertIn("e2ee-gemma-4-26b-a4b-uncensored-p", workspace.MODELS["venice"])
@@ -67,7 +74,8 @@ class ConversationModeTests(unittest.TestCase):
         handler.send_response = mock.Mock()
         handler.send_header = mock.Mock()
         handler.end_headers = mock.Mock()
-        state = {"settings": {"conversationMode": "direct", "provider": "gemini", "model": "gemini-2.5-flash"}}
+        state = workspace.load()
+        state["settings"]["conversationMode"] = "direct"
         events = iter(({"t": "delta", "text": "direct answer"}, {"t": "complete", "ms": 1}))
         with mock.patch.object(workspace, "load", return_value=state), \
              mock.patch.object(runtime, "run_gemini", return_value=events) as direct, \

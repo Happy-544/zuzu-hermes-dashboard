@@ -2,6 +2,8 @@ import io
 import json
 import os
 import unittest
+import threading
+import time
 from unittest import mock
 
 import hermes_api
@@ -31,6 +33,35 @@ class _HealthResponse(_Response):
 
 
 class HermesApiTests(unittest.TestCase):
+    def test_completion_does_not_wait_for_upstream_socket_to_close(self):
+        release = threading.Event()
+        class OpenStream:
+            def __iter__(self):
+                yield b'event: run.completed\n'
+                yield b'data: {}\n'
+                release.wait(5)
+            def close(self):
+                release.set()
+        try:
+            with mock.patch.object(hermes_api, "_request", return_value=OpenStream()):
+                started = time.monotonic()
+                events = list(hermes_api.run_hermes("Hi", "session_12345678"))
+            self.assertLess(time.monotonic() - started, 1)
+            self.assertEqual(events[-1]["t"], "complete")
+        finally:
+            release.set()
+
+    def test_history_reads_every_page_in_chronological_order(self):
+        first = [{"role": "user", "content": str(i)} for i in range(500)]
+        second = [{"role": "assistant", "content": "last"}]
+        with mock.patch.object(hermes_api, "_request", side_effect=[
+                _Response({"data": first}), _Response({"data": second})]) as request:
+            items = hermes_api.messages("session_12345678")
+        self.assertEqual(len(items), 501)
+        self.assertEqual(items[0]["content"], "0")
+        self.assertEqual(items[-1]["content"], "last")
+        self.assertIn("order=oldest&offset=500", request.call_args.args[0])
+
     def test_empty_api_base_uses_loopback_default(self):
         with mock.patch.dict(os.environ, {"HERMES_API_BASE": ""}, clear=False):
             self.assertEqual(hermes_api._base(), "http://127.0.0.1:8642")
