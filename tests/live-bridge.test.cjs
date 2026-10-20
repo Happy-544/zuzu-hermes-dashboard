@@ -24,6 +24,10 @@ test('old completed voice results are not injected into a new voice call',()=>{
   q.expect('new',chat); q.complete('new',{result:'new answer'}); q.items.find(x=>x.id==='new').completedAt=cutoff+1;
   assert.equal(q.pending(chat,cutoff).length,1);
 });
+test('completed action from an older voice turn is excluded after a newer turn starts',()=>{
+  const q=new VoiceResultQueue(storage()); q.expect('old',chat,1); q.complete('old',{result:'old answer'}); q.expect('new',chat,2); q.complete('new',{result:'new answer'});
+  assert.deepEqual(q.pending(chat,0,2).map(x=>x.id),['new']);
+});
 test('reload recovers accepted actions from saved server runs without redispatch',()=>{
   const saved=storage(),q=new VoiceResultQueue(saved);
   q.expect('r',chat);

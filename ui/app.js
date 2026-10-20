@@ -257,10 +257,10 @@ let lastUserTurn = '', liveUserTurn = '';
 let liveAssistantTurn='', liveTurnId='', liveChat=null, voiceSaveQueue=Promise.resolve();
 let lastVoiceSave='', liveReconnectAttempts=0;
 const voiceResults=new VoiceResultQueue(sessionStorage);
-let liveResponseEpoch=0, liveUserAudioAt=0, voiceCallStartedAt=0;
+let liveResponseEpoch=0, liveUserAudioAt=0, voiceCallStartedAt=0, voiceTurnSeq=0;
 function deliverVoiceResults(){
   if(!liveReady||liveWs?.readyState!==WebSocket.OPEN||liveSpeaking||serverBusy||dispatchReserved||liveUserTurn.trim()||Date.now()-liveUserAudioAt<800)return;
-  const pending=voiceResults.pending(liveChat, (typeof voiceCallStartedAt === 'number' ? voiceCallStartedAt : 0));
+  const pending=voiceResults.pending(liveChat, (typeof voiceCallStartedAt === 'number' ? voiceCallStartedAt : 0), (typeof voiceTurnSeq === 'number' ? voiceTurnSeq : null));
   if(!pending.length)return;
   liveWs.send(JSON.stringify({clientContent:{turns:[{role:'user',parts:[{text:
     'An already requested Hermes action has finished. Report the saved outcome below briefly in your usual persona and the conversation language. This is a result notification, not a new task. Do not call tools or repeat the action. Continue our existing conversation.\n'
@@ -1160,7 +1160,7 @@ async function transmit(message, options = {}){
   }
   try {
     lastUserTurn = message;
-    if(liveReady&&liveChat&&sameChat(liveChat))liveUserTurn=message;
+    if(liveReady&&liveChat&&sameChat(liveChat)){ voiceTurnSeq++; liveUserTurn=message; }
     pendingLiveAttachmentParts = [];
     const previewNote = maybeOpenRequestedBrowserPreview(message);
     message = await attachVisualContext(message);
@@ -1459,7 +1459,7 @@ async function executeLiveAction(request, signal){
   const originChat=liveChat?{...liveChat}:chatRef();
   await persistLiveTurn().catch(()=>{});
   const requestId=rid();
-  voiceResults.expect(requestId,originChat);
+  voiceResults.expect(requestId,originChat,voiceTurnSeq);
   log('tool', 'HERMES', 'Executing voice action');
   resetSteps(request); watchPc(request);
   setState('running','WORKING','Hermes is handling your request');
@@ -1611,6 +1611,7 @@ async function startGeminiLive(){
       const content = msg.serverContent;
       if (!content) return;
       if (content.inputTranscription?.text){
+        if (!liveUserTurn.trim()) voiceTurnSeq++;
         liveUserTurn += content.inputTranscription.text;
         if(sameChat(liveChat))setUserText(content.inputTranscription.text.slice(0,90));
         sendLiveVisualFrame(content.inputTranscription.text.slice(0,80));
@@ -1864,7 +1865,7 @@ function stopConvo(manual=true){
   voiceResults.resetDelivery();
   dispatchReserved=false;
   persistLiveTurn(true);
-  if (manual){ voiceWanted = false; liveChat=null; voiceCallStartedAt=0; sessionStorage.removeItem('jarvis-voice-resume'); }
+  if (manual){ voiceWanted = false; liveChat=null; voiceCallStartedAt=0; voiceTurnSeq=0; sessionStorage.removeItem('jarvis-voice-resume'); }
   convo = false; suppress = false;
   liveReady = false; liveSpeaking = false;
   liveConnecting=false;
