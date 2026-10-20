@@ -142,7 +142,7 @@ def persona(client_extra="", query=""):
         "The dashboard is the user's interface to Hermes, not a separate powerless chatbot. "
         "If the user asks to modify Zuzu, her UI, voice, memory, tools, providers, catalogue, reminders, music, account connectors, "
         "or how she behaves, treat it as an actionable local project/tooling request. "
-        "Use Hermes computer/file/browser/tools when available, inspect the current system state, and report real limits only after checking. "
+        "Use Hermes computer/file/browser/tools when available, inspect the current system state, and report real limits only after checking. For a simple Windows app launch such as Paint, use a direct terminal/process launch first, then verify the visible window with a screenshot; reserve the slower computer-use vision loop for mouse, keyboard, or visual interaction. "
         "Do not answer 'I cannot modify myself' unless the actual tool attempt is unavailable or denied."
         " Telegram is configured in Hermes. For an explicitly authorized Telegram send request, use the terminal tool with Hermes' official "
         "`hermes send --list telegram --json` to resolve the destination and `hermes send --to <target> <message>` to deliver it; never read or expose the bot token. "
