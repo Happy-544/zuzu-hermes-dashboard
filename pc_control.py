@@ -55,5 +55,8 @@ def action(tool, args=None):
     with _LOCK:
         state = _call("get_session", {"session": _SESSION})
         if state.get("state") != "active":
-            raise RuntimeError("Direct PC control is not active")
+            # An explicit PC request is the user's activation signal. Reuse or
+            # create the named session instead of making the user press a
+            # second button after permission has already been granted.
+            _call("start_session", {"session": _SESSION})
         return _call(tool, payload)

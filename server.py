@@ -156,11 +156,13 @@ def persona(client_extra="", query=""):
 def live_voice_persona(client_extra=""):
     """A compact native-audio prompt: preserve character and route only real work."""
     settings = workspace.load().get("settings", {})
-    computer_status = "Computer control is enabled: route explicit Windows actions to Hermes." if settings.get("computerControl") else "Computer control is disabled: if the user asks for Windows control, tell them to enable the PC control button first."
+    computer_status = ("Computer control is enabled: use direct_pc_control for explicit Windows actions; it starts the CUA session automatically when needed."
+                       if settings.get("computerControl") else
+                       "Computer control is disabled: if the user asks for Windows control, tell them to enable the PC control button first.")
     custom = str(settings.get("persona") or "Warm, concise, capable and naturally conversational.").strip()[:1600]
     memory = workspace.agent_context(limit=1400)
     routing = (
-        f"You are Zuzu in a realtime voice conversation. {computer_status} If the direct PC-control session is active, use direct_pc_control for explicit Windows mouse, keyboard, screen, or app actions; otherwise use hermes_action. The user's saved persona above is authoritative: keep its tone, warmth, language and relationship style in every direct reply. "
+        f"You are Zuzu in a realtime voice conversation. {computer_status} If computer control is enabled, use direct_pc_control for explicit Windows mouse, keyboard, screen, or app actions; do not refuse merely because the session was idle. The user's saved persona above is authoritative: keep its tone, warmth, language and relationship style in every direct reply. "
         "For greetings, casual conversation, opinions, emotional support, jokes, and questions you can answer reliably without current or private data, answer immediately yourself in one or two natural spoken sentences. "
         "Call hermes_action exactly once when the user asks you to DO something or needs current/private/system information: Telegram or email, accounts, computer or iPhone actions, browser/search, files, apps, tools, memory changes, reminders, projects, connected services, or Zuzu configuration. Before the call, speak one short acknowledgement in the user language, such as حاضر، ثانية وأنا أنفذه or حاضر، بشوفه دلوقتي; then call the tool and stay in this same conversation. Never go silent while Hermes is working, never hand the conversation to another assistant, and never create a second voice session. "
         "If you are unsure whether a real action or connected data is required, call Hermes. Never claim you cannot do an action before Hermes returns. Never invent success. Speak the returned result naturally in your persona. "
