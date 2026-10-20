@@ -17,6 +17,13 @@ test('result survives interruption and reconnect, is acknowledged only after spe
   resumed.markSent('r');resumed.acknowledge(['r']);
   assert.equal(new VoiceResultQueue(saved).items.length,0);
 });
+test('old completed voice results are not injected into a new voice call',()=>{
+  const q=new VoiceResultQueue(storage()); q.expect('old',chat); q.complete('old',{result:'old answer'});
+  const cutoff=(q.items[0].completedAt||Date.now())+1;
+  assert.equal(q.pending(chat,cutoff).length,0);
+  q.expect('new',chat); q.complete('new',{result:'new answer'}); q.items.find(x=>x.id==='new').completedAt=cutoff+1;
+  assert.equal(q.pending(chat,cutoff).length,1);
+});
 test('reload recovers accepted actions from saved server runs without redispatch',()=>{
   const saved=storage(),q=new VoiceResultQueue(saved);
   q.expect('r',chat);

@@ -257,10 +257,10 @@ let lastUserTurn = '', liveUserTurn = '';
 let liveAssistantTurn='', liveTurnId='', liveChat=null, voiceSaveQueue=Promise.resolve();
 let lastVoiceSave='', liveReconnectAttempts=0;
 const voiceResults=new VoiceResultQueue(sessionStorage);
-let liveResponseEpoch=0, liveUserAudioAt=0;
+let liveResponseEpoch=0, liveUserAudioAt=0, voiceCallStartedAt=0;
 function deliverVoiceResults(){
   if(!liveReady||liveWs?.readyState!==WebSocket.OPEN||liveSpeaking||serverBusy||dispatchReserved||liveUserTurn.trim()||Date.now()-liveUserAudioAt<800)return;
-  const pending=voiceResults.pending(liveChat);
+  const pending=voiceResults.pending(liveChat, (typeof voiceCallStartedAt === 'number' ? voiceCallStartedAt : 0));
   if(!pending.length)return;
   liveWs.send(JSON.stringify({clientContent:{turns:[{role:'user',parts:[{text:
     'An already requested Hermes action has finished. Report the saved outcome below briefly in your usual persona and the conversation language. This is a result notification, not a new task. Do not call tools or repeat the action. Continue our existing conversation.\n'
@@ -1522,6 +1522,7 @@ async function startGeminiLive(){
     if(connectEpoch!==liveConnectEpoch)return;
     liveChat=liveChat||chatRef();liveUserTurn='';liveAssistantTurn='';liveTurnId='';
     voiceResults.resetDelivery();
+    if (typeof voiceCallStartedAt !== 'number' || !voiceCallStartedAt) voiceCallStartedAt=Date.now();
     if (player) player.pause();
     speechSynth?.cancel();
     voiceWanted = true;
@@ -1863,7 +1864,7 @@ function stopConvo(manual=true){
   voiceResults.resetDelivery();
   dispatchReserved=false;
   persistLiveTurn(true);
-  if (manual){ voiceWanted = false; liveChat=null; sessionStorage.removeItem('jarvis-voice-resume'); }
+  if (manual){ voiceWanted = false; liveChat=null; voiceCallStartedAt=0; sessionStorage.removeItem('jarvis-voice-resume'); }
   convo = false; suppress = false;
   liveReady = false; liveSpeaking = false;
   liveConnecting=false;

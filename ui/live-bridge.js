@@ -50,12 +50,12 @@ class VoiceResultQueue {
   }
   save() { try { this.storage?.setItem('zuzu-voice-results',JSON.stringify(this.items)); } catch (_) {} }
   expect(id, chat) {
-    if(!this.items.some(x=>x.id===id))this.items.push({id,chat});
+    if(!this.items.some(x=>x.id===id))this.items.push({id,chat,createdAt:Date.now()});
     this.save();
   }
   complete(id, response) {
     const item=this.items.find(x=>x.id===id);
-    if(item){item.response=response;this.save();}
+    if(item){item.response=response;item.completedAt=Date.now();this.save();}
   }
   recover(chat, runs) {
     for(const run of runs||[]){
@@ -66,7 +66,7 @@ class VoiceResultQueue {
     }
   }
   matches(item,chat) { return item.chat.project_id===chat?.project_id&&item.chat.chat_id===chat?.chat_id; }
-  pending(chat) { return this.items.filter(x=>this.matches(x,chat)&&x.response&&!this.sent.has(x.id)); }
+  pending(chat, since=0) { return this.items.filter(x=>this.matches(x,chat)&&x.response&&!this.sent.has(x.id)&&(!since || Math.max(x.createdAt||0,x.completedAt||0)>=since)); }
   markSent(id) { if(this.items.some(x=>x.id===id&&x.response))this.sent.add(id); }
   resetDelivery() { this.sent.clear(); }
   acknowledge(ids) { for(const id of ids)if(this.sent.has(id))this.forget(id); }
