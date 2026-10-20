@@ -73,6 +73,13 @@ function bindNavigation(){
   });
 }
 bindNavigation();
+// Delegated fallback keeps sub-tabs clickable even if a stale event binding survived a reload.
+document.addEventListener('click', event => {
+  const button = event.target?.closest?.('[data-view],[data-group]');
+  if (!button) return;
+  const target = button.dataset.view || button.dataset.group;
+  if (target && (VIEW_NAMES.has(target) || VIEW_GROUPS[target])) showView(target);
+}, true);
 let savedView = 'chat'; try{ savedView = localStorage.getItem('jarvis-view') || 'chat'; }catch(_){}
 showView(savedView, false);
 
@@ -401,8 +408,13 @@ document.addEventListener('click',async e=>{
   }catch(err){log('error','WORKSPACE',String(err.message||err));showToast(String(err.message||err),'error');}
 });
 
-function renderPcControlToggle(){ const b=document.querySelector('[data-cc-toggle-pc]'); if(!b)return; const on=!!WS?.settings?.computerControl; b.classList.toggle('active',on); b.querySelector('b').textContent=`PC control: ${on?'On':'Off'}`; b.querySelector('small').textContent=on?'Hermes may control the Windows screen after your request':'Press to allow Hermes computer tools'; }
-async function togglePcControl(){ const current=!!WS?.settings?.computerControl; const next=!current; if(next&&!confirm('Allow Hermes to control this Windows computer when you explicitly ask?'))return; try{ const settings={...(WS.settings||{}),computerControl:next}; await workspaceRequest({action:'save_settings',settings}); WS.settings={...(WS.settings||{}),computerControl:next}; $('#computerControl').checked=next; renderPcControlToggle(); log('complete','PC CONTROL',next?'enabled — ask Zuzu to open or control an app':'disabled'); refreshStatus(); }catch(e){ log('error','PC CONTROL',String(e.message||e)); } }
+function renderPcControlToggle(){ const b=document.querySelector('[data-cc-toggle-pc]'); if(!b)return; const on=!!WS?.settings?.computerControl; const active=b.dataset.pcSession==='active'; b.classList.toggle('active',active); b.querySelector('b').textContent=`PC control: ${active?'Active':on?'Allowed':'Off'}`; b.querySelector('small').textContent=active?'Direct CUA session is active — press to stop':'Press to start a direct CUA session'; }
+async function togglePcControl(){ const current=!!WS?.settings?.computerControl; if(!current&&!confirm('Allow Zuzu to control this Windows computer when you explicitly ask?'))return; try{
+    if(!current){ const settings={...(WS.settings||{}),computerControl:true}; await workspaceRequest({action:'save_settings',settings}); WS.settings={...(WS.settings||{}),computerControl:true}; $('#computerControl').checked=true; }
+    const b=document.querySelector('[data-cc-toggle-pc]'); const active=b?.dataset.pcSession==='active';
+    const res=await fetch('/api/pc-control',{method:'POST',headers:apiHeaders({'content-type':'application/json'}),body:JSON.stringify({action:active?'stop':'start'})}); const data=await res.json(); if(!res.ok)throw new Error(data.error||`HTTP ${res.status}`);
+    if(b)b.dataset.pcSession=active?'':'active'; renderPcControlToggle(); log('complete','PC CONTROL',active?'direct session stopped':'direct session active — ready for explicit commands'); refreshStatus();
+  }catch(e){ log('error','PC CONTROL',String(e.message||e)); } }
 document.addEventListener('click',e=>{ if(e.target.closest('[data-cc-toggle-pc]')) togglePcControl(); });
 $('#saveSettings').onclick=async()=>{const s=WS.settings; await workspaceRequest({action:'save_settings',settings:{...s,profile:$('#profileName').value,workdir:$('#workdir').value,persona:$('#personaText').value,computerControl:$('#computerControl').checked,mobileControl:$('#mobileControl').checked,liveModel:$('#liveModel').value,voice:$('#voiceSelect').value,shortcutName:$('#shortcutName').value}}); log('complete','SETTINGS','agent settings saved'); refreshStatus();};
 $('#signOut').onclick=async()=>{await fetch('/api/logout',{method:'POST',headers:apiHeaders({'content-type':'application/json'}),body:'{}'}).catch(()=>{});location.replace('/login.html');};

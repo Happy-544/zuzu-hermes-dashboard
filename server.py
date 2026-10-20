@@ -58,6 +58,7 @@ import memory_auto      # noqa: E402
 import creative         # noqa: E402
 import calm             # noqa: E402
 import autocad_bridge   # noqa: E402
+import pc_control       # noqa: E402
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -585,6 +586,11 @@ class Handler(BaseHTTPRequestHandler):
                 live_model=voice.GEMINI_LIVE_MODEL if live_enabled else "",
                 active_operation=conversations.active_operation() or runtime.active_operation_snapshot(),
                 session=workspace.selected_hermes_session()[2]))
+        if p == "/api/pc-control":
+            try:
+                return self._json({"ok": True, **pc_control.status()})
+            except Exception as exc:  # noqa: BLE001
+                return self._json({"ok": False, "state": "offline", "error": str(exc)[:240]}, 503)
         if p == "/api/autocad/status":
             live = urllib.parse.parse_qs(urlparse(self.path).query).get("live", ["0"])[0] == "1"
             try:
@@ -740,7 +746,7 @@ class Handler(BaseHTTPRequestHandler):
             auth.logout(self.headers.get("Cookie"))
             return self._json({"ok": True}, headers={"Set-Cookie": "zuzu_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0"})
         ctype = self.headers.get("Content-Type", "").split(";", 1)[0].lower()
-        if p in {"/api/run", "/api/speak", "/api/live-token", "/api/workspace", "/api/new", "/api/cancel", "/api/calls/outbound", "/api/catalog/install", "/api/personal", "/api/markets", "/api/books", "/api/media", "/api/overlay", "/api/overlay/point", "/api/skills", "/api/memory/observe", "/api/creative", "/api/calm"} and ctype != "application/json":
+        if p in {"/api/run", "/api/speak", "/api/live-token", "/api/workspace", "/api/new", "/api/cancel", "/api/calls/outbound", "/api/catalog/install", "/api/personal", "/api/markets", "/api/books", "/api/media", "/api/overlay", "/api/overlay/point", "/api/skills", "/api/memory/observe", "/api/creative", "/api/calm", "/api/pc-control"} and ctype != "application/json":
             return self._json({"error": "application/json required"}, 415)
         if p == "/api/listen" and not ctype.startswith("audio/"):
             return self._json({"error": "audio content type required"}, 415)
@@ -986,6 +992,19 @@ class Handler(BaseHTTPRequestHandler):
             stopped = runtime.cancel_active()
             stopped = hermes_api.cancel_active() or stopped
             return self._json({"ok": True, "stopped": stopped})
+
+        if p == "/api/pc-control":
+            try:
+                action = str(json.loads(raw or b"{}").get("action", "status"))
+                if action == "start":
+                    if not workspace.load().get("settings", {}).get("computerControl"):
+                        return self._json({"error": "Enable Computer control in Settings first."}, 403)
+                    return self._json({"ok": True, **pc_control.start()})
+                if action == "stop":
+                    return self._json({"ok": True, **pc_control.stop()})
+                return self._json({"ok": True, **pc_control.status()})
+            except Exception as exc:  # noqa: BLE001
+                return self._json({"ok": False, "state": "offline", "error": str(exc)[:240]}, 503)
 
         if p == "/api/run":
             if not RUN_LOCK.acquire(blocking=False):
