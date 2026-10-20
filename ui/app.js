@@ -69,7 +69,12 @@ function bindNavigation(){
   document.querySelectorAll('[data-group],[data-view]').forEach(button => {
     if (button.dataset.navBound === '1') return;
     button.dataset.navBound = '1';
-    button.addEventListener('click', () => showView(button.dataset.view || button.dataset.group));
+    button.addEventListener('click', event => {
+      // Sub-tabs live inside the group button region; stop bubbling so the
+      // parent Settings handler cannot immediately restore the last page.
+      if (button.dataset.view) event.stopPropagation();
+      showView(button.dataset.view || button.dataset.group);
+    });
   });
 }
 bindNavigation();
