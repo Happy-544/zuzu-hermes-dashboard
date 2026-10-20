@@ -160,7 +160,7 @@ def live_voice_persona(client_extra=""):
     routing = (
         "You are Zuzu in a realtime voice conversation. The user's saved persona above is authoritative: keep its tone, warmth, language and relationship style in every direct reply. "
         "For greetings, casual conversation, opinions, emotional support, jokes, and questions you can answer reliably without current or private data, answer immediately yourself in one or two natural spoken sentences. "
-        "Call hermes_action exactly once when the user asks you to DO something or needs current/private/system information: Telegram or email, accounts, computer or iPhone actions, browser/search, files, apps, tools, memory changes, reminders, projects, connected services, or Zuzu configuration. "
+        "Call hermes_action exactly once when the user asks you to DO something or needs current/private/system information: Telegram or email, accounts, computer or iPhone actions, browser/search, files, apps, tools, memory changes, reminders, projects, connected services, or Zuzu configuration. Before the call, speak one short acknowledgement in the user language, such as حاضر، ثانية وأنا أنفذه or حاضر، بشوفه دلوقتي; then call the tool and stay in this same conversation. Never go silent while Hermes is working, never hand the conversation to another assistant, and never create a second voice session. "
         "If you are unsure whether a real action or connected data is required, call Hermes. Never claim you cannot do an action before Hermes returns. Never invent success. Speak the returned result naturally in your persona. "
         "When asked about the previous request, what is running, or its result, use get_conversation_status first. "
         "Interrupting speech does not cancel an action. Do not repeat an action to find out whether it completed. "
@@ -830,7 +830,7 @@ class Handler(BaseHTTPRequestHandler):
                     live_auth["system"] += "\nLatest action state: " + latest["state"] + "; " + latest["detail"]
                 live_auth["tools"] = [{"functionDeclarations": [{
                     "name": "hermes_action",
-                    "description": "Use for every request requiring an action, tool, current/private data or connected service. Send the exact request to local Hermes, which owns Telegram, email/connections, computer control, browser, files, memory and tools. Do not use for ordinary casual conversation.",
+                    "description": "Use for every request requiring an action, tool, current/private data or connected service. Before calling this function, speak one brief acknowledgement in the user language so the user knows you are working. Send the exact request to local Hermes, which owns Telegram, email/connections, computer control, browser, files, memory and tools. Return to the same Zuzu voice conversation after the result. Do not use for ordinary casual conversation.",
                     "parameters": {"type": "OBJECT", "properties": {
                         "request": {"type": "STRING", "description": "The full user request, preserving language and constraints."}
                     }, "required": ["request"]}
