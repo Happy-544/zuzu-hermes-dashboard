@@ -246,6 +246,19 @@ async function saveMemory(label,value){
 let lastUserTurn = '', liveUserTurn = '';
 let liveAssistantTurn='', liveTurnId='', liveChat=null, voiceSaveQueue=Promise.resolve();
 let lastVoiceSave='', liveReconnectAttempts=0;
+const voiceResults=new VoiceResultQueue(sessionStorage);
+let liveResponseEpoch=0, liveUserAudioAt=0;
+function deliverVoiceResults(){
+  if(!liveReady||liveWs?.readyState!==WebSocket.OPEN||liveSpeaking||serverBusy||dispatchReserved||liveUserTurn.trim()||Date.now()-liveUserAudioAt<800)return;
+  const pending=voiceResults.pending(liveChat);
+  if(!pending.length)return;
+  liveWs.send(JSON.stringify({clientContent:{turns:[{role:'user',parts:[{text:
+    'An already requested Hermes action has finished. Report the saved outcome below briefly in your usual persona and the conversation language. This is a result notification, not a new task. Do not call tools or repeat the action. Continue our existing conversation.\n'
+    +JSON.stringify(pending.map(x=>({request_id:x.id,...x.response})))}]}],turnComplete:true}}));
+  pending.forEach(x=>voiceResults.markSent(x.id));
+  dispatchReserved=true;
+}
+setInterval(deliverVoiceResults,1000);
 function persistLiveTurn(finish=false){
   if(!liveChat||(!liveUserTurn.trim()&&!liveAssistantTurn.trim()))return voiceSaveQueue;
   if(!liveTurnId)liveTurnId=rid();
@@ -986,6 +999,7 @@ async function loadHistory(){
     const r=await fetch('/api/history?'+new URLSearchParams(ref),{headers:apiHeaders(),cache:'no-store'});
     const data=await r.json(); if(!r.ok) throw new Error(data.error||`HTTP ${r.status}`);
     if(!sameChat(ref))return;
+    voiceResults.recover(ref,data.runs);
     const follow=box.scrollHeight-box.scrollTop-box.clientHeight<70;
     const latest=data.runs?.[0], active=latest?.state==='running';
     box.innerHTML=(data.messages||[]).map(m=>`<div dir="auto" class="history-message ${m.role==='user'?'user':'assistant'}"><b>${m.role==='user'?'You':'Zuzu'}</b>${esc(typeof m.content==='string'?m.content:'[media or tool content]')}</div>`).join('')||'<div class="empty-state">Start a conversation. Text, voice and action results are saved here.</div>';
@@ -1293,7 +1307,7 @@ let liveWs=null, liveInputCtx=null, liveOutputCtx=null, liveProcessor=null;
 let liveSource=null, liveReady=false, liveSpeaking=false, livePlayAt=0;
 let liveSources=new Set(), bargeFrames=0, wakeLock=null, voiceWanted=false, liveLastMessageAt=0;
 let liveBridge=null, liveAnswerStarted=false;
-let liveConnecting=false, liveConnectTimer=null, liveFailedUntil=0, ttsFailed=false;
+let liveConnecting=false, liveConnectTimer=null, liveFailedUntil=0, ttsFailed=false, liveConnectEpoch=0;
 
 function useVoiceFallback(reason){
   const detail = /prepayment credits are depleted|quota|billing/i.test(reason)
@@ -1302,16 +1316,11 @@ function useVoiceFallback(reason){
   stopConvo(false);
   voiceWanted=false;
   sessionStorage.removeItem('jarvis-voice-resume');
-  liveFailedUntil=Date.now()+5*60*1000;
-  ttsFailed=true;
-  RT.live=false;
-  RT.tts=false;
-  log('error','VOICE',`${detail}. Switching to voice through Hermes.`);
-  if (RT.stt || SpeechRecognition) {
-    micToggle();
-  } else {
-    setState('error','VOICE UNAVAILABLE',`${detail}. Text chat still uses Hermes.`);
-  }
+  // Keep the selected voice/persona. An outage must not silently switch brains
+  // or start a different voice engine. The core button retries Gemini Live.
+  liveFailedUntil=0;
+  log('error','VOICE',`${detail}. Conversation saved; tap Zuzu Voice to reconnect.`);
+  setState('error','RECONNECT VOICE',`${detail}. Tap Zuzu Voice to retry.`);
 }
 
 function floatToPcm16Base64(float32, inputRate){
@@ -1373,6 +1382,8 @@ async function holdScreenAwake(){
 async function executeLiveAction(request, signal){
   const originChat=liveChat?{...liveChat}:chatRef();
   await persistLiveTurn().catch(()=>{});
+  const requestId=rid();
+  voiceResults.expect(requestId,originChat);
   log('tool', 'HERMES', 'Executing voice action');
   resetSteps(request); watchPc(request);
   setState('running','WORKING','Hermes is handling your request');
@@ -1384,9 +1395,10 @@ async function executeLiveAction(request, signal){
   try{
   const response = await fetch('/api/run', {
     method:'POST', headers:apiHeaders({'content-type':'application/json'}),
-    body:JSON.stringify({message:request, ...originChat, request_id:rid(), client_context: clientDeviceContext(), system: clientContextSystemText()}), signal
+    body:JSON.stringify({message:request, ...originChat, request_id:requestId, client_context: clientDeviceContext(), system: clientContextSystemText()}), signal
   });
   if (!response.ok){
+    voiceResults.forget(requestId);
     const data=await response.json().catch(()=>({}));
     throw new Error(response.status === 409 ? (data.message || 'An action is already running. Wait for its result.') : (data.error || `Action failed: HTTP ${response.status}`));
   }
@@ -1412,7 +1424,12 @@ async function executeLiveAction(request, signal){
   if(sameChat(originChat)){
     answer=result;renderAnswer();showMediaFromAnswer(result);
   }
-  return {result:result.slice(0,12000),instruction:'Report this outcome faithfully; do not infer success if it reports refusal, missing tools or failure.'};
+  const outcome={run_id:requestId,result:result.slice(0,12000),instruction:'Report this outcome faithfully in your saved persona and conversation language, then keep listening. Do not infer success if it reports refusal, missing tools or failure.'};
+  voiceResults.complete(requestId,outcome);
+  return outcome;
+  }catch(e){
+    e.voiceRunId=requestId;
+    throw e;
   }finally{
     serverBusy=false;
     clearInterval(tick);
@@ -1421,11 +1438,14 @@ async function executeLiveAction(request, signal){
 }
 
 async function startGeminiLive(){
+  if (liveConnecting || liveReady) return;
+  const connectEpoch=++liveConnectEpoch;
   try{
-    if (liveConnecting || liveReady) return;
     liveConnecting=true;
     await voiceSaveQueue.catch(()=>{});
+    if(connectEpoch!==liveConnectEpoch)return;
     liveChat=chatRef();liveUserTurn='';liveAssistantTurn='';liveTurnId='';
+    voiceResults.resetDelivery();
     if (player) player.pause();
     speechSynth?.cancel();
     voiceWanted = true;
@@ -1433,29 +1453,39 @@ async function startGeminiLive(){
     const auth = await fetch('/api/live-token', {
       method:'POST', headers:apiHeaders({'content-type':'application/json'}), body:JSON.stringify({...liveChat,client_context: clientDeviceContext(), system: clientContextSystemText(), ...(window.calmSession ? {purpose:'calm', voice:window.calmSession.voice} : {})})
     }).then(async r => { const data=await r.json(); if(!r.ok) throw new Error(data.error||`HTTP ${r.status}`); return data; });
-    micStream = await navigator.mediaDevices.getUserMedia(
+    if(connectEpoch!==liveConnectEpoch)return;
+    const acquiredStream = await navigator.mediaDevices.getUserMedia(
       {audio:{echoCancellation:true, noiseSuppression:true, autoGainControl:true, channelCount:1}});
+    if(connectEpoch!==liveConnectEpoch){acquiredStream.getTracks().forEach(t=>t.stop());return;}
+    micStream=acquiredStream;
     syncMicMute();
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
     liveInputCtx = new AudioCtx(); liveOutputCtx = new AudioCtx();
     await Promise.all([liveInputCtx.resume(), liveOutputCtx.resume()]);
+    if(connectEpoch!==liveConnectEpoch)return;
     livePlayAt = liveOutputCtx.currentTime;
     const endpoint = 'wss://generativelanguage.googleapis.com/ws/'
       + 'google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContentConstrained'
       + `?access_token=${encodeURIComponent(auth.token)}`;
     liveWs = new WebSocket(endpoint);
-    liveWs.onopen = () => liveWs.send(JSON.stringify({setup:{
+    const connectedSocket = liveWs;
+    liveWs.onopen = () => {
+      if(connectedSocket!==liveWs)return;
+      connectedSocket.send(JSON.stringify({setup:{
       model:`models/${auth.model}`,
       generationConfig:{responseModalities:['AUDIO'],thinkingConfig:{thinkingBudget:0},speechConfig:{voiceConfig:{prebuiltVoiceConfig:{voiceName:auth.voice||'Kore'}}}},
       inputAudioTranscription:{}, outputAudioTranscription:{}, tools:auth.tools || [],
       systemInstruction:{parts:[{text:auth.system || 'You are Zuzu. Speak warmly, naturally, briefly, and helpfully.'}]}
     }}));
-    const connectedSocket = liveWs;
+    };
     liveConnectTimer=setTimeout(() => {
       if (connectedSocket === liveWs && !liveReady) useVoiceFallback('connection timed out');
     }, 12000);
     liveBridge = new HermesVoiceBridge(executeLiveAction, message => {
-      if (connectedSocket === liveWs && connectedSocket.readyState === WebSocket.OPEN) connectedSocket.send(JSON.stringify(message));
+      if (connectedSocket === liveWs && connectedSocket.readyState === WebSocket.OPEN){
+        connectedSocket.send(JSON.stringify(message));
+        for(const item of message.toolResponse?.functionResponses||[])voiceResults.markSent(item.response?.run_id);
+      }
     }, LOCAL_TOOLS);
     liveWs.onmessage = async event => {
       liveLastMessageAt = Date.now();
@@ -1477,12 +1507,15 @@ async function startGeminiLive(){
         liveProcessor.onaudioprocess = e => {
           if (!liveReady || liveWs?.readyState !== WebSocket.OPEN) return;
           const samples = e.inputBuffer.getChannelData(0);
+          let energy = 0;
+          for (let i=0; i<samples.length; i++) energy += samples[i] * samples[i];
+          const rms = Math.sqrt(energy / samples.length);
+          if(rms>0.055)liveUserAudioAt=Date.now();
           if (liveSpeaking){
-            let energy = 0;
-            for (let i=0; i<samples.length; i++) energy += samples[i] * samples[i];
-            const rms = Math.sqrt(energy / samples.length);
             bargeFrames = rms > 0.055 ? bargeFrames + 1 : 0;
             if (bargeFrames >= 2){
+              liveResponseEpoch++;
+              voiceResults.resetDelivery();
               stopLivePlayback();
               setState('listening','LISTENING','interrupted · listening');
               log('voice','VOICE','barge-in detected · response stopped');
@@ -1499,7 +1532,6 @@ async function startGeminiLive(){
       const content = msg.serverContent;
       if (!content) return;
       if (content.inputTranscription?.text){
-        if (SLEEP_RE.test(content.inputTranscription.text)) setTimeout(() => { if (convo) stopConvo(); }, 1800);
         liveUserTurn += content.inputTranscription.text;
         setUserText(content.inputTranscription.text.slice(0,90));
         sendLiveVisualFrame(content.inputTranscription.text.slice(0,80));
@@ -1514,19 +1546,25 @@ async function startGeminiLive(){
         if (part.inlineData?.data) playLivePcm(part.inlineData.data, 24000);
       }
       if (content.turnComplete){
+        const delivered=[...voiceResults.sent], responseEpoch=liveResponseEpoch;
         liveReconnectAttempts=0;
         dispatchReserved=false;
         liveAnswerStarted=false;
         if (liveUserTurn.trim()) autoRemember(liveUserTurn, answer, 'voice');
         persistLiveTurn(true).then(()=>loadWorkspace()).catch(()=>{});
         const delay = Math.max(0, (livePlayAt - liveOutputCtx.currentTime) * 1000);
-        setTimeout(() => {
-          if (connectedSocket !== liveWs || liveSources.size) return;
+        const finishPlayback=() => {
+          if (connectedSocket !== liveWs || responseEpoch!==liveResponseEpoch) return;
+          if(liveSources.size){setTimeout(finishPlayback,200);return;}
+          voiceResults.acknowledge(delivered);
           liveSpeaking=false; document.body.classList.remove('speaking');
           if(convo) setState('listening','LISTENING','تفضّل، أنا سامعاك');
-        }, delay + 30);
+        };
+        setTimeout(finishPlayback, delay + 30);
       }
       if (content.interrupted){
+        liveResponseEpoch++;
+        voiceResults.resetDelivery();
         dispatchReserved=false;
         liveAnswerStarted=false;
         persistLiveTurn(true);
@@ -1547,7 +1585,7 @@ async function startGeminiLive(){
       else stopConvo(false);
     };
   }catch(e){
-    useVoiceFallback(String(e.message||e).slice(0,160));
+    if(connectEpoch===liveConnectEpoch)useVoiceFallback(String(e.message||e).slice(0,160));
   }
 }
 
@@ -1738,6 +1776,9 @@ async function micToggle(){
 }
 
 function stopConvo(manual=true){
+  liveConnectEpoch++;
+  liveResponseEpoch++;
+  voiceResults.resetDelivery();
   dispatchReserved=false;
   persistLiveTurn(true);
   if (manual){ voiceWanted = false; sessionStorage.removeItem('jarvis-voice-resume'); }
@@ -2371,7 +2412,6 @@ syncFeed();
 // ══════════ personal: reminders, brief, music, video, model, wake word ══════════
 let PERSONAL = null, lastBrief = null, wakeRec = null, wakeWanted = false, inboxPolls = 0;
 const WAKE_RE = /\b(?:hey|hi|ok|okay|ya)?\s*(?:zu\s?zu|zoo\s?zoo|zouzou|zuzo|zozo|susu)\b|زوزو/i;
-const SLEEP_RE = /sleep mode|go to sleep|stop listening|وضع النوم|نامي|اسكتي يا زوزو/i;
 
 function showToast(text, kind = 'info', link = null){
   let box = $('#toasts');
@@ -2523,7 +2563,11 @@ const LOCAL_TOOLS = {
   play_music: async a => playMusic(a.query),
   play_video: async a => playVideo(a.query),
   switch_model: async a => switchModel(a.provider, a.model),
-  sleep_mode: async () => { setTimeout(() => { if (convo) stopConvo(); }, 2500); return {ok:true, note:'Say a very short goodbye now.'}; },
+  sleep_mode: async () => {
+    const socket=liveWs;
+    setTimeout(() => { if (convo&&socket===liveWs) stopConvo(); }, 2500);
+    return {ok:true, note:'Say a very short goodbye now.'};
+  },
   get_markets: async () => { const m = await loadMarkets(); return {note:m.note, top5:m.top5.map(q => ({name:q.name, price:q.price, change_pct:q.change})), watchlist:m.watchlist.map(q => ({name:q.name, price:q.price, change_pct:q.change}))}; },
   set_price_alert: async a => { await marketsRequest({action:'add_alert', symbol:a.symbol, direction:a.direction, price:a.price}); return {saved:true}; },
   create_image: async a => { const r = await createImage(a.prompt); return {created:true, file:r.name}; },

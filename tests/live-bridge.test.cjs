@@ -1,6 +1,84 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const {HermesVoiceBridge}=require('../ui/live-bridge.js');
+const {VoiceResultQueue}=require('../ui/live-bridge.js');
+const chat={project_id:'home',chat_id:'a'},other={project_id:'home',chat_id:'b'};
+function storage(){const data=new Map();return {getItem:k=>data.get(k),setItem:(k,v)=>data.set(k,v),removeItem:k=>data.delete(k)};}
+test('result survives interruption and reconnect, is acknowledged only after speech',()=>{
+  const saved=storage(),q=new VoiceResultQueue(saved);
+  q.expect('r',chat);q.complete('r',{result:'actual outcome'});q.markSent('r');
+  assert.equal(q.pending(chat).length,0);
+  q.resetDelivery();
+  q.acknowledge(['r']); // old interrupted audio callback must not clear it
+  assert.equal(q.pending(chat).length,1);
+  const resumed=new VoiceResultQueue(saved);
+  assert.equal(resumed.pending(other).length,0);
+  assert.equal(resumed.pending(chat)[0].response.result,'actual outcome');
+  resumed.markSent('r');resumed.acknowledge(['r']);
+  assert.equal(new VoiceResultQueue(saved).items.length,0);
+});
+test('reload recovers accepted actions from saved server runs without redispatch',()=>{
+  const saved=storage(),q=new VoiceResultQueue(saved);
+  q.expect('r',chat);
+  q.markSent('r');q.acknowledge(['r']);
+  assert.equal(q.items.length,1,'A transport error is not the final action outcome');
+  const reloaded=new VoiceResultQueue(saved);
+  reloaded.recover(other,[{id:'r',state:'complete',answer:'wrong chat'}]);
+  assert.equal(reloaded.pending(chat).length,0);
+  reloaded.recover(chat,[{id:'r',state:'running'}]);
+  assert.equal(reloaded.pending(chat).length,0);
+  reloaded.recover(chat,[{id:'r',state:'complete',answer:'real saved result'}]);
+  assert.equal(reloaded.pending(chat)[0].response.result,'real saved result');
+});
+test('cancelled tool result is queued for the same conversation rather than lost',async()=>{
+  const q=new VoiceResultQueue(storage()),sent=[];let finish;
+  const bridge=new HermesVoiceBridge(async()=>{
+    q.expect('r',chat);
+    const result=await new Promise(resolve=>finish=resolve);
+    q.complete('r',result);return result;
+  },m=>sent.push(m));
+  const work=bridge.handle({id:'call',name:'hermes_action',args:{request:'test'}});
+  await Promise.resolve();bridge.cancel(['call']);finish({result:'completed'});await work;
+  assert.equal(sent.length,0);
+  assert.equal(q.pending(chat)[0].response.result,'completed');
+});
+test('page sends recovered results through Live only when user is not speaking, without rerunning Hermes',()=>{
+  const fs=require('node:fs'),vm=require('node:vm');
+  const script=fs.readFileSync(require('node:path').join(__dirname,'../ui/app.js'),'utf8');
+  const source=script.slice(script.indexOf('function deliverVoiceResults(){'),script.indexOf('setInterval(deliverVoiceResults'));
+  const q=new VoiceResultQueue(storage()),sent=[];
+  q.expect('r',chat);q.complete('r',{result:'real outcome'});
+  const ctx=vm.createContext({liveReady:true,liveWs:{readyState:1,send:x=>sent.push(JSON.parse(x))},
+    WebSocket:{OPEN:1},liveSpeaking:false,serverBusy:false,dispatchReserved:false,liveUserTurn:'still speaking',
+    liveUserAudioAt:0,voiceResults:q,liveChat:chat});
+  vm.runInContext(source,ctx);
+  ctx.deliverVoiceResults();assert.equal(sent.length,0);
+  ctx.liveUserTurn='';ctx.liveChat=other;
+  ctx.deliverVoiceResults();assert.equal(sent.length,0);
+  ctx.liveChat=chat;ctx.liveUserAudioAt=Date.now();
+  ctx.deliverVoiceResults();assert.equal(sent.length,0);
+  ctx.liveUserAudioAt=0;
+  ctx.serverBusy=true;
+  ctx.deliverVoiceResults();assert.equal(sent.length,0);
+  ctx.serverBusy=false;
+  ctx.deliverVoiceResults();ctx.deliverVoiceResults();
+  assert.equal(sent.length,1);
+  assert.match(sent[0].clientContent.turns[0].parts[0].text,/real outcome/);
+  assert.equal(ctx.dispatchReserved,true);
+  assert.equal(q.items.length,1,'Sending alone must not acknowledge spoken delivery');
+});
+test('Live connection failure preserves selected engine instead of silently changing voice',()=>{
+  const fs=require('node:fs'),vm=require('node:vm');
+  const script=fs.readFileSync(require('node:path').join(__dirname,'../ui/app.js'),'utf8');
+  const source=script.slice(script.indexOf('function useVoiceFallback(reason){'),script.indexOf('function floatToPcm16Base64'));
+  const states=[],runtime={live:true,tts:true},ctx=vm.createContext({
+    stopConvo:()=>{},sessionStorage:storage(),RT:runtime,log:()=>{},setState:(...args)=>states.push(args),
+    micToggle:()=>{throw Error('Unexpected engine switch')},voiceWanted:true,liveFailedUntil:0,
+  });
+  vm.runInContext(source,ctx);ctx.useVoiceFallback('network interrupted');
+  assert.deepEqual(runtime,{live:true,tts:true});
+  assert.equal(states[0][1],'RECONNECT VOICE');
+});
 test('repeated call ID dispatches once and returns one result to original voice',async()=>{
   let count=0; const sent=[];
   const bridge=new HermesVoiceBridge(async()=>{count++;return {result:'actual result'}},m=>sent.push(m));
