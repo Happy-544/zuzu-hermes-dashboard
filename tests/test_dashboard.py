@@ -242,10 +242,22 @@ class InterfaceTests(unittest.TestCase):
         self.assertIn("is waiting for task details", js)
         self.assertIn('id="top-hermes"', html)
         self.assertIn('id="sy-hermes"', html)
-        self.assertIn("app.js?v=51", html)
+        self.assertIn("app.js?v=55", html)
         self.assertIn("function bindNavigation()", js)
         self.assertIn("caches.delete(key)", worker)
         self.assertNotIn("caches.match(event.request)", worker)
+
+    def test_autocad_mcp_workflow_is_visible_and_verified(self):
+        html = (ROOT / "ui" / "index.html").read_text(encoding="utf-8")
+        js = (ROOT / "ui" / "app.js").read_text(encoding="utf-8")
+        self.assertIn('data-view-panel="autocad"', html)
+        self.assertIn('id="cadRefresh"', html)
+        self.assertIn("/api/autocad/status", js)
+        self.assertIn("call drawing info and entity count before editing", js)
+        self.assertIn("reread drawing info/entity count", js)
+        runner = (ROOT / "autocad_runner.py").read_text(encoding="utf-8")
+        self.assertIn('"drawing", "entity", "layer"', runner)
+        self.assertIn("execute_lisp is not available", runner)
 
     def test_job_polling_is_visibility_aware_and_quota_friendly(self):
         js = (ROOT / "ui" / "app.js").read_text(encoding="utf-8")

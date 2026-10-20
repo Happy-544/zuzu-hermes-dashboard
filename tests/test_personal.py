@@ -116,7 +116,7 @@ class VoiceToolTests(unittest.TestCase):
         self.assertEqual(names, {"add_reminder", "get_daily_brief", "play_music", "play_video", "switch_model", "sleep_mode",
                                  "get_markets", "set_price_alert", "create_image", "create_video", "find_books",
                                  "point_at", "clear_screen_drawing", "find_new_skills", "install_skill",
-                                 "make_music", "resin_quote", "open_creative_studio", "calm_mode"})
+                                 "make_music", "resin_quote", "open_creative_studio", "calm_mode", "autocad_task"})
 
 
 if __name__ == "__main__":

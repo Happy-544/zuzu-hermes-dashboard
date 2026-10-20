@@ -32,7 +32,7 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt
 // ── workspace navigation ──
 // Five simple sections; each holds one or more pages.
 const VIEW_GROUPS = {home:['chat'], day:['reminders','markets','library'], work:['projects','creative','missions','studio'], brain:['memory','skills'],
-                     tools:['tools','calls'], settings:['settings','models','activity']};
+                     tools:['tools','autocad','calls'], settings:['settings','models','activity']};
 const VIEW_NAMES = new Set(Object.values(VIEW_GROUPS).flat());
 const groupOf = name => Object.keys(VIEW_GROUPS).find(group => VIEW_GROUPS[group].includes(name)) || 'home';
 function showView(name, remember = true){
@@ -79,6 +79,7 @@ showView(savedView, false);
 // ── projects, settings, skills, memory and files ──
 let WS = null;
 const CAPABILITY_CATALOG = [
+  {type:'tool', source:'Installed MCP', name:'AutoCAD MCP verified workflow', desc:'Inspect, edit, save, plot and verify the active AutoCAD drawing through the private File IPC bridge.', instructions:'For every AutoCAD task, use the installed autocad-mcp File IPC bridge. Inspect the active drawing and entity count first; state the planned edits; execute only the requested changes; save; then reopen or reread the output and verify its entity count and visible result. Never claim success from a command response alone and never change AutoCAD security settings automatically.'},
   {type:'hermes', source:'Hermes catalogue', name:'Hermes browser automation', desc:'Open sites, inspect pages, gather evidence and report results through the active Hermes profile.', prompt:'Find and enable the best Hermes browser automation workflow for Zuzu, then explain the exact commands and safety limits.'},
   {type:'hermes', source:'Hermes catalogue', name:'Hermes computer use', desc:'Control Windows apps and show the laptop state back to the mobile dashboard.', prompt:'Inspect the active Hermes computer_use capability and show how Zuzu should use it for Windows app control and screenshots.'},
   {type:'tool', source:'Hermes tools', name:'Vision and image analysis', desc:'Let Zuzu inspect screenshots, camera frames and uploaded images.', prompt:'Check Hermes vision/image-analysis tools and return the best way to use them from Zuzu.'},
@@ -94,6 +95,18 @@ const CAPABILITY_CATALOG = [
   {type:'tool', source:'Hermes cronjob', name:'Follow-up reminders', desc:'Create reminders, scheduled checks, and update notifications through Hermes cronjob/background tools.', prompt:'Set up or explain a Hermes-native reminder/follow-up flow for the user request. Use cronjob, background mission, calendar or todo tools when available; ask for missing time/frequency only if required.'},
   {type:'skill', source:'Zuzu skill', name:'Self modification protocol', desc:'Teach Zuzu to route requests about changing her UI, voice, memory, tools or behaviour to Hermes instead of refusing.', instructions:'When the user asks to modify Zuzu, her interface, voice, memory, tools, skills, providers, or dashboard behavior, treat it as a valid request to inspect and modify the local dashboard project. Route actionable work to Hermes/computer/file tools, report exact files changed, tests run, and limits. Do not say you cannot modify yourself before checking the local project path and available tools.'}
 ];
+
+async function refreshCad(live=false){
+  const badge=$('#cadLive'), summary=$('#cadSummary'), checks=$('#cadChecks'); if(!badge)return;
+  badge.textContent=live?'CONNECTING':'CHECKING'; badge.className='live';
+  try{const res=await fetch(`/api/autocad/status${live?'?live=1':''}`,{headers:apiHeaders()});const d=await res.json();if(!res.ok)throw new Error(d.error||`HTTP ${res.status}`);
+    const rows=[['AutoCAD MCP installed',d.installed],['AutoCAD is open',d.autocad_open],['Private File IPC ready',d.ipc_ready],['Dispatcher connected',d.connected]];
+    checks.innerHTML=rows.map(([name,ok])=>`<div class="cad-check ${ok?'ok':'off'}"><i></i><span>${esc(name)}</span><b>${ok?'Ready':'Not ready'}</b></div>`).join('');
+    badge.textContent=d.connected?'CONNECTED':(d.autocad_open?'MCP OFFLINE':'AUTOCAD CLOSED');badge.classList.toggle('fault',!d.connected);
+    summary.textContent=d.connected?'Zuzu can use the active drawing through Hermes.':d.autocad_open?'AutoCAD is open. Load mcp_dispatch.lsp, then check again.':'Open the drawing in AutoCAD, then press Check connection.';if(d.window)summary.textContent+=` ${d.window}`;
+  }catch(err){badge.textContent='FAULT';badge.classList.add('fault');summary.textContent=String(err.message||err);}
+}
+function cadTaskPrompt(request){return `AUTO CAD TASK — use Zuzu's installed AutoCAD MCP runner through your terminal tool. Its exact command and supported tool groups are in your system context.\nRequest: ${request}\nRequired workflow: (1) call drawing info and entity count before editing; (2) explain the exact change plan; (3) execute only the requested changes through the runner; (4) call drawing save; (5) reread drawing info/entity count and request a screenshot or preview before reporting completion. Do not change AutoCAD or Windows security settings and do not execute arbitrary AutoLISP. If AutoCAD or mcp_dispatch.lsp is unavailable, report the exact failed step and recovery instruction.`;}
 const workspaceRequest = async payload => {
   const response = await fetch('/api/workspace', {
     method:'POST', headers:apiHeaders({'content-type':'application/json'}), body:JSON.stringify(payload)
@@ -2408,6 +2421,7 @@ const LOCAL_TOOLS = {
     const d = await skillsRequest({action:'approve', id:pick.id, confirmed:true});
     return {installed:true, name:d.item.name};
   },
+  autocad_task: async (a, signal) => executeLiveAction(cadTaskPrompt(a.request), signal),
 };
 
 // Slash commands handled instantly in the page.
@@ -2780,3 +2794,8 @@ document.addEventListener('click', async e => {
   }catch(err){ showToast(String(err.message||err),'error'); renderProposals(); }
 });
 loadProposals();
+
+$('#cadRefresh')?.addEventListener('click',()=>refreshCad(true));
+$('#cadRun')?.addEventListener('click',()=>{const q=$('#cadRequest')?.value.trim();if(!q)return showToast('Write the AutoCAD task first.','error');showView('chat');transmit(cadTaskPrompt(q));});
+document.querySelectorAll('[data-cad-prompt]').forEach(b=>b.addEventListener('click',()=>{showView('chat');transmit(cadTaskPrompt(b.dataset.cadPrompt));}));
+refreshCad(false);

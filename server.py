@@ -16,6 +16,7 @@ import os
 import pathlib
 import re
 import secrets
+import subprocess
 import sys
 import threading
 import urllib.parse
@@ -55,6 +56,7 @@ import skills_scout     # noqa: E402
 import memory_auto      # noqa: E402
 import creative         # noqa: E402
 import calm             # noqa: E402
+import autocad_bridge   # noqa: E402
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -144,6 +146,7 @@ def persona(client_extra="", query=""):
         " Telegram is configured in Hermes. For an explicitly authorized Telegram send request, use the terminal tool with Hermes' official "
         "`hermes send --list telegram --json` to resolve the destination and `hermes send --to <target> <message>` to deliver it; never read or expose the bot token. "
         "Email is available only after the user connects an email platform in Hermes gateway setup; report that setup requirement accurately instead of pretending it is connected."
+        f" AutoCAD work is available through the installed autocad-mcp File IPC bridge. Use the terminal command `{autocad_bridge.runner_command()}` followed by TOOL OPERATION JSON_DATA and optional --screenshot; supported tools are drawing, entity, layer, block, annotation, pid, view and system. For every CAD request, first inspect the active drawing and entity count, plan the exact change, execute through the MCP, save, then reopen or re-read the drawing and verify the final output before claiming completion. Never change AutoCAD security settings automatically and do not bypass the runner to execute arbitrary AutoLISP."
     )
     return "\n\n".join(x for x in (base, custom, bridge, self_awareness, relevant, command_context, client_extra) if x)
 
@@ -232,6 +235,8 @@ LOCAL_VOICE_TOOLS = [
           {"tab": "editor, room, resin, listing, music or model3d."}),
     _tool("calm_mode", "Enter Calm mode (soft voice, relaxing music and visuals, supportive listening) when the user is stressed, "
           "sad, anxious, can't sleep, wants to vent, or asks for the therapist / calm mode."),
+    _tool("autocad_task", "Send an AutoCAD drawing, inspection, editing, plotting or BOQ task to Hermes using the installed AutoCAD MCP workflow.",
+          {"request": "The complete CAD request including dimensions, file and expected output."}, ("request",)),
 ]
 CALM_TOOLS = [
     next(t for t in LOCAL_VOICE_TOOLS if t["name"] == "add_reminder"),
@@ -572,6 +577,12 @@ class Handler(BaseHTTPRequestHandler):
                 live_model=voice.GEMINI_LIVE_MODEL if live_enabled else "",
                 active_operation=runtime.active_operation_snapshot(),
                 session=workspace.selected_hermes_session()[2]))
+        if p == "/api/autocad/status":
+            live = urllib.parse.parse_qs(urlparse(self.path).query).get("live", ["0"])[0] == "1"
+            try:
+                return self._json(autocad_bridge.status(live=live))
+            except (OSError, subprocess.SubprocessError) as exc:
+                return self._json({"error": f"AutoCAD MCP status unavailable: {type(exc).__name__}"}, 503)
         if p == "/api/jobs":
             if not self._token_ok():
                 return self._json({"error": "unauthorized"}, 401)

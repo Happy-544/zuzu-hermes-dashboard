@@ -11,7 +11,7 @@
 <title>Zuzu · Hermes</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-192.png">
-<link rel="stylesheet" href="styles.css?v=50">
+<link rel="stylesheet" href="styles.css?v=55">
 <link rel="stylesheet" href="models.css?v=1">
 </head>
 <body>
@@ -51,6 +51,7 @@
       <button type="button" role="tab" data-sub="brain" data-view="memory">Memory</button>
       <button type="button" role="tab" data-sub="brain" data-view="skills">Skills</button>
       <button type="button" role="tab" data-sub="tools" data-view="tools">Hermes tools</button>
+      <button type="button" role="tab" data-sub="tools" data-view="autocad">AutoCAD</button>
       <button type="button" role="tab" data-sub="tools" data-view="calls">Phone calls</button>
       <button type="button" role="tab" data-sub="settings" data-view="settings">Assistant</button>
       <button type="button" role="tab" data-sub="settings" data-view="models">AI model</button>
@@ -153,6 +154,16 @@
         </section>
       </aside>
       </div>
+    </section>
+
+    <section class="view" role="tabpanel" data-view-panel="autocad" hidden>
+      <div class="view-head"><div><span class="kicker">Hermes · AutoCAD MCP</span><h1>AutoCAD</h1><p class="view-sub">Inspect, edit and verify the active drawing through one organised workflow.</p></div><button id="cadRefresh" class="secondary-btn">Check connection</button></div>
+      <article class="panel glass cad-status"><div class="panel-head"><div><h2>Live connection</h2><p id="cadSummary">Checking AutoCAD and MCP…</p></div><span class="live" id="cadLive">CHECKING</span></div><div id="cadChecks" class="cad-checks"></div></article>
+      <article class="panel glass cad-work"><div class="panel-head"><div><h2>Ask Zuzu to work in AutoCAD</h2><p>Zuzu sends one complete job to Hermes, which uses the installed MCP and verifies the saved result.</p></div></div>
+        <textarea id="cadRequest" rows="4" placeholder="Example: Inspect the open drawing, add dimensions to the selected room, save it, then verify the final drawing and show me a screenshot."></textarea>
+        <div class="cad-actions"><button type="button" class="secondary-btn" data-cad-prompt="Inspect the active AutoCAD drawing read-only. Report file name, units, layers, extents and entity count. Do not modify anything.">Inspect drawing</button><button type="button" class="secondary-btn" data-cad-prompt="Audit the active AutoCAD drawing for layers, dimensions, text, blocks, errors and drawing standards. Do not modify it; return an organised findings list.">Audit drawing</button><button type="button" class="secondary-btn" data-cad-prompt="Create a verified PDF preview of the active AutoCAD drawing and return its path plus a screenshot. Do not change drawing geometry.">Preview / PDF</button><button id="cadRun" type="button" class="primary-btn">Start verified CAD task</button></div>
+      </article>
+      <article class="panel glass cad-flow"><h2>How Zuzu works</h2><ol><li><b>Inspect</b><span>Reads the active file, units, layers and entity count.</span></li><li><b>Plan</b><span>Turns your request into exact drawing operations.</span></li><li><b>Execute</b><span>Uses AutoCAD MCP in the current AutoCAD window.</span></li><li><b>Save</b><span>Saves to the requested file and keeps the source safe.</span></li><li><b>Verify</b><span>Reopens or rereads the result before reporting success.</span></li></ol></article>
     </section>
 
     <section class="view" role="tabpanel" data-view-panel="reminders" hidden>
@@ -533,7 +544,7 @@
   <div id="calmCrisis" class="calm-crisis" hidden role="alert"></div>
   <p class="calm-note">Zuzu is a supportive companion, not a licensed therapist. In an emergency call 999 (UAE) or 123 (Egypt).</p>
 </div>
-<script src="app.js?v=51"></script>
+<script src="app.js?v=55"></script>
 <script src="calm.js?v=2"></script>
 <script src="creative.js?v=1"></script>
 </body>
