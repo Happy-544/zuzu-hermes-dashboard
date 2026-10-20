@@ -1,6 +1,6 @@
 """Read-only health bridge for the user's AutoCAD MCP installation."""
 from __future__ import annotations
-import ctypes, json, os, pathlib, subprocess
+import ctypes, ctypes.wintypes, json, os, pathlib, subprocess
 
 MCP_ROOT = pathlib.Path(os.environ.get("ZUZU_AUTOCAD_MCP_ROOT", r"C:\Users\DELL\Documents\Codex\2026-09-24\i-want-you-to-install-configure\work\autocad-mcp"))
 PYTHON = MCP_ROOT / ".venv" / "Scripts" / "python.exe"
@@ -14,13 +14,31 @@ def runner_command():
 def _autocad_windows():
     if os.name != "nt": return []
     titles, user32 = [], ctypes.windll.user32
+    # A terminal title can contain the checkout path ("...autocad-mcp...")
+    # without AutoCAD actually running. Resolve each visible window to its
+    # process and accept only Autodesk's acad.exe/acadlt.exe.
+    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+    kernel32 = ctypes.windll.kernel32
+    get_pid = user32.GetWindowThreadProcessId
+    get_pid.argtypes = [ctypes.wintypes.HWND, ctypes.POINTER(ctypes.wintypes.DWORD)]
+    get_pid.restype = ctypes.wintypes.DWORD
     callback = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
     def visit(hwnd, _):
         if user32.IsWindowVisible(hwnd):
             size = user32.GetWindowTextLengthW(hwnd)
             if size:
                 buf = ctypes.create_unicode_buffer(size + 1); user32.GetWindowTextW(hwnd, buf, size + 1)
-                if "autocad" in buf.value.lower(): titles.append(buf.value[:180])
+                pid = ctypes.wintypes.DWORD()
+                get_pid(hwnd, ctypes.byref(pid))
+                handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid.value)
+                image = ctypes.create_unicode_buffer(1024); length = ctypes.wintypes.DWORD(len(image))
+                try:
+                    ok = handle and kernel32.QueryFullProcessImageNameW(handle, 0, image, ctypes.byref(length))
+                    process_name = pathlib.Path(image.value).name.lower() if ok else ""
+                finally:
+                    if handle: kernel32.CloseHandle(handle)
+                if process_name in {"acad.exe", "acadlt.exe"}:
+                    titles.append(buf.value[:180])
         return True
     user32.EnumWindows(callback(visit), 0)
     return titles
