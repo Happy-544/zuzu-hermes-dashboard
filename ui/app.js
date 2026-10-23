@@ -121,7 +121,7 @@ async function refreshCad(live=false){
     summary.textContent=d.connected?'Zuzu can use the active drawing through Hermes.':d.autocad_open?'AutoCAD is open, but the dispatcher is not loaded. In AutoCAD run APPLOAD and load mcp_dispatch.lsp, then check again.':'Open a DWG/DXF in AutoCAD LT, then press Check connection.';if(d.error)summary.textContent+=` ${String(d.error).split('\n').pop()}`;else if(d.window)summary.textContent+=` ${d.window}`;
   }catch(err){badge.textContent='FAULT';badge.classList.add('fault');summary.textContent=String(err.message||err);}
 }
-function cadTaskPrompt(request){return `AUTO CAD TASK — use Zuzu's installed AutoCAD MCP runner through your terminal tool. Its exact command and supported tool groups are in your system context.\nRequest: ${request}\nRequired workflow: (1) call drawing info and entity count before editing; (2) explain the exact change plan; (3) execute only the requested changes through the runner; (4) call drawing save; (5) reread drawing info/entity count and request a screenshot or preview before reporting completion. Do not change AutoCAD or Windows security settings and do not execute arbitrary AutoLISP. If AutoCAD or mcp_dispatch.lsp is unavailable, report the exact failed step and recovery instruction.`;}
+function cadTaskPrompt(request){return `AUTO CAD TASK — use Zuzu's installed AutoCAD MCP runner through your terminal tool. Its exact command and supported tool groups are in your system context.\nRequest: ${request}\nRequired workflow: (1) call drawing info and entity count before editing; (2) explain the exact change plan with a complete coordinate table (X, Y in mm or cm), proper wall thicknesses (150-200mm double walls), and standard AIA layers (A-WALL, A-OPEN, A-FURN, A-DIMS, A-TEXT); (3) execute only the requested changes through the runner (prefer batch run or closed polylines/rectangles for walls/slabs, offset all linear dimensions cleanly outside the exterior perimeter so they never cross rooms or labels, and center room/element labels with proper text height); (4) call drawing save and view zoom_extents; (5) reread drawing info/entity count and request a screenshot or preview before reporting completion. Do not change AutoCAD or Windows security settings and do not execute arbitrary AutoLISP. If AutoCAD or mcp_dispatch.lsp is unavailable, report the exact failed step and recovery instruction.`;}
 const workspaceRequest = async payload => {
   if(payload.action==='select_session'&&payload.sessionId){
     try{localStorage.setItem('zuzu-selected-chat',JSON.stringify({project_id:payload.projectId,chat_id:payload.sessionId}));}catch(_){}
@@ -273,8 +273,9 @@ let liveAssistantTurn='', liveTurnId='', liveChat=null, voiceSaveQueue=Promise.r
 let lastVoiceSave='', liveReconnectAttempts=0;
 const voiceResults=new VoiceResultQueue(sessionStorage);
 let liveResponseEpoch=0, liveUserAudioAt=0, voiceCallStartedAt=0, voiceTurnSeq=0;
+let livePlaybackEndedAt=0, liveReconnectTimer=null;
 function deliverVoiceResults(){
-  if(!liveReady||liveWs?.readyState!==WebSocket.OPEN||liveSpeaking||serverBusy||dispatchReserved||liveUserTurn.trim()||Date.now()-liveUserAudioAt<800)return;
+  if(!liveReady||liveWs?.readyState!==WebSocket.OPEN||liveSpeaking||(typeof liveSources!=='undefined'&&liveSources.size>0)||serverBusy||dispatchReserved||liveUserTurn.trim()||Date.now()-liveUserAudioAt<2200||(typeof livePlaybackEndedAt==='number'&&Date.now()-livePlaybackEndedAt<1200))return;
   const pending=voiceResults.pending(liveChat, (typeof voiceCallStartedAt === 'number' ? voiceCallStartedAt : 0), (typeof voiceTurnSeq === 'number' ? voiceTurnSeq : null));
   if(!pending.length)return;
   liveWs.send(JSON.stringify({clientContent:{turns:[{role:'user',parts:[{text:
@@ -824,19 +825,29 @@ async function attachVisualContext(message){
     return message;
   }
 }
+const SCREEN_QUERY_RE = /شاش[ةه]|شايف[ةه]|البرنامج|مفتوح|على اليمين|على الشمال|قدامك|اقر[أا]|بصي|شوفي|screen|window|open app|desktop/i;
 async function sendLiveVisualFrame(reason='current voice question'){
-  if(!visualStream || !liveReady || liveWs?.readyState !== WebSocket.OPEN) return;
+  if(!liveReady || liveWs?.readyState !== WebSocket.OPEN) return;
+  const needsAutoScreen = !visualStream && SCREEN_QUERY_RE.test(String(reason || ''));
+  if(!visualStream && !needsAutoScreen) return;
   const nowMs=Date.now();
   if(nowMs-liveVisualSentAt < 3500) return;
   liveVisualSentAt=nowMs;
   try{
-    const blob=await captureVisualFrame();
+    let blob = null;
+    if (visualStream) {
+      blob = await captureVisualFrame();
+    } else {
+      const r = await fetch('/api/laptop-screen', {headers:apiHeaders(), cache:'no-store'});
+      if (r.ok) blob = await r.blob();
+    }
+    if (!blob) return;
     const reader=new FileReader();
     reader.onload=()=>{
       const base64=String(reader.result||'').split(',')[1]||'';
       if(!base64 || liveWs?.readyState !== WebSocket.OPEN) return;
       liveWs.send(JSON.stringify({realtimeInput:{mediaChunks:[{mimeType:'image/jpeg',data:base64}]}}));
-      log('send','VISION','sent live visual frame');
+      log('send','VISION', needsAutoScreen ? 'sent automatic laptop screen snapshot' : 'sent live visual frame');
     };
     reader.readAsDataURL(blob);
   }catch(err){ log('error','VISION',String(err.message||err)); }
@@ -1191,6 +1202,7 @@ async function transmit(message, options = {}){
   // With Live connected, typed and spoken turns share the same voice session.
   // Tool requests return through hermes_action; no second TTS voice overlaps it.
   if (liveReady && sameChat(liveChat) && liveWs?.readyState === WebSocket.OPEN && !message.trim().startsWith('/')) {
+    dispatchReserved = false;
     setUserText(message.trim().slice(0,90));
     const parts = [{text:message}, ...pendingLiveAttachmentParts];
     pendingLiveAttachmentParts = [];
@@ -1443,6 +1455,7 @@ function calmVoiceChain(ctx){
 }
 function playLivePcm(encoded, rate=24000){
   if (muted || !encoded || !liveOutputCtx) return;
+  if (typeof stopSpeech === 'function') stopSpeech();
   const raw = atob(encoded), bytes = new Uint8Array(raw.length);
   for (let i=0; i<raw.length; i++) bytes[i] = raw.charCodeAt(i);
   const pcm = new Int16Array(bytes.buffer);
@@ -1452,9 +1465,17 @@ function playLivePcm(encoded, rate=24000){
   const src = liveOutputCtx.createBufferSource();
   src.buffer = audio; src.connect(window.calmSession ? calmVoiceChain(liveOutputCtx) : liveOutputCtx.destination);
   liveSources.add(src);
-  src.onended = () => liveSources.delete(src);
+  src.onended = () => {
+    liveSources.delete(src);
+    livePlaybackEndedAt = Date.now();
+    if (!liveSources.size && !liveAnswerStarted) {
+      liveSpeaking = false;
+      document.body.classList.remove('speaking');
+    }
+  };
   const when = Math.max(liveOutputCtx.currentTime + 0.015, livePlayAt);
   src.start(when); livePlayAt = when + audio.duration;
+  livePlaybackEndedAt = Date.now() + Math.ceil(Math.max(0, livePlayAt - liveOutputCtx.currentTime) * 1000);
   liveSpeaking = true; document.body.classList.add('speaking');
 }
 
@@ -1463,6 +1484,7 @@ function stopLivePlayback(){
   liveSources.clear();
   if (liveOutputCtx) livePlayAt = liveOutputCtx.currentTime;
   liveSpeaking = false; bargeFrames = 0;
+  livePlaybackEndedAt = Date.now();
   document.body.classList.remove('speaking');
 }
 
@@ -1474,6 +1496,7 @@ async function holdScreenAwake(){
 
 async function executeLiveAction(request, signal){
   const originChat=liveChat?{...liveChat}:chatRef();
+  if (!liveUserTurn.trim() && request) liveUserTurn = String(request).trim();
   await persistLiveTurn().catch(()=>{});
   const requestId=rid();
   voiceResults.expect(requestId,originChat,voiceTurnSeq);
@@ -1534,6 +1557,7 @@ async function executeLiveAction(request, signal){
 
 async function startGeminiLive(){
   if (liveConnecting || liveReady) return;
+  if (typeof liveReconnectTimer !== 'undefined' && liveReconnectTimer){ clearTimeout(liveReconnectTimer); liveReconnectTimer=null; }
   const connectEpoch=++liveConnectEpoch;
   try{
     liveConnecting=true;
@@ -1542,8 +1566,12 @@ async function startGeminiLive(){
     liveChat=liveChat||chatRef();liveUserTurn='';liveAssistantTurn='';liveTurnId='';
     voiceResults.resetDelivery();
     if (typeof voiceCallStartedAt !== 'number' || !voiceCallStartedAt) voiceCallStartedAt=Date.now();
+    if (typeof stopSpeech === 'function') stopSpeech();
     if (player) player.pause();
     speechSynth?.cancel();
+    if (typeof liveWs !== 'undefined' && liveWs){ const oldWs=liveWs; liveWs=null; try{oldWs.close();}catch(_){} }
+    if (typeof liveInputCtx !== 'undefined' && liveInputCtx){ liveInputCtx.close().catch(()=>{}); liveInputCtx=null; }
+    if (typeof liveOutputCtx !== 'undefined' && liveOutputCtx){ liveOutputCtx.close().catch(()=>{}); liveOutputCtx=null; }
     voiceWanted = true;
     renderVoiceConversation();
     setState('running','CONNECTING','Gemini native audio…');
@@ -1581,7 +1609,9 @@ async function startGeminiLive(){
     liveBridge = new HermesVoiceBridge(executeLiveAction, message => {
       if (connectedSocket === liveWs && connectedSocket.readyState === WebSocket.OPEN){
         connectedSocket.send(JSON.stringify(message));
-        for(const item of message.toolResponse?.functionResponses||[])voiceResults.markSent(item.response?.run_id);
+        for(const item of message.toolResponse?.functionResponses||[]){
+          voiceResults.markSent(item.response?.run_id);
+        }
       }
     }, LOCAL_TOOLS);
     liveWs.onmessage = async event => {
@@ -1603,24 +1633,32 @@ async function startGeminiLive(){
         liveSource = liveInputCtx.createMediaStreamSource(micStream);
         liveProcessor = liveInputCtx.createScriptProcessor(4096, 1, 1);
         const silent = liveInputCtx.createGain(); silent.gain.value = 0;
+        let userHoldUntil = 0;
         liveProcessor.onaudioprocess = e => {
           if (!liveReady || liveWs?.readyState !== WebSocket.OPEN) return;
           const samples = e.inputBuffer.getChannelData(0);
           let energy = 0;
           for (let i=0; i<samples.length; i++) energy += samples[i] * samples[i];
           const rms = Math.sqrt(energy / samples.length);
-          if(rms>(liveSpeaking ? 0.14 : 0.065))liveUserAudioAt=Date.now();
-          if (liveSpeaking){
-            bargeFrames = rms > 0.14 ? bargeFrames + 1 : 0;
-            if (bargeFrames >= 5){
+          const botActive = liveSpeaking || liveSources.size > 0 || (Date.now() - livePlaybackEndedAt < 800);
+          if (!botActive && rms > 0.018){
+            liveUserAudioAt = Date.now();
+            userHoldUntil = Date.now() + 900;
+          }
+          if (liveSpeaking || liveSources.size > 0){
+            bargeFrames = rms > 0.35 ? bargeFrames + 1 : 0;
+            if (bargeFrames >= 8){
               liveResponseEpoch++;
               voiceResults.resetDelivery();
               stopLivePlayback();
+              userHoldUntil = Date.now() + 1200;
               setState('listening','LISTENING','interrupted · listening');
               log('voice','VOICE','barge-in detected · response stopped');
             }
           }
-          const data = floatToPcm16Base64(samples, liveInputCtx.sampleRate);
+          const muteToServer = botActive || serverBusy || suppress || micMuted || Date.now() >= userHoldUntil;
+          const outSamples = muteToServer ? new Float32Array(samples.length) : samples;
+          const data = floatToPcm16Base64(outSamples, liveInputCtx.sampleRate);
           liveWs.send(JSON.stringify({realtimeInput:{audio:{data,mimeType:'audio/pcm;rate=16000'}}}));
         };
         liveSource.connect(liveProcessor); liveProcessor.connect(silent); silent.connect(liveInputCtx.destination);
@@ -1631,6 +1669,7 @@ async function startGeminiLive(){
       const content = msg.serverContent;
       if (!content) return;
       if (content.inputTranscription?.text){
+        if (liveSpeaking || liveSources.size > 0 || (Date.now() - livePlaybackEndedAt < 750)) return;
         if (!liveUserTurn.trim()) voiceTurnSeq++;
         liveUserTurn += content.inputTranscription.text;
         if(sameChat(liveChat))setUserText(content.inputTranscription.text.slice(0,90));
@@ -1658,12 +1697,15 @@ async function startGeminiLive(){
           if (connectedSocket !== liveWs || responseEpoch!==liveResponseEpoch) return;
           if(liveSources.size){setTimeout(finishPlayback,200);return;}
           voiceResults.acknowledge(delivered);
-          liveSpeaking=false; document.body.classList.remove('speaking');
+          liveSpeaking=false;
+          livePlaybackEndedAt = Date.now();
+          document.body.classList.remove('speaking');
           if(convo) setState('listening','LISTENING','تفضّل، أنا سامعاك');
         };
         setTimeout(finishPlayback, delay + 30);
       }
       if (content.interrupted){
+        if ((liveSpeaking || liveSources.size > 0) && bargeFrames < 4) return;
         liveResponseEpoch++;
         voiceResults.resetDelivery();
         dispatchReserved=false;
@@ -1680,7 +1722,7 @@ async function startGeminiLive(){
         liveReconnectAttempts++;
         stopConvo(false);
         setState('running','RECONNECTING','Your conversation and actions are saved');
-        setTimeout(()=>{if(voiceWanted&&!document.hidden)startGeminiLive();},Math.min(4000,1000*liveReconnectAttempts));
+        liveReconnectTimer = setTimeout(()=>{liveReconnectTimer=null;if(voiceWanted&&!document.hidden)startGeminiLive();},Math.min(4000,1000*liveReconnectAttempts));
       }
       else if (voiceWanted) useVoiceFallback(event.reason || `connection closed (${event.code})`);
       else stopConvo(false);
@@ -1762,7 +1804,7 @@ function speak(text){
   return new Promise(resolve => {
     const voiceStarted=performance.now();
     text = cleanForSpeech(text);
-    if (muted || !text) return resolve();
+    if (muted || !text || liveReady || liveConnecting || (typeof liveWs !== 'undefined' && liveWs && liveWs.readyState === WebSocket.OPEN)) return resolve();
     speakResolve = resolve;
     suppress = true;
     const spoken = text.length > 700 ? text.slice(0, 680).replace(/\s+\S*$/,'') + '…' : text;
@@ -1885,7 +1927,11 @@ function stopConvo(manual=true){
   voiceResults.resetDelivery();
   dispatchReserved=false;
   persistLiveTurn(true);
-  if (manual){ voiceWanted = false; liveChat=null; voiceCallStartedAt=0; voiceTurnSeq=0; sessionStorage.removeItem('jarvis-voice-resume'); }
+  if (manual){
+    voiceWanted = false; liveChat=null; voiceCallStartedAt=0; voiceTurnSeq=0;
+    if (typeof liveReconnectTimer !== 'undefined' && liveReconnectTimer){ clearTimeout(liveReconnectTimer); liveReconnectTimer=null; }
+    sessionStorage.removeItem('jarvis-voice-resume');
+  }
   convo = false; suppress = false;
   liveReady = false; liveSpeaking = false;
   liveConnecting=false;
@@ -2309,7 +2355,7 @@ function renderStatus(s){
     log('status','BOOT',`dashboard online · Hermes ${hermesLabel.toLowerCase()} · ${s.runtime} conversation · profile=${s.profile || 'default'}`);
     log('voice','VOICE',`channel ready — ${sttLabel} / ${ttsLabel}`);
   }
-  $('#mic').textContent = RT.live ? 'Zuzu Voice' : (RT.stt ? 'Voice live' : 'Zuzu Voice');
+  if (!convo && !liveReady) $('#mic').textContent = RT.live ? 'Zuzu Voice' : (RT.stt ? 'Voice live' : 'Zuzu Voice');
   if (!hasActiveOperation && !running && !convo) setState('', 'READY', '');
 }
 async function refreshStatus(attempt = 0){
@@ -2595,8 +2641,10 @@ function renderBriefPreview(b){
     + (b.errors.length ? `<p class="form-note">${esc(b.errors.join(' · '))}</p>` : '');
 }
 function announce(text){
-  if (liveReady && liveWs?.readyState === WebSocket.OPEN){
-    liveWs.send(JSON.stringify({clientContent:{turns:[{role:'user', parts:[{text:`Announce this to me now, briefly and naturally in my language: ${text}`}]}], turnComplete:true}}));
+  if (liveReady || liveConnecting || voiceWanted){
+    if (liveReady && liveWs?.readyState === WebSocket.OPEN && !liveSpeaking && !liveSources.size && !serverBusy && !liveUserTurn.trim() && Date.now() - liveUserAudioAt > 3000 && Date.now() - livePlaybackEndedAt > 1500){
+      liveWs.send(JSON.stringify({clientContent:{turns:[{role:'user', parts:[{text:`Announce this to me now, briefly and naturally in my language: ${text}`}]}], turnComplete:true}}));
+    }
     return Promise.resolve();
   }
   return speak(text);
@@ -2636,11 +2684,23 @@ async function playVideo(query){
   return {showing: data.best.title, other_results: data.results.slice(1, 4).map(v => v.title)};
 }
 const PROVIDER_ALIASES = {google:'gemini', gemini:'gemini', claude:'anthropic', anthropic:'anthropic', gpt:'openai', chatgpt:'openai', openai:'openai',
-  openrouter:'openrouter', ollama:'ollama', local:'ollama', hermes:'hermes', default:'hermes'};
+  openrouter:'openrouter', venice:'venice', ollama:'ollama', local:'ollama', hermes:'hermes', default:'hermes'};
 async function switchModel(provider, model){
-  const key = PROVIDER_ALIASES[String(provider || '').toLowerCase().replace(/[^a-z]/g, '')];
-  if (!key || !WS?.models?.[key]) throw new Error(`Unknown provider "${provider}". Use gemini, openai, anthropic, openrouter, ollama or hermes.`);
-  const chosen = String(model || '').trim() || WS.models[key][0];
+  const combined = `${provider || ''} ${model || ''}`.toLowerCase();
+  let key = PROVIDER_ALIASES[String(provider || '').toLowerCase().replace(/[^a-z]/g, '')];
+  if (!key || !WS?.models?.[key]){
+    if (/claude|sonnet|opus|anthropic|4\.6|4-6/.test(combined)) key = 'anthropic';
+    else if (/gpt|openai|5\.4/.test(combined)) key = 'openai';
+    else if (/gemini|flash|2\.5|google/.test(combined)) key = 'gemini';
+    else if (/venice|uncensored|dolphin|qwen/.test(combined)) key = 'venice';
+    else if (/openrouter|cydonia/.test(combined)) key = 'openrouter';
+    else if (/hermes|default/.test(combined)) key = 'hermes';
+  }
+  if (!key || !WS?.models?.[key]) throw new Error(`Unknown provider "${provider}". Use gemini, openai, anthropic, openrouter, venice, ollama or hermes.`);
+  const list = WS.models[key] || [];
+  const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+  const target = norm(model);
+  const chosen = (target && (list.find(m => norm(m) === target) || list.find(m => norm(m).includes(target)) || list.find(m => target.includes(norm(m))))) || String(model || '').trim() || list[0];
   await workspaceRequest({action:'save_settings', settings:{...WS.settings, provider:key, model:chosen, apiBase:WS.settings.apiBase || ''}});
   refreshStatus();
   log('complete','MODEL', `Hermes now thinks with ${providerLabel(key)} · ${chosen}`);

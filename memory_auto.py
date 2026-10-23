@@ -10,6 +10,7 @@ import json
 import re
 import threading
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
@@ -91,12 +92,25 @@ def _gemini(prompt):
         return None
     body = {"contents": [{"role": "user", "parts": [{"text": prompt}]}],
             "generationConfig": {"responseMimeType": "application/json", "temperature": 0.1, "maxOutputTokens": 800}}
-    url = ("https://generativelanguage.googleapis.com/v1beta/models/"
-           + urllib.parse.quote(runtime.GEMINI_MODEL or "gemini-2.5-flash", safe="-.") + ":generateContent")
-    req = urllib.request.Request(url, data=json.dumps(body).encode(), method="POST",
-                                 headers={"content-type": "application/json", "x-goog-api-key": key})
-    with urllib.request.urlopen(req, timeout=40) as response:
-        payload = json.loads(response.read())
+    payload = None
+    last_err = None
+    for candidate in dict.fromkeys([runtime.GEMINI_MODEL or "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]):
+        url = ("https://generativelanguage.googleapis.com/v1beta/models/"
+               + urllib.parse.quote(candidate, safe="-.") + ":generateContent")
+        req = urllib.request.Request(url, data=json.dumps(body).encode(), method="POST",
+                                     headers={"content-type": "application/json", "x-goog-api-key": key})
+        try:
+            with urllib.request.urlopen(req, timeout=40) as response:
+                payload = json.loads(response.read())
+            break
+        except urllib.error.HTTPError as exc:
+            last_err = exc
+            if exc.code not in (404, 400):
+                raise
+    if payload is None:
+        if last_err is not None:
+            raise last_err
+        return None
     parts = (payload.get("candidates") or [{}])[0].get("content", {}).get("parts", [])
     return json.loads("".join(p.get("text", "") for p in parts) or "{}")
 

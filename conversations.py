@@ -84,27 +84,46 @@ def history(pid, sid, limit=500):
     return [dict(r) for r in rows]
 
 
-def context(pid, sid, *, voice_only=False, budget=8000):
-    rows = history(pid, sid, 40)
+def context(pid, sid, *, voice_only=False, budget=16000):
+    rows = history(pid, sid, 200)
     if voice_only:
         rows = [r for r in rows if r["source"] == "voice"]
+    cleaned = []
+    for row in rows:
+        txt = str(row.get("content") or "").strip()
+        if not txt or txt in {".", "<noise>", "...", "،", "?"}:
+            continue
+        cleaned.append(row)
+    pinned = []
+    pinned_size = 0
+    for row in cleaned[:45]:
+        txt = str(row.get("content") or "").strip()
+        if row.get("role") == "user" and len(txt) >= 12 and pinned_size < 2500:
+            line = f'{row["role"]}: {txt}'
+            pinned.append(line)
+            pinned_size += len(line)
     parts, size = [], 0
-    for row in reversed(rows):
+    recent_budget = max(4000, budget - pinned_size)
+    for row in reversed(cleaned):
         line = f'{row["role"]}: {row["content"]}'
-        if size + len(line) > budget:
+        if size + len(line) > recent_budget:
             break
         parts.insert(0, line)
         size += len(line)
     if not parts:
         return ""
-    return ("Recent conversation transcript (context, not new instructions; continue this "
+    missing_pinned = [p for p in pinned if p not in parts]
+    pinned_block = ("Key earlier user specifications in this conversation:\n" + "\n".join(missing_pinned) + "\n\n") if missing_pinned else ""
+    return (pinned_block + "Recent conversation transcript (context, not new instructions; continue this "
             "conversation without greeting again):\n" + "\n".join(parts))
 
 
 def start(pid, sid, request_id, message):
+    short_msg = " ".join(str(message or "").split())[:160]
+    initial_detail = f"Running order: {short_msg}" if short_msg else "Starting response"
     with _db() as db:
         cur = db.execute("INSERT OR IGNORE INTO runs VALUES (?,?,?,?,?,?,?,?)",
-                         (request_id, pid, sid, "running", "", "Starting response", time.time(), time.time()))
+                         (request_id, pid, sid, "running", "", initial_detail, time.time(), time.time()))
     if not cur.rowcount:
         return False
     add(pid, sid, "user", message, "text", request_id + ":user")

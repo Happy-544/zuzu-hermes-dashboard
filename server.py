@@ -148,20 +148,35 @@ def persona(client_extra="", query=""):
         " Telegram is configured in Hermes. For an explicitly authorized Telegram send request, use the terminal tool with Hermes' official "
         "`hermes send --list telegram --json` to resolve the destination and `hermes send --to <target> <message>` to deliver it; never read or expose the bot token. "
         "Email is available only after the user connects an email platform in Hermes gateway setup; report that setup requirement accurately instead of pretending it is connected."
-        f" AutoCAD work is available through the installed autocad-mcp runner (auto backend: live File IPC when a licensed AutoCAD window exists, otherwise the headless DXF backend used for the morning CAD workflow). Use the terminal command `{autocad_bridge.runner_command()}` followed by TOOL OPERATION JSON_DATA and optional --screenshot; supported tools are drawing, entity, layer, block, annotation, pid, view and system. For every CAD request, first inspect the active drawing and entity count, plan the exact change, execute through the MCP, save, then reopen or re-read the drawing and verify the final output before claiming completion. Never change AutoCAD security settings automatically and do not bypass the runner to execute arbitrary AutoLISP."
+        f" AutoCAD work is available through the installed autocad-mcp runner (auto backend: live File IPC when a licensed AutoCAD window exists, otherwise the headless DXF backend used for the morning CAD workflow). Use the terminal command `{autocad_bridge.runner_command()}` followed by TOOL OPERATION JSON_DATA and optional --screenshot; supported tools are drawing, entity, layer, block, annotation, pid, view, system and batch. "
+        "For every CAD request, follow strict professional Architectural/Engineering CAD standards: "
+        "(1) Inspect the active drawing and entity count first; "
+        "(2) Compute a complete, conflict-free coordinate table (in mm or cm) with exact (X, Y) coordinates before drawing; "
+        "(3) Create standard AIA layers with distinct colors (A-WALL for double-line walls with 150-200mm thickness, A-OPEN for doors/windows, A-FURN for furniture/joinery, A-DIMS for external dimensions, A-TEXT for centered room labels and areas); "
+        "(4) Use closed polylines/rectangles for walls and slabs (never disconnected stick-figure lines), place dimensions offset cleanly outside the perimeter so they never cross geometry or text, and prefer `batch run` in autocad_runner.py to execute multi-entity plans atomically without losing state; "
+        "(5) Save, zoom extents, reread drawing info/entity count, and verify the visual screenshot/preview before claiming completion. Never change AutoCAD security settings automatically and do not bypass the runner to execute arbitrary AutoLISP."
     )
     return "\n\n".join(x for x in (base, custom, bridge, self_awareness, relevant, command_context, client_extra) if x)
 
 
 def live_voice_persona(client_extra=""):
     """A compact native-audio prompt: preserve character and route only real work."""
-    settings = workspace.load().get("settings", {})
+    state = workspace.load()
+    settings = state.get("settings", {})
+    effective = workspace.effective_model_settings(state)
+    available_models = "; ".join(f"{prov}: {', '.join(mods)}" for prov, mods in workspace.MODELS.items())
     custom = str(settings.get("persona") or "Warm, concise, capable and naturally conversational.").strip()[:1600]
     memory = workspace.agent_context(limit=1400)
     routing = (
-        "You are Zuzu in a realtime voice conversation. The user's saved persona above is authoritative: keep its tone, warmth, language and relationship style in every direct reply. "
+        "You are Zuzu in a realtime voice conversation on Windows (user profile folder: C:\\Users\\DELL). "
+        f"Active Hermes brain right now: provider={effective['provider']}, model={effective['model']}. "
+        f"Installed & available models in Zuzu (NEVER claim these do not exist): {available_models}. "
+        "When the user asks to switch to Claude 4.6 (claude-opus-4-6 or claude-sonnet-4-6), GPT 5.4 (gpt-5.4 or gpt-5.4-mini), Gemini 2.5 (gemini-2.5-pro, gemini-2.5-flash, gemini-2.5-flash-lite), OpenRouter, Venice, Ollama, or Hermes default, immediately call switch_model with the exact provider and model ID instead of arguing. "
+        "The user's saved persona above is authoritative: keep its tone, warmth, language and relationship style in every direct reply. "
         "For greetings, casual conversation, opinions, brainstorming, emotional support, jokes, and general questions, answer immediately yourself in one or two natural spoken sentences and do NOT call hermes_action. "
         "Call hermes_action exactly once ONLY when the user explicitly asks you to perform a concrete system or external action: controlling the computer/Windows (opening/closing apps, clicking, typing, screenshots), managing local files/folders, running terminal or browser tasks, sending Telegram/email messages, or changing Zuzu configuration. "
+        "For AutoCAD / architectural design requests: wait until the user finishes stating the rooms/program or tells you to start, then call autocad_task (or hermes_action) passing EVERY specification the user mentioned (floors, rooms, style, materials, pool, dimensions) in the request field—never send a vague 2-word request like 'design a villa' and never omit earlier specs. "
+        "STRICT HONESTY RULE: Never claim you created a file, finished a drawing, or give a file path (never invent paths like C:\\Users\\Ali\\...) unless a tool call actually returned that exact path in this conversation. "
         "Never route ordinary conversation to Hermes. Never claim you cannot do an action before Hermes returns, and never invent success. Speak the returned result naturally in your persona. "
         "When asked about the previous request, what is running, or its result, use get_conversation_status first. "
         "Interrupting speech does not cancel an action. Do not repeat an action to find out whether it completed. "
@@ -840,6 +855,14 @@ class Handler(BaseHTTPRequestHandler):
                 if recent_runs:
                     latest = recent_runs[0]
                     live_auth["system"] += "\nLatest action state: " + latest["state"] + "; " + latest["detail"]
+                    if latest.get("answer"):
+                        live_auth["system"] += "\nLatest action result: " + str(latest["answer"])[:2400]
+                    if len(recent_runs) > 1:
+                        summary_lines = [
+                            f"- [{r['state']}] {r['detail']}: {str(r.get('answer') or '')[:400]}"
+                            for r in recent_runs[1:4]
+                        ]
+                        live_auth["system"] += "\nPrevious actions in this conversation:\n" + "\n".join(summary_lines)
                 live_auth["tools"] = [{"functionDeclarations": [{
                     "name": "hermes_action",
                     "description": "Execute an explicit computer, Windows, browser, file, terminal, Telegram, or connected-account action via local Hermes. Call this ONLY when the user explicitly commands a real task or system action to be performed. Do NOT call this tool for casual conversation, greetings, opinions, or general questions.",
@@ -1068,7 +1091,7 @@ class Handler(BaseHTTPRequestHandler):
         if fresh:
             return self._json({"error": "Use New chat to start a separate conversation."}, 400)
         request_id = str(payload.get("request_id") or secrets.token_hex(16))[:100]
-        recent = conversations.context(project_id, ui_id, voice_only=conversation_mode != "direct")
+        recent = conversations.context(project_id, ui_id, voice_only=False)
         system = (system or "") + "\n\n" + recent
         # Serialize admission with chat deletion. A deleted chat must never gain
         # a new run between resolution and admission.
@@ -1155,7 +1178,7 @@ class Handler(BaseHTTPRequestHandler):
                 emit(dict(t="complete", ms=0))
                 return
             message = cmd["message"]
-            system = "\n\n".join(x for x in (persona(query=message), extra) if x) or None
+            system = "\n\n".join(x for x in (persona(query=message), extra, recent) if x) or None
 
         try:
             # One agent owns both conversation and actions. Hermes decides when
